@@ -373,10 +373,34 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   their previous values must be uploaded before current values overwrite them.
 - WebGL frame preparation must issue program compilation for every exact
   planned built-in scene and depth-prepass variant that has neither a compiled
-  program nor an in-flight compilation. Issued compiles must not record warmup
-  handles or poll completion status; draw-time resolution keeps its blocking
-  finalization as the correctness fallback for programs still pending at first
-  use.
+  program nor an in-flight compilation. Issuance must not record warmup handles
+  or query compile/link status. After issuing the batch, preparation must poll
+  `COMPLETION_STATUS_KHR` when `KHR_parallel_shader_compile` is available and
+  yield to browser tasks while compilation remains pending, before resolving
+  frame-begin. Waiting must observe context-work cancellation and reject stale
+  compiler generations. It must not finalize programs or reflect uniforms.
+  The wait set must contain only programs required by the current scene plan,
+  including required programs whose compilation started before this batch.
+  Unrelated optional programs must not delay frame preparation. Empty plans
+  and plans whose programs are already ready must not poll unrelated programs
+  or schedule compilation timers.
+  Without the extension, draw-time resolution must retain synchronous
+  finalization. Warm-cache frames must not schedule compilation timers.
+- Cold scene-source preparation and program issuance must share a cooperative
+  main-thread budget of approximately 4 ms during frame preparation. Work must
+  yield through a browser task between source or program units when the budget
+  expires, and recheck cancellation before continuing. A single unit may exceed
+  the budget. Prepared sources and issued programs must skip redundant work and
+  yield checks. Compiler invalidation during issuance must reject the batch
+  before another program is issued.
+- `WebGLSceneRuntime` must own the frame-preparation budget.
+  `WebGLWarmupCoordinator` must supply its options-derived yield controller
+  and context-work abort signal to contributor tasks, including scene-source
+  preparation. The scene program repository must use the caller's controller
+  without creating its own scheduling policy. `yieldIntervalMs: 0` must disable
+  cooperative source-preparation yields; idle scheduling and custom budgets
+  must reach that work. Source preparation must recheck cancellation after
+  asynchronous preparation and yields before starting another source unit.
 - Fixed WebGL programs must be owned by the feature runtime or pass that
   executes them through context-scoped program slots. The scene program
   repository may own only built-in, custom-material, and depth-prepass scene
@@ -533,6 +557,15 @@ bun tests/static/webgl/test_webgl_frame_graph_runtime.mjs
 
 ### Backend lifecycle and execution
 
+- With `Logger.setLevel("debug")`, `WebGLProgramCompiler` must report `issue`,
+  `wait`, and `finalize` timings with the program label or batch label, program
+  count, duration in milliseconds, and parallel-compile availability. `issue`
+  includes source processing and native compile/link submission; `wait`
+  includes time yielded to browser tasks; `finalize` measures synchronous
+  status checks and validation, excluding uniform reflection. These durations
+  must not be described as GPU execution time. Other log levels must skip
+  timing collection. A missing `wait` record with `parallel: false` identifies
+  the synchronous fallback.
 - `webgl-clustered-perspective-only`: triggered when
   `enableClusteredLighting` is `true` on a non-perspective camera.
 - `webgl-clustered-light-budget`: triggered when light count exceeds

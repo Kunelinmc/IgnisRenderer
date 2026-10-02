@@ -361,11 +361,12 @@ export class WebGLBackend implements IRenderBackend {
 		if (!this._frameServices || !this._frameGraphRuntime) {
 			return Promise.reject(new Error("WebGL backend has not been initialized."));
 		}
-		return this._contextWorkQueue.beginFrame("frame-begin", async () => {
+		return this._contextWorkQueue.beginFrame("frame-begin", async (scope) => {
 			this._executedPasses.clear();
 			this._activeContext = context;
 			this._prepareFramePassPlan(context);
-			await this._frameServices!.scene.prepareSceneProgramSources(context);
+			await this._frameServices!.scene.prepareSceneProgramSources(context, scope.signal);
+			scope.signal.throwIfAborted();
 			this._particleSimulator?.beginFrame(context);
 			this._frameGraphRuntime!.beginFrame(context);
 		});

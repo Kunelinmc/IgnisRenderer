@@ -235,8 +235,10 @@ export class WebGLSceneProgramWarmupContributor
 		const tasks: WebGLProgramWarmupTask[] = [{
 			label: "WebGLSceneSource:builtin",
 			priority: "core",
-			run: () => this._repository.prepareBuiltinSceneVariants(
+			run: ({ signal, yieldController }) => this._repository.prepareBuiltinSceneVariants(
 				programPlan.sceneVariants.values(),
+				signal,
+				yieldController,
 			),
 		}];
 

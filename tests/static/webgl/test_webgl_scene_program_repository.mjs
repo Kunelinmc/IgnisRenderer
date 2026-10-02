@@ -3,6 +3,9 @@ import { WebGLProgramPreparationError } from "../../../src/foundation/Error.ts";
 import { createWebGLShaderMaterialFallbackVariant } from "../../../src/backends/webgl/WebGLSceneProgramVariants.ts";
 import { ShaderBackendCompileStage } from "../../../src/shaders/runtime/index.ts";
 import { WEBGL_TEST_PROFILE } from "../shaders/shaderDirectiveTestProfiles.mjs";
+import { WebGLSceneProgramRepository } from "../../../src/backends/webgl/WebGLSceneProgramRepository.ts";
+import { WebGLSceneRuntime } from "../../../src/backends/webgl/WebGLSceneRuntime.ts";
+import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
 function testUnpreparedExactVariantFailsWithoutFallbackProgram() {
 	const gl = createProgramCaptureGL();
@@ -677,6 +680,20 @@ async function testIssuePlannedSceneProgramCompilesStartsAheadOfFirstDraw() {
 	await prepareTestBuiltinSceneVariant(variant);
 
 	const gl = createProgramCaptureGL();
+	const completionStatus = 0x91b1;
+	const getProgramParameter = gl.getProgramParameter.bind(gl);
+	let ready = false;
+	let completionPolls = 0;
+	gl.getExtension = (name) => name === "KHR_parallel_shader_compile"
+		? { COMPLETION_STATUS_KHR: completionStatus } : null;
+	gl.getProgramParameter = (program, parameter) => {
+		if (parameter === completionStatus) {
+			completionPolls++;
+			return ready;
+		}
+		assert.equal(ready, true, "status checks must wait for asynchronous completion");
+		return getProgramParameter(program, parameter);
+	};
 	const library = createSceneProgramRepository(gl, () => {});
 	const plan = {
 		lightState: null,
@@ -684,8 +701,15 @@ async function testIssuePlannedSceneProgramCompilesStartsAheadOfFirstDraw() {
 		depthVariants: new Map(),
 	};
 
-	// Frame-begin issuance starts the compile without resolving the program.
-	assert.equal(library.issuePlannedSceneProgramCompiles(plan), 1);
+	// Browser tasks must run before preparation resolves an incomplete compile.
+	let settled = false;
+	const preparing = Promise.resolve(library.issuePlannedSceneProgramCompiles(plan))
+		.then((issued) => { settled = true; return issued; });
+	await Promise.resolve();
+	assert.equal(settled, false, "frame preparation must wait for pending compilation");
+	setTimeout(() => { ready = true; }, 0);
+	assert.equal(await preparing, 1);
+	assert.ok(completionPolls > 0);
 	assert.equal(gl.programCount, 1);
 
 	// Draw-time resolution consumes the in-flight compile: no second program.
@@ -693,7 +717,9 @@ async function testIssuePlannedSceneProgramCompilesStartsAheadOfFirstDraw() {
 	assert.equal(gl.programCount, 1);
 
 	// A resolved variant must not be re-issued on later frames.
-	assert.equal(library.issuePlannedSceneProgramCompiles(plan), 0);
+	const pollsBeforeCacheHit = completionPolls;
+	assert.equal(await library.issuePlannedSceneProgramCompiles(plan), 0);
+	assert.equal(completionPolls, pollsBeforeCacheHit);
 }
 
 async function testOpaqueBaseMapPreparesNormalizedDepthPrepassVariant() {
@@ -730,6 +756,224 @@ async function testOpaqueBaseMapPreparesNormalizedDepthPrepassVariant() {
 	);
 }
 
+async function testScenePreparationDoesNotWaitForUnrelatedPrograms() {
+	const variant = createTestBuiltinSceneVariant();
+	await prepareTestBuiltinSceneVariant(variant);
+	for (const cached of [false, true]) {
+		const gl = createProgramCaptureGL();
+		const completionStatus = 0x91b1;
+		const getProgramParameter = gl.getProgramParameter.bind(gl);
+		let polls = 0;
+		gl.getExtension = () => ({ COMPLETION_STATUS_KHR: completionStatus });
+		gl.getProgramParameter = (program, parameter) => {
+			if (parameter !== completionStatus) return getProgramParameter(program, parameter);
+			polls++;
+			return false;
+		};
+		const compiler = new WebGLProgramCompiler(gl);
+		const repository = new WebGLSceneProgramRepository({ compiler });
+		if (cached) repository.getSceneProgram(undefined, "single", variant);
+		const optional = createCompilerSlot(compiler, "unrelated-effect");
+		assert.equal(optional.tryGet(), null);
+		const pollsBefore = polls;
+		const controller = new AbortController();
+		const originalTimeout = globalThis.setTimeout;
+		let timers = 0;
+		try {
+			globalThis.setTimeout = (callback) => {
+				timers++;
+				queueMicrotask(() => { controller.abort(); callback(); });
+				return 0;
+			};
+			const plan = {
+				lightState: null,
+				sceneVariants: new Map(cached ? [[getWebGLSceneVariantKey(variant), variant]] : []),
+				depthVariants: new Map(),
+			};
+			const result = await repository.issuePlannedSceneProgramCompiles(plan, controller.signal)
+				.catch((error) => error.name);
+			assert.equal(result, 0, "unrelated compilation must not delay empty or cached plans");
+			assert.equal(polls, pollsBefore);
+			assert.equal(timers, 0);
+		} finally {
+			globalThis.setTimeout = originalTimeout;
+			repository.destroy();
+			compiler.destroy();
+		}
+	}
+}
+
+async function testScenePreparationWaitsForPreviouslyIssuedSceneAndDepthPrograms() {
+	const variant = createTestBuiltinSceneVariant();
+	await prepareTestBuiltinSceneVariant(variant);
+	const depth = { alphaMask: false, baseMap: false, skinProfile: "static", morphPosition: false };
+	const gl = createProgramCaptureGL();
+	const completionStatus = 0x91b1;
+	const getProgramParameter = gl.getProgramParameter.bind(gl);
+	let ready = false;
+	const polledPrograms = [];
+	gl.getExtension = () => ({ COMPLETION_STATUS_KHR: completionStatus });
+	gl.getProgramParameter = (program, parameter) => {
+		if (parameter !== completionStatus) return getProgramParameter(program, parameter);
+		polledPrograms.push(program.id);
+		return ready && program.id !== 3;
+	};
+	const compiler = new WebGLProgramCompiler(gl);
+	const repository = new WebGLSceneProgramRepository({ compiler });
+	repository.warmupSceneProgram(undefined, "single", variant);
+	repository.warmupSceneDepthPrepassProgram(undefined, "single", depth);
+	assert.equal(createCompilerSlot(compiler, "unrelated-effect").tryGet(), null);
+	polledPrograms.length = 0;
+	const controller = new AbortController();
+	const originalTimeout = globalThis.setTimeout;
+	let timers = 0;
+	try {
+		globalThis.setTimeout = (callback) => {
+			timers++;
+			queueMicrotask(() => {
+				ready = true;
+				if (timers > 1) controller.abort();
+				callback();
+			});
+			return 0;
+		};
+		const plan = {
+			lightState: null,
+			sceneVariants: new Map([[getWebGLSceneVariantKey(variant), variant]]),
+			depthVariants: new Map([["depth", depth]]),
+		};
+		const result = await repository.issuePlannedSceneProgramCompiles(plan, controller.signal)
+			.catch((error) => error.name);
+		assert.equal(result, 0, "already-issued required programs must complete without reissuance");
+		assert.equal(gl.programCount, 3);
+		assert.equal(timers, 1);
+		assert.deepEqual(polledPrograms, [1, 2, 1, 2]);
+	} finally {
+		globalThis.setTimeout = originalTimeout;
+		repository.destroy();
+		compiler.destroy();
+	}
+}
+
+async function testColdSourcePreparationYieldsBetweenVariantsAndSkipsWarmWork() {
+	ShaderSource.clearCache("webgl");
+	const variants = [
+		createTestBuiltinSceneVariant({ material: { model: "pbr", baseMap: true } }),
+		createTestBuiltinSceneVariant({ material: { model: "pbr", normalMap: true } }),
+	];
+	const repository = createSceneProgramRepository(createProgramCaptureGL(), () => {});
+	const progress = [];
+	const scheduler = { async yieldIfNeeded() {
+		progress.push(variants.map((specialization) =>
+			ShaderSource.has("webgl.scene", { specialization })));
+	} };
+	await repository.prepareBuiltinSceneVariants(variants, undefined, scheduler);
+	assert.deepEqual(progress, [[true, false], [true, true]]);
+	await repository.prepareBuiltinSceneVariants(variants, undefined, scheduler);
+	assert.equal(progress.length, 2, "prepared sources must skip scheduling");
+	repository.destroy();
+}
+
+async function testSourcePreparationCancellationStopsLaterVariants() {
+	ShaderSource.clearCache("webgl");
+	const variants = [createTestBuiltinSceneVariant(), createTestBuiltinSceneVariant({ oit: true })];
+	const repository = createSceneProgramRepository(createProgramCaptureGL(), () => {});
+	const controller = new AbortController();
+	await assert.rejects(repository.prepareBuiltinSceneVariants(variants, controller.signal, {
+		async yieldIfNeeded() { controller.abort(new Error("cancelled source preparation")); },
+	}), /cancelled source preparation/);
+	assert.equal(ShaderSource.has("webgl.scene", { specialization: variants[0] }), true);
+	assert.equal(ShaderSource.has("webgl.scene", { specialization: variants[1] }), false);
+	repository.destroy();
+}
+
+async function testProgramIssuanceYieldsAndStopsOnInterruption() {
+	const variants = [createTestBuiltinSceneVariant(), createTestBuiltinSceneVariant({ oit: true })];
+	for (const variant of variants) await prepareTestBuiltinSceneVariant(variant);
+	const plan = {
+		lightState: null,
+		sceneVariants: new Map(variants.map((v) => [getWebGLSceneVariantKey(v), v])),
+		depthVariants: new Map(),
+	};
+	for (const interruption of [null, "abort", "invalidate"]) {
+		const gl = createProgramCaptureGL();
+		const compiler = new WebGLProgramCompiler(gl);
+		const repository = new WebGLSceneProgramRepository({ compiler });
+		const controller = new AbortController();
+		const progress = [];
+		const scheduler = { async yieldIfNeeded() {
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			progress.push(gl.programCount);
+			if (interruption === "abort") controller.abort(new Error("cancelled issuance"));
+			if (interruption === "invalidate") compiler.invalidate();
+		} };
+		const issuing = repository.issuePlannedSceneProgramCompiles(plan, controller.signal, scheduler);
+		if (interruption) {
+			await assert.rejects(issuing, /cancelled issuance|invalidated/);
+			assert.deepEqual(progress, [1], "must stop before issuing another program");
+		} else {
+			assert.equal(await issuing, 2);
+			assert.deepEqual(progress, [1, 2]);
+			assert.equal(await repository.issuePlannedSceneProgramCompiles(plan, undefined, scheduler), 0);
+			assert.deepEqual(progress, [1, 2], "in-flight programs must skip scheduling");
+		}
+		repository.destroy();
+		compiler.destroy();
+	}
+}
+
+async function testFramePreparationSharesSourceAndIssuanceBudget() {
+	ShaderSource.clearCache("webgl");
+	const gl = createProgramCaptureGL();
+	const compiler = new WebGLProgramCompiler(gl);
+	const repository = new WebGLSceneProgramRepository({ compiler });
+	const runtime = new WebGLSceneRuntime({ scenePrograms: repository, deps: {} });
+	const context = { scene: {
+		opaquePackets: [createTestDrawPacket({ material: new Material() })],
+		transparentPackets: [], lights: [],
+	}, features: {} };
+	const originalPrepare = ShaderSource.prepare;
+	const originalNow = performance.now;
+	const originalTimeout = globalThis.setTimeout;
+	const originalLink = gl.linkProgram;
+	let now = 0;
+	let sources = 0;
+	const yieldAtPrograms = [];
+	try {
+		performance.now = () => now;
+		ShaderSource.prepare = async (...args) => {
+			const result = await originalPrepare.apply(ShaderSource, args);
+			if (sources++ === 0) now += 3;
+			return result;
+		};
+		gl.linkProgram = (...args) => {
+			originalLink.apply(gl, args);
+			now += 2;
+		};
+		globalThis.setTimeout = (callback) => {
+			yieldAtPrograms.push(gl.programCount);
+			queueMicrotask(callback);
+			return 0;
+		};
+		await runtime.prepareSceneProgramSources(context);
+		// 3 ms preparing sources + 2 ms issuing the first program crosses the frame budget.
+		assert.equal(yieldAtPrograms[0], 1);
+		const coldSources = sources;
+		const coldPrograms = gl.programCount;
+		const coldYields = yieldAtPrograms.length;
+		await runtime.prepareSceneProgramSources(context);
+		assert.equal(sources, coldSources);
+		assert.equal(gl.programCount, coldPrograms);
+		assert.equal(yieldAtPrograms.length, coldYields);
+	} finally {
+		ShaderSource.prepare = originalPrepare;
+		performance.now = originalNow;
+		globalThis.setTimeout = originalTimeout;
+		repository.destroy();
+		compiler.destroy();
+	}
+}
+
 await runWebGLBackendFile([
 	testUnpreparedExactVariantFailsWithoutFallbackProgram,
 	testSceneProgramRepositoryCompileErrorMessage,
@@ -754,4 +998,10 @@ await runWebGLBackendFile([
 	testOpaqueBaseMapPreparesNormalizedDepthPrepassVariant,
 	testIssuePlannedSceneProgramCompilesStartsAheadOfFirstDraw,
 	testCachedSceneProgramObservesSourceInvalidation,
+	testColdSourcePreparationYieldsBetweenVariantsAndSkipsWarmWork,
+	testSourcePreparationCancellationStopsLaterVariants,
+	testProgramIssuanceYieldsAndStopsOnInterruption,
+	testScenePreparationDoesNotWaitForUnrelatedPrograms,
+	testScenePreparationWaitsForPreviouslyIssuedSceneAndDepthPrograms,
+	testFramePreparationSharesSourceAndIssuanceBudget,
 ], "WebGL scene program repository tests");

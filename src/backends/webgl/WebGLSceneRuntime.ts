@@ -1,4 +1,5 @@
 import type { DrawPacket, FrameContext } from "../../pipeline/types";
+import { createWarmupYieldController } from "../../pipeline/WarmupScheduler";
 
 import type { WebGLFrameTargetManager } from "./WebGLFrameTargetManager";
 import type { WebGLSceneProgramRepository } from "./WebGLSceneProgramRepository";
@@ -57,10 +58,13 @@ export class WebGLSceneRuntime {
 
 	/**
 	 * Plans and issues compiles for every scene variant the upcoming frame can
-	 * draw, ahead of the draw loop so first-use resolution rarely blocks on
-	 * link finalization.
+	 * draw, waiting cooperatively for parallel compilation before the draw loop.
+	 * @internal WebGL frame preparation; applications should use Renderer.warmup().
 	 */
-	public async prepareSceneProgramSources(context: FrameContext): Promise<void> {
+	public async prepareSceneProgramSources(
+		context: FrameContext,
+		signal?: AbortSignal,
+	): Promise<void> {
 		const packets = [
 			...(context.scene?.opaquePackets ?? []),
 			...(context.scene?.transparentPackets ?? []),
@@ -75,10 +79,15 @@ export class WebGLSceneRuntime {
 			["mrt", "single"],
 			this._services.deps.materialSnapshots,
 		);
+		const yieldController = createWarmupYieldController({ yieldIntervalMs: 4 });
 		await this._services.scenePrograms.prepareBuiltinSceneVariants(
 			plan.sceneVariants.values(),
+			signal,
+			yieldController,
 		);
-		this._services.scenePrograms.issuePlannedSceneProgramCompiles(plan);
+		await this._services.scenePrograms.issuePlannedSceneProgramCompiles(
+			plan, signal, yieldController,
+		);
 	}
 
 	public abortFrame(): void {

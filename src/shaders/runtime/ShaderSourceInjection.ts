@@ -1,6 +1,7 @@
 import {
 	composeCompositeShaderSources,
-	sliceCompositeShaderSource,
+	compressLineOriginsToSourceMap,
+	expandSourceMapToLineOrigins,
 } from "./sourceMap";
 import { normalizeLanguage } from "./runtimeShared";
 import type {
@@ -133,7 +134,10 @@ export function normalizeWGSLInjectionAnchor(
 export function resolveGLSLInsertionAnchors(
 	source: CompositeShaderSource
 ): GLSLInsertionAnchors {
-	const sourceLines = source.code.split(/\r?\n/g);
+	return resolveGLSLInsertionAnchorsFromLines(source.code.split(/\r?\n/g));
+}
+
+function resolveGLSLInsertionAnchorsFromLines(sourceLines: string[]): GLSLInsertionAnchors {
 	const lineCount = Math.max(1, sourceLines.length);
 	let versionLine = 0;
 	let lastPrecisionLine = 0;
@@ -192,7 +196,10 @@ export function resolveGLSLInsertionAnchors(
 export function resolveWGSLInsertionAnchors(
 	source: CompositeShaderSource
 ): WGSLInsertionAnchors {
-	const sourceLines = source.code.split(/\r?\n/g);
+	return resolveWGSLInsertionAnchorsFromLines(source.code.split(/\r?\n/g));
+}
+
+function resolveWGSLInsertionAnchorsFromLines(sourceLines: string[]): WGSLInsertionAnchors {
 	const lineCount = Math.max(1, sourceLines.length);
 	let lastEnableLine = 0;
 	let lastAliasLine = 0;
@@ -318,13 +325,17 @@ function resolveWGSLInsertionLine(
 
 function injectBlocksAtLines(
 	source: CompositeShaderSource,
-	insertions: Map<number, InjectionBlock[]>
+	insertions: Map<number, InjectionBlock[]>,
+	sourceLines: string[],
 ): CompositeShaderSource {
 	if (insertions.size <= 0) {
 		return source;
 	}
-	const sourceLines = source.code.split(/\r?\n/g);
 	const lineCount = Math.max(1, sourceLines.length);
+	// Every source range shares one expansion instead of rebuilding all origins per slice.
+	const sourceOrigins = expandSourceMapToLineOrigins(
+		source.sourceMap, lineCount, "<generated>", "source",
+	);
 	const sourcePath = source.sourceMap.segments[0]?.sourcePath ?? "<shader>";
 	const insertionLines = [...insertions.keys()].sort((left, right) => left - right);
 	const parts: {
@@ -333,20 +344,21 @@ function injectBlocksAtLines(
 		sourcePath: string;
 		kind: "source" | "define-block" | "generated";
 	}[] = [];
+	const appendSourceRange = (startLine: number, endLine: number): void => {
+		const sourceMap = compressLineOriginsToSourceMap(
+			sourceOrigins.slice(startLine - 1, endLine),
+		);
+		parts.push({
+			code: sourceLines.slice(startLine - 1, endLine).join("\n"),
+			sourceMap,
+			sourcePath: sourceMap.segments[0]?.sourcePath ?? sourcePath,
+			kind: "source",
+		});
+	};
 	let cursorLine = 1;
 	for (const insertionLine of insertionLines) {
 		if (insertionLine > cursorLine) {
-			const sourceSlice = sliceCompositeShaderSource(
-				source,
-				cursorLine,
-				insertionLine - 1
-			);
-			parts.push({
-				code: sourceSlice.code,
-				sourceMap: sourceSlice.sourceMap,
-				sourcePath: sourceSlice.sourceMap.segments[0]?.sourcePath ?? sourcePath,
-				kind: "source",
-			});
+			appendSourceRange(cursorLine, insertionLine - 1);
 		}
 		const bucket = insertions.get(insertionLine) ?? [];
 		const injection = composeCompositeShaderSources(
@@ -370,13 +382,7 @@ function injectBlocksAtLines(
 		cursorLine = insertionLine;
 	}
 	if (cursorLine <= lineCount) {
-		const sourceSlice = sliceCompositeShaderSource(source, cursorLine, lineCount);
-		parts.push({
-			code: sourceSlice.code,
-			sourceMap: sourceSlice.sourceMap,
-			sourcePath: sourceSlice.sourceMap.segments[0]?.sourcePath ?? sourcePath,
-			kind: "source",
-		});
+		appendSourceRange(cursorLine, lineCount);
 	}
 	return composeCompositeShaderSources(parts, "\n");
 }
@@ -390,7 +396,7 @@ export function injectGLSLSource(
 	}
 	const sourceLines = source.code.split(/\r?\n/g);
 	const lineCount = Math.max(1, sourceLines.length);
-	const anchors = resolveGLSLInsertionAnchors(source);
+	const anchors = resolveGLSLInsertionAnchorsFromLines(sourceLines);
 	const insertions = new Map<number, InjectionBlock[]>();
 	for (const block of blocks) {
 		const anchor = normalizeGLSLInjectionAnchor(block.anchor);
@@ -405,7 +411,7 @@ export function injectGLSLSource(
 		}
 		insertions.set(insertionLine, [block]);
 	}
-	return injectBlocksAtLines(source, insertions);
+	return injectBlocksAtLines(source, insertions, sourceLines);
 }
 
 export function injectWGSLSource(
@@ -417,7 +423,7 @@ export function injectWGSLSource(
 	}
 	const sourceLines = source.code.split(/\r?\n/g);
 	const lineCount = Math.max(1, sourceLines.length);
-	const anchors = resolveWGSLInsertionAnchors(source);
+	const anchors = resolveWGSLInsertionAnchorsFromLines(sourceLines);
 	const insertions = new Map<number, InjectionBlock[]>();
 	for (const block of blocks) {
 		const anchor = normalizeWGSLInjectionAnchor(block.anchor);
@@ -432,7 +438,7 @@ export function injectWGSLSource(
 		}
 		insertions.set(insertionLine, [block]);
 	}
-	return injectBlocksAtLines(source, insertions);
+	return injectBlocksAtLines(source, insertions, sourceLines);
 }
 
 export function normalizeInjectionAnchorForLanguage(

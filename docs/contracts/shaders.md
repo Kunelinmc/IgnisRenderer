@@ -87,6 +87,9 @@ This document defines shader source ownership, composition, diagnostics, and cus
   blocks after directive preprocessing and before backend runtime validation.
   Generated blocks must use the shared language-specific source-injection
   anchors and must preserve generated source-map segments.
+- One source-injection operation should reuse its source lines and expanded
+  line origins across insertion ranges. It must preserve block ordering,
+  newline normalization, and original and generated diagnostic locations.
 - Generated source block contents must participate in backend runtime cache
   identity. They must not participate in directive-stage cache identity.
 

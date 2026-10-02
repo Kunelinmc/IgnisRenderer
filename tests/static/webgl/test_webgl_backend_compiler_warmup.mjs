@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";import { WebGLProgramCompiler } from "../../../src/backends/webgl/WebGLProgramCompiler.ts";import { WebGLProgramWarmupQueue } from "../../../src/backends/webgl/WebGLProgramWarmupQueue.ts";import { createCompilerSlot, createProgramWarmupTrackingGL, CUSTOM_WEBGL_VERTEX, CUSTOM_WEBGL_FRAGMENT, runWebGLBackendFile } from "../../helpers/webgl-backend.mjs";
 
+import { Logger } from "../../../src/foundation/Logger.ts";
+import { Material, AlphaMode } from "../../../src/materials/Material.ts";
+import { ShaderSource } from "../../../src/shaders/ShaderSource.ts";
+import { WebGLSceneProgramRepository } from "../../../src/backends/webgl/WebGLSceneProgramRepository.ts";
+import { WebGLSceneProgramWarmupContributor } from "../../../src/backends/webgl/WebGLSceneProgramPlanner.ts";
+import { WebGLWarmupCoordinator } from "../../../src/backends/webgl/WebGLWarmupCoordinator.ts";
+import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
+
 function testProgramCompilerParallelWarmupDefersStatusQueries() {
 	const gl = createProgramWarmupTrackingGL({
 		parallel: true,
@@ -480,6 +488,161 @@ function testProgramCompilerIssueProgramCompileStartsWithoutHandles() {
 	assert.equal(compiler.getStats().pendingCompiles, 0);
 }
 
+async function testProgramCompilerWaitPreservesSynchronousFallback() {
+	const gl = createProgramWarmupTrackingGL();
+	const compiler = new WebGLProgramCompiler(gl);
+	const slot = createCompilerSlot(compiler, "fallback");
+	compiler.issueProgramCompile(CUSTOM_WEBGL_VERTEX, CUSTOM_WEBGL_FRAGMENT, slot.label);
+	await compiler.waitForPendingCompiles([slot.label]);
+	assert.equal(gl.calls.getShaderParameter.length, 0);
+	assert.equal(gl.calls.getProgramParameter.length, 0);
+	assert.ok(slot.get());
+	assert.ok(gl.calls.getProgramParameter.includes(gl.LINK_STATUS));
+	compiler.destroy();
+}
+
+async function testProgramCompilerWaitRejectsCancelledOrStaleWork() {
+	for (const interruption of ["abort", "invalidate", "destroy", "slot"]) {
+		const gl = createProgramWarmupTrackingGL({ parallel: true, completeAfterPolls: Infinity });
+		const compiler = new WebGLProgramCompiler(gl);
+		const slot = createCompilerSlot(compiler, "interrupted");
+		compiler.issueProgramCompile(CUSTOM_WEBGL_VERTEX, CUSTOM_WEBGL_FRAGMENT, slot.label);
+		const controller = new AbortController();
+		const waiting = compiler.waitForPendingCompiles([slot.label], controller.signal);
+		const rejected = assert.rejects(waiting, /cancelled|invalidated|destroyed/);
+		if (interruption === "abort") controller.abort(new Error("cancelled"));
+		else if (interruption === "slot") slot.invalidate();
+		else compiler[interruption]();
+		await rejected;
+		assert.equal(gl.calls.getShaderParameter.length, 0);
+		assert.equal(gl.calls.getProgramParameter.includes(gl.LINK_STATUS), false);
+		compiler.destroy();
+	}
+}
+
+async function testProgramCompilerTimingsAreOptInAndSeparateWait() {
+	const records = [];
+	Logger.configure({ level: "info", sink: { debug: (...args) => records.push(args) } });
+	const gl = createProgramWarmupTrackingGL({ parallel: true, completeAfterPolls: 1 });
+	const compiler = new WebGLProgramCompiler(gl);
+	try {
+		createCompilerSlot(compiler, "quiet").get();
+		assert.equal(records.length, 0);
+		Logger.setLevel("debug");
+		const slot = createCompilerSlot(compiler, "measured");
+		compiler.issueProgramCompile(CUSTOM_WEBGL_VERTEX, CUSTOM_WEBGL_FRAGMENT, slot.label);
+		await compiler.waitForPendingCompiles([slot.label]);
+		const completedPolls = gl.calls.getProgramParameter.length;
+		await compiler.waitForPendingCompiles([slot.label]);
+		assert.equal(gl.calls.getProgramParameter.length, completedPolls,
+			"completed alternatives must not be polled again before first use");
+		assert.equal(gl.calls.getUniformLocation.length, 0);
+		assert.ok(slot.get());
+		const timings = records.map((entry) => entry.at(-1));
+		assert.deepEqual(timings.map((entry) => entry.phase), ["issue", "wait", "finalize"]);
+		for (const entry of timings) {
+			assert.equal(entry.parallel, true);
+			assert.equal(entry.programCount, 1);
+			assert.ok(Number.isFinite(entry.durationMs) && entry.durationMs >= 0);
+		}
+		assert.equal(timings[0].label, "measured");
+		assert.equal(timings[2].label, "measured");
+		await compiler.waitForPendingCompiles([slot.label]);
+		slot.get();
+		assert.equal(records.length, 3, "warm-cache frames must not emit compile timings");
+	} finally {
+		compiler.destroy();
+		Logger.reset();
+	}
+}
+
+async function testSceneWarmupHonorsSchedulingAndCancellation() {
+	const results = [];
+	for (const spec of [
+		{ name: "disabled", options: { scheduling: "immediate", yieldIntervalMs: 0 } },
+		{ name: "budget", options: { scheduling: "immediate", yieldIntervalMs: 15 } },
+		{ name: "idle", options: { scheduling: "idle", yieldIntervalMs: 4 } },
+		{ name: "cancel-yield", options: { yieldIntervalMs: 4 }, cancelYield: true },
+		{ name: "cancel-source", options: { yieldIntervalMs: 4 }, cancelSource: true },
+	]) {
+		ShaderSource.clearCache("webgl");
+		const compiler = new WebGLProgramCompiler(createProgramWarmupTrackingGL());
+		const repository = new WebGLSceneProgramRepository({ compiler });
+		const contributor = new WebGLSceneProgramWarmupContributor(repository, false, undefined);
+		// Isolate source scheduling from the queue's independent finalization slices.
+		const coordinator = new WebGLWarmupCoordinator({ compiler, contributors: [{
+			collectWarmupTasks: (request) => contributor.collectWarmupTasks(request)
+				.filter((task) => task.label === "WebGLSceneSource:builtin"),
+		}] });
+		const materials = [new Material(), new Material({ alphaMode: AlphaMode.Mask })];
+		const context = { scene: {
+			opaquePackets: materials.map((material) => createTestDrawPacket({ material })),
+			transparentPackets: [], lights: [],
+		}, features: {} };
+		const plan = { sceneTargetMode: "single", materials };
+		const controller = new AbortController();
+		const originalPrepare = ShaderSource.prepare;
+		const originalNow = performance.now;
+		const originalTimeout = globalThis.setTimeout;
+		const originalIdle = globalThis.requestIdleCallback;
+		let now = 0;
+		let sources = 0;
+		let timers = 0;
+		let idleCalls = 0;
+		let afterAbort = 0;
+		try {
+			performance.now = () => now;
+			ShaderSource.prepare = async (...args) => {
+				sources++;
+				if (controller.signal.aborted) afterAbort++;
+				const result = await originalPrepare.apply(ShaderSource, args);
+				now += 5;
+				if (spec.cancelSource) controller.abort();
+				return result;
+			};
+			globalThis.setTimeout = (callback) => {
+				timers++;
+				queueMicrotask(() => {
+					if (spec.cancelYield) controller.abort();
+					callback();
+				});
+				return 0;
+			};
+			globalThis.requestIdleCallback = (callback) => {
+				idleCalls++;
+				queueMicrotask(callback);
+				return 0;
+			};
+			let errorName = null;
+			try {
+				await coordinator.warmup(context, plan, spec.options, undefined, controller.signal);
+				// Cached sources must skip both preparation and yield checks.
+				await coordinator.warmup(context, plan, spec.options, undefined, controller.signal);
+			} catch (error) {
+				errorName = error.name;
+			}
+			results.push({ name: spec.name, sources, timers, idleCalls, afterAbort, errorName });
+		} finally {
+			ShaderSource.prepare = originalPrepare;
+			performance.now = originalNow;
+			globalThis.setTimeout = originalTimeout;
+			if (originalIdle === undefined) delete globalThis.requestIdleCallback;
+			else globalThis.requestIdleCallback = originalIdle;
+			repository.destroy();
+			compiler.destroy();
+		}
+	}
+	assert.deepEqual(results, [
+		{ name: "disabled", sources: 4, timers: 0, idleCalls: 0, afterAbort: 0, errorName: null },
+		{ name: "budget", sources: 4, timers: 1, idleCalls: 0, afterAbort: 0, errorName: null },
+		{ name: "idle", sources: 4, timers: 0, idleCalls: 2, afterAbort: 0, errorName: null },
+		{ name: "cancel-yield", sources: 2, timers: 1, idleCalls: 0, afterAbort: 0,
+			errorName: "AbortError" },
+		{ name: "cancel-source", sources: 1, timers: 0, idleCalls: 0, afterAbort: 0,
+			errorName: "AbortError" },
+	]);
+}
+
 await runWebGLBackendFile([
 	testProgramCompilerParallelWarmupDefersStatusQueries,
 	testProgramCompilerFallbackWarmupBatchesBeforeFinalize,
@@ -494,4 +657,8 @@ await runWebGLBackendFile([
 	testProgramWarmupQueueObservesAbortSignal,
 	testProgramCompilerTracksForcedFinalizeStats,
 	testProgramCompilerIssueProgramCompileStartsWithoutHandles,
+	testProgramCompilerWaitPreservesSynchronousFallback,
+	testProgramCompilerWaitRejectsCancelledOrStaleWork,
+	testProgramCompilerTimingsAreOptInAndSeparateWait,
+	testSceneWarmupHonorsSchedulingAndCancellation,
 ], "WebGL compiler and warmup tests");

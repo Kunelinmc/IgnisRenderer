@@ -4,7 +4,10 @@ import {
 	type WarmupPhaseCounters,
 	type WarmupPlan,
 } from "../../pipeline/WarmupPlanner";
-import { createWarmupYieldController } from "../../pipeline/WarmupScheduler";
+import {
+	createWarmupYieldController,
+	type WarmupYieldController,
+} from "../../pipeline/WarmupScheduler";
 import type { PostProcessPlan } from "../../postprocess/PostProcessPlanner";
 import type { WarmupOptions } from "../IRenderBackend";
 
@@ -20,10 +23,17 @@ export interface WebGLProgramWarmupRequest {
 	readonly postProcessPlan: PostProcessPlan | null;
 }
 
+/** @internal WebGL warmup task controls; applications should use Renderer.warmup(). */
+export interface WebGLProgramWarmupExecutionContext {
+	readonly yieldController: WarmupYieldController;
+	readonly signal?: AbortSignal;
+}
+
+/** @internal WebGL contributor work; applications should use Renderer.warmup(). */
 export interface WebGLProgramWarmupTask {
 	readonly label: string;
 	readonly priority: WebGLProgramWarmupPriority;
-	run(): unknown | Promise<unknown>;
+	run(context: WebGLProgramWarmupExecutionContext): unknown | Promise<unknown>;
 }
 
 /** @internal Static frame-owned source of WebGL warmup work. */
@@ -52,6 +62,10 @@ export class WebGLWarmupCoordinator {
 		signal?: AbortSignal | null,
 	): Promise<WarmupPhaseCounters> {
 		const yieldController = createWarmupYieldController(options);
+		const execution: WebGLProgramWarmupExecutionContext = {
+			yieldController,
+			signal: signal ?? undefined,
+		};
 		const queue = new WebGLProgramWarmupQueue();
 		const request = {
 			context,
@@ -63,7 +77,7 @@ export class WebGLWarmupCoordinator {
 				queue.enqueue({
 					label: task.label,
 					priority: task.priority,
-					action: () => this._collectWarmupHandles(() => task.run()),
+					action: () => this._collectWarmupHandles(() => task.run(execution)),
 				});
 			}
 		}

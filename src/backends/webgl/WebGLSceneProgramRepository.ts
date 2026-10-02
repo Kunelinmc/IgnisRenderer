@@ -27,6 +27,7 @@ import {
 	type WebGLSceneLightLimits,
 } from "../../shaders/ShaderSource";
 import { Logger } from "../../foundation/Logger";
+import type { WarmupYieldController } from "../../pipeline/WarmupScheduler";
 import {
 	WebGLProgramCompiler,
 	type WebGLProgramWarmupHandle,
@@ -172,26 +173,32 @@ export class WebGLSceneProgramRepository {
 
 	/** @internal Prepares exact built-in variants before synchronous frame draws. */
 	public async prepareBuiltinSceneVariants(
-		variants: Iterable<WebGLSceneVariantDescriptor>
+		variants: Iterable<WebGLSceneVariantDescriptor>,
+		signal?: AbortSignal,
+		yieldController?: WarmupYieldController,
 	): Promise<void> {
-		await ShaderSource.prepareMany(
-			Array.from(variants).flatMap((specialization) => {
-				const depthSpecialization =
-					normalizeWebGLSceneDepthVariantDescriptor({
-						alphaMask: specialization.material.alphaMask,
-						baseMap: specialization.material.baseMap,
-						skinProfile: specialization.skinProfile,
-						morphPosition: (specialization.morphSemanticMask & 1) !== 0,
-					});
-				return [
-					{ key: "webgl.scene" as const, params: { specialization } },
-					{
-						key: "webgl.scene.depth" as const,
-						params: { specialization: depthSpecialization },
-					},
-				];
-			}),
-		);
+		for (const specialization of variants) {
+			signal?.throwIfAborted();
+			const depthSpecialization = normalizeWebGLSceneDepthVariantDescriptor({
+				alphaMask: specialization.material.alphaMask,
+				baseMap: specialization.material.baseMap,
+				skinProfile: specialization.skinProfile,
+				morphPosition: (specialization.morphSemanticMask & 1) !== 0,
+			});
+			const scenePrepared = ShaderSource.has("webgl.scene", { specialization });
+			const depthPrepared = ShaderSource.has("webgl.scene.depth", {
+				specialization: depthSpecialization,
+			});
+			if (scenePrepared && depthPrepared) continue;
+			if (!scenePrepared) await ShaderSource.prepare("webgl.scene", { specialization });
+			signal?.throwIfAborted();
+			if (!depthPrepared) {
+				await ShaderSource.prepare("webgl.scene.depth", { specialization: depthSpecialization });
+			}
+			signal?.throwIfAborted();
+			await yieldController?.yieldIfNeeded();
+		}
+		signal?.throwIfAborted();
 	}
 
 	/**
@@ -199,32 +206,59 @@ export class WebGLSceneProgramRepository {
 	 * depth-prepass variant that has neither a compiled program nor an
 	 * in-flight compilation yet.
 	 *
-	 * Compiles start without any status check so the driver works while frame
-	 * passes run; draw-time resolution keeps its blocking finalization as the
-	 * correctness fallback for programs still pending at first use.
+	 * Source processing and issuance yield between programs when their shared
+	 * budget expires, before polling parallel completion. Draw-time finalization
+	 * remains synchronous when parallel compilation is unavailable.
 	 *
 	 * @internal WebGL frame-begin preparation hook.
 	 * @param plan Exact scene program plan for the active frame.
+	 * @param signal Cancels preparation when the owning context work is aborted.
+	 * @param yieldController Cooperative budget shared with source preparation.
 	 * @returns The number of compiles newly issued by this call.
-	 * @sideEffects Starts asynchronous WebGL shader compilation.
+	 * @sideEffects Starts WebGL shader compilation and may yield before frame draws.
 	 */
-	public issuePlannedSceneProgramCompiles(plan: WebGLSceneProgramPlan): number {
+	public async issuePlannedSceneProgramCompiles(
+		plan: WebGLSceneProgramPlan,
+		signal?: AbortSignal,
+		yieldController?: WarmupYieldController,
+	): Promise<number> {
+		signal?.throwIfAborted();
 		const directiveTag = this._shaderCompileStage?.getCacheFingerprintTag() ?? "";
+		let invalidated = false;
+		const disposeInvalidation = this._compiler.onDidInvalidate(() => { invalidated = true; });
+		const assertCurrent = () => {
+			signal?.throwIfAborted();
+			if (invalidated) throw new Error("WebGL scene program batch was invalidated.");
+		};
 		let issued = 0;
-		for (const variant of plan.sceneVariants.values()) {
-			if (this._issueBuiltinSceneProgram(variant, directiveTag)) issued++;
-		}
-		for (const variant of plan.depthVariants.values()) {
-			if (this._issueBuiltinSceneDepthPrepassProgram(variant, directiveTag)) {
-				issued++;
+		const requiredPrograms: string[] = [];
+		try {
+			for (const variant of plan.sceneVariants.values()) {
+				assertCurrent();
+				if (this._issueBuiltinSceneProgram(variant, directiveTag, requiredPrograms)) {
+					issued++;
+					await yieldController?.yieldIfNeeded();
+				}
 			}
+			for (const variant of plan.depthVariants.values()) {
+				assertCurrent();
+				if (this._issueBuiltinSceneDepthPrepassProgram(variant, directiveTag, requiredPrograms)) {
+					issued++;
+					await yieldController?.yieldIfNeeded();
+				}
+			}
+			assertCurrent();
+			await this._compiler.waitForPendingCompiles(requiredPrograms, signal);
+			return issued;
+		} finally {
+			disposeInvalidation();
 		}
-		return issued;
 	}
 
 	private _issueBuiltinSceneProgram(
 		variant: WebGLSceneVariantDescriptor,
-		directiveTag: string
+		directiveTag: string,
+		requiredPrograms: string[],
 	): boolean {
 		const normalizedVariant = normalizeWebGLSceneVariantDescriptor(variant);
 		const cacheKey = this._createBuiltinSceneProgramCacheKey(
@@ -237,10 +271,13 @@ export class WebGLSceneProgramRepository {
 		});
 		const vertex = artifact.stages.vertex!;
 		const fragment = artifact.stages.fragment!;
+		const label = this._createBuiltinSceneProgramLabel(normalizedVariant);
+		// Required programs may already be compiling from an earlier request.
+		requiredPrograms.push(label);
 		return this._compiler.issueProgramCompile(
 			vertex.code,
 			fragment.code,
-			this._createBuiltinSceneProgramLabel(normalizedVariant),
+			label,
 			{
 				sourceMap: vertex.sourceMap,
 				variantKey: artifact.identity,
@@ -256,7 +293,8 @@ export class WebGLSceneProgramRepository {
 
 	private _issueBuiltinSceneDepthPrepassProgram(
 		variant: WebGLSceneDepthVariantDescriptor,
-		directiveTag: string
+		directiveTag: string,
+		requiredPrograms: string[],
 	): boolean {
 		const normalizedVariant =
 			normalizeWebGLSceneDepthVariantDescriptor(variant);
@@ -270,10 +308,12 @@ export class WebGLSceneProgramRepository {
 		});
 		const vertex = artifact.stages.vertex!;
 		const fragment = artifact.stages.fragment!;
+		const label = this._createBuiltinSceneDepthProgramLabel(normalizedVariant);
+		requiredPrograms.push(label);
 		return this._compiler.issueProgramCompile(
 			vertex.code,
 			fragment.code,
-			this._createBuiltinSceneDepthProgramLabel(normalizedVariant),
+			label,
 			{
 				sourceMap: vertex.sourceMap,
 				variantKey: artifact.identity,

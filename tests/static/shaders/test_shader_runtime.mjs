@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { injectGLSLSource } from "../../../src/shaders/runtime/ShaderSourceInjection.ts";
 import {
 	createInlineShaderSourceMap,
 	mapShaderCompilerMessages,
@@ -1741,7 +1742,52 @@ fn vsMain() -> @builtin(position) vec4<f32> {
 	assert.equal(diagnostic.sourcePath, "virtual/includes/placeholder.wgsl");
 }
 
+function testMultiAnchorInjectionPreservesOriginalAndGeneratedLocations() {
+	const originalLines = [
+		"#version 300 es", "precision highp float;", "uniform vec4 uColor;",
+		"void main() {", "\tgl_Position = uColor;", "}", "",
+	];
+	const source = {
+		code: originalLines.join("\r\n"),
+		sourceMap: { schemaVersion: SOURCE_MAP_SCHEMA_VERSION, lineCount: 7, segments: [
+			{ generatedLineStart: 1, generatedLineEnd: 3, sourcePath: "header.glsl",
+				sourceLineStart: 7, sourceLineEnd: 9, kind: "source", label: "header" },
+			{ generatedLineStart: 4, generatedLineEnd: 7, sourcePath: "body.glsl",
+				sourceLineStart: 21, sourceLineEnd: 24, kind: "source", label: "body" },
+		] },
+	};
+	const snapshot = structuredClone(source);
+	const blocks = [
+		{ code: "// A", sourcePath: "a.glsl", label: "A", anchor: "afterVersion" },
+		{ code: "// B", sourcePath: "b.glsl", label: "B", anchor: "afterVersion" },
+		{ code: "float helper() { return 1.0; }", sourcePath: "helper.glsl",
+			label: "helper", anchor: "beforeEntryPoint", kind: "generated" },
+		{ code: "// tail", sourcePath: "tail.glsl", label: "tail", anchor: "endOfFile" },
+	];
+	const result = injectGLSLSource(source, blocks);
+	assert.equal(result.code, [
+		"#version 300 es", "// A", "", "// B", "precision highp float;",
+		"uniform vec4 uColor;", "float helper() { return 1.0; }",
+		"void main() {", "\tgl_Position = uColor;", "}", "", "// tail",
+	].join("\n"));
+	for (const [line, path, sourceLine, kind] of [
+		[1, "header.glsl", 7, "source"], [5, "header.glsl", 8, "source"],
+		[6, "header.glsl", 9, "source"], [8, "body.glsl", 21, "source"],
+		[9, "body.glsl", 22, "source"], [10, "body.glsl", 23, "source"],
+		[11, "body.glsl", 24, "source"], [2, "a.glsl", 1, "define-block"],
+		[4, "b.glsl", 1, "define-block"], [7, "helper.glsl", 1, "generated"],
+		[12, "tail.glsl", 1, "define-block"],
+	]) {
+		const location = mapShaderGeneratedLocation(result.sourceMap, line, 1);
+		assert.equal(location.sourcePath, path);
+		assert.equal(location.sourceLine, sourceLine);
+		assert.equal(location.kind, kind);
+	}
+	assert.deepEqual(source, snapshot, "injection must not mutate the cached source");
+}
+
 async function run() {
+	testMultiAnchorInjectionPreservesOriginalAndGeneratedLocations();
 	testReservedPrefixProtection();
 	testGLSLInjectionOrderAndLocation();
 	testWGSLInjectionLocation();

@@ -107,6 +107,7 @@ interface WebGLPendingProgramCompile {
 	readonly startedFrame: number;
 	readonly generation: number;
 	readonly labelGeneration: number;
+	completionObserved: boolean;
 	status: "pending" | "ready" | "failed";
 	error: unknown;
 }
@@ -314,6 +315,47 @@ export class WebGLProgramCompiler {
 		return true;
 	}
 
+	/**
+	 * Waits for the selected issued programs without synchronous status checks.
+	 * Returns immediately when parallel compilation is unavailable. Cancellation
+	 * or invalidation rejects the wait; programs remain owned by this compiler.
+	 *
+	 * @internal WebGL frame preparation only; applications should use Renderer.warmup().
+	 * @param labels Required program labels, including earlier in-flight compiles.
+	 * @param signal Cancels the wait when the owning context work is aborted.
+	 */
+	public async waitForPendingCompiles(
+		labels: Iterable<string>,
+		signal?: AbortSignal,
+	): Promise<void> {
+		this._assertAlive();
+		signal?.throwIfAborted();
+		if (!this._parallelShaderCompile || this._pendingProgramCompiles.size === 0) return;
+		let pending: WebGLPendingProgramCompile[] | null = null;
+		for (const label of labels) {
+			const program = this._pendingProgramCompiles.get(label);
+			if (program && !program.completionObserved) (pending ??= []).push(program);
+		}
+		if (!pending) return;
+		const startedAt = Logger.getLevel() === "debug" ? performance.now() : null;
+		try {
+			while (true) {
+				this._assertAlive();
+				signal?.throwIfAborted();
+				let complete = true;
+				for (const program of pending) {
+					this._assertProgramCompileCurrent(program);
+					if (!this._isProgramCompileComplete(program)) complete = false;
+				}
+				if (complete) return;
+				// A task boundary lets the browser publish compile completion and paint.
+				await new Promise<void>((resolve) => setTimeout(resolve, 0));
+			}
+		} finally {
+			this._logCompileTiming("wait", "pending-programs", startedAt, pending.length);
+		}
+	}
+
 	/** @internal Used by backend-owned dynamic program caches. */
 	public tryCreateProgram(
 		vertexSource: string,
@@ -485,6 +527,7 @@ export class WebGLProgramCompiler {
 		fragmentMetadata?: WebGLShaderCompileMetadata
 	): WebGLPendingProgramCompile {
 		const gl = this._gl;
+		const startedAt = Logger.getLevel() === "debug" ? performance.now() : null;
 		let vertexShader: WebGLPendingShaderCompile | null = null;
 		let fragmentShader: WebGLPendingShaderCompile | null = null;
 		let program: WebGLProgram | null = null;
@@ -516,6 +559,7 @@ export class WebGLProgramCompiler {
 				startedFrame: this._compileFrameIndex,
 				generation: this._generation,
 				labelGeneration: this._getLabelGeneration(label),
+				completionObserved: false,
 				status: "pending",
 				error: null,
 			};
@@ -527,6 +571,8 @@ export class WebGLProgramCompiler {
 			if (fragmentShader) this._gl.deleteShader(fragmentShader.shader);
 			this._pendingProgramCompiles.delete(label);
 			throw error;
+		} finally {
+			this._logCompileTiming("issue", label, startedAt);
 		}
 	}
 
@@ -542,17 +588,11 @@ export class WebGLProgramCompiler {
 	private _finalizeProgramCompile(
 		pending: WebGLPendingProgramCompile
 	): WebGLProgram {
-		if (
-			pending.generation !== this._generation ||
-			pending.labelGeneration !== this._getLabelGeneration(pending.label)
-		) {
-			throw new Error(
-				`WebGL program "${pending.label}" was invalidated during compilation.`
-			);
-		}
+		this._assertProgramCompileCurrent(pending);
 		if (pending.status === "ready") return pending.program;
 		if (pending.status === "failed") throw pending.error;
 		const gl = this._gl;
+		const startedAt = Logger.getLevel() === "debug" ? performance.now() : null;
 		try {
 			this._finalizeShaderCompile(pending.vertex);
 			this._finalizeShaderCompile(pending.fragment);
@@ -592,7 +632,35 @@ export class WebGLProgramCompiler {
 			gl.deleteShader(pending.vertex.shader);
 			gl.deleteShader(pending.fragment.shader);
 			this._pendingProgramCompiles.delete(pending.label);
+			this._logCompileTiming("finalize", pending.label, startedAt);
 		}
+	}
+
+	private _assertProgramCompileCurrent(pending: WebGLPendingProgramCompile): void {
+		if (
+			pending.generation !== this._generation ||
+			pending.labelGeneration !== this._getLabelGeneration(pending.label)
+		) {
+			throw new Error(
+				`WebGL program "${pending.label}" was invalidated during compilation.`
+			);
+		}
+	}
+
+	private _logCompileTiming(
+		phase: "issue" | "wait" | "finalize",
+		label: string,
+		startedAt: number | null,
+		programCount = 1,
+	): void {
+		if (startedAt === null) return;
+		Logger.debug(["webgl-program-timing", {
+			phase,
+			label,
+			programCount,
+			durationMs: performance.now() - startedAt,
+			parallel: this._parallelShaderCompile !== null,
+		}], { scope: "WebGLProgramCompiler" });
 	}
 
 	private _canFinalizeProgramCompile(
@@ -622,13 +690,17 @@ export class WebGLProgramCompiler {
 		) {
 			return true;
 		}
-		if (pending.status !== "pending" || !this._parallelShaderCompile) {
+		if (
+			pending.status !== "pending" || pending.completionObserved ||
+			!this._parallelShaderCompile
+		) {
 			return true;
 		}
-		return !!this._gl.getProgramParameter(
+		pending.completionObserved = !!this._gl.getProgramParameter(
 			pending.program,
 			this._parallelShaderCompile.COMPLETION_STATUS_KHR
 		);
+		return pending.completionObserved;
 	}
 
 	private _beginShaderCompile(
