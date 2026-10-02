@@ -28,7 +28,7 @@ export type Matrix4Arr = Tuple<Tuple<number, 4>, 4>;
 export type Matrix3Arr = Tuple<Tuple<number, 3>, 3>;
 
 /**
- * Spherical Harmonics coefficients for 3nd order (L=3)
+ * Spherical Harmonics coefficients for 3rd order (L=3)
  * Contains exactly 16 RGB coefficients.
  */
 export type SHCoefficients = Tuple<RGB, 16>;
