@@ -4,6 +4,14 @@ This document defines spatial indexing, level-of-detail mesh selection, and cons
 
 ## Contract
 
+### Face construction
+
+- `GeometryFace` and its `MeshFace` alias must use `material` for surface color
+  and double-sidedness. Separate face-level `color` and `doubleSided` overrides
+  are not supported.
+- Per-vertex `color` must remain a geometry attribute and must be preserved by
+  `GeometryBuilder.buildPrimitivesFromFaces` and `MeshAsset.fromFaces`.
+
 ### Mesh bounds
 
 - `MeshFactory.createPlane` must create an XZ-plane whose vertex normals and

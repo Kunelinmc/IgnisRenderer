@@ -8,7 +8,6 @@ import type {
 	IPrimitiveGeometry,
 	IVertex,
 } from "../core/types";
-import type { RGBA } from "../foundation/Color";
 import type { IVector3 } from "../maths/types";
 
 export interface GeometryFaceVertex extends IVertex {
@@ -18,13 +17,7 @@ export interface GeometryFaceVertex extends IVertex {
 export interface GeometryFace {
 	vertices: GeometryFaceVertex[];
 	material?: Material | null;
-	color?: RGBA;
 	normal?: IVector3;
-	/**
-	 * Custom geometry-level double-sided flag. Allows specifying double-sidedness
-	 * for individual faces during custom mesh construction before a Material is bound.
-	 */
-	doubleSided?: boolean;
 	[key: string]: unknown;
 }
 
