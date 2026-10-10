@@ -38,6 +38,8 @@ import {
 } from "./types";
 
 const geometryBindings = new WeakMap<IPrimitive, DrawGeometryBinding>();
+const opaqueSortIdentities = new WeakMap<object, number>();
+let nextOpaqueSortIdentity = 1;
 const NO_DEFORMATION = Object.freeze({
 	mode: "none",
 	revision: 0,
@@ -961,22 +963,42 @@ export class PreparedSceneBuilder {
 function compareOpaquePackets(left: DrawPacket, right: DrawPacket): number {
 	const leftSubmission = left.submission;
 	const rightSubmission = right.submission;
-	const keyCompare = leftSubmission.material.pipelineKey.localeCompare(
-		rightSubmission.material.pipelineKey,
-	);
-	if (keyCompare !== 0) return keyCompare;
+	const leftKey = leftSubmission.material.pipelineKey;
+	const rightKey = rightSubmission.material.pipelineKey;
+	if (leftKey !== rightKey) {
+		const keyCompare = leftKey.localeCompare(rightKey);
+		if (keyCompare !== 0) return keyCompare;
+		// Locale-equivalent strings still identify distinct pipeline groups.
+		return leftKey < rightKey ? -1 : 1;
+	}
 
 	if (leftSubmission.material.effective !== rightSubmission.material.effective) {
-		return leftSubmission.material.effective.name.localeCompare(
-			rightSubmission.material.effective.name,
-		);
+		const leftName = leftSubmission.material.effective.name;
+		const rightName = rightSubmission.material.effective.name;
+		if (leftName !== rightName) {
+			const nameCompare = leftName.localeCompare(rightName);
+			if (nameCompare !== 0) return nameCompare;
+		}
+		return getOpaqueSortIdentity(leftSubmission.material.effective) -
+			getOpaqueSortIdentity(rightSubmission.material.effective);
 	}
 
 	if (leftSubmission.geometry.resourceKey !== rightSubmission.geometry.resourceKey) {
-		return leftSubmission.id.localeCompare(rightSubmission.id);
+		// One geometry must stay in one bucket even when its depths cross instance IDs.
+		return getOpaqueSortIdentity(leftSubmission.geometry.resourceKey) -
+			getOpaqueSortIdentity(rightSubmission.geometry.resourceKey);
 	}
 
 	return left.sortDepth - right.sortDepth;
+}
+
+function getOpaqueSortIdentity(resource: object): number {
+	let identity = opaqueSortIdentities.get(resource);
+	if (identity === undefined) {
+		identity = nextOpaqueSortIdentity++;
+		opaqueSortIdentities.set(resource, identity);
+	}
+	return identity;
 }
 
 function resolveSubmissionSortDepth(

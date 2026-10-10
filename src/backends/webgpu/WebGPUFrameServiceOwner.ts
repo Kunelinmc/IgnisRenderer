@@ -67,7 +67,7 @@ import { Logger } from "../../foundation/Logger";
 import type { WarmupOptions } from "../IRenderBackend";
 import type {
 	WebGPUDrawResourceOptions,
-	WebGPUDrawResources,
+	WebGPUDrawResourceResult,
 	WebGPUEnvironmentDrawResources,
 	WebGPUEnvironmentResourceOptions,
 	WebGPUFrameResourceScope as WebGPUFrameResourceScopeContract,
@@ -448,6 +448,7 @@ export class WebGPUFrameServiceOwner {
 	 * stale per-frame cache entries.
 	 */
 	public beginFrameResourceLifecycle(): void {
+		this._drawResourceAssembler.beginFrame();
 		this._animationPayloads.beginFrame();
 		this._materialBindings.beginFrame();
 		this._materialSnapshots.beginFrame();
@@ -576,6 +577,7 @@ export class WebGPUFrameServiceOwner {
 			morphWeightMap,
 		};
 		scope.prepared = frameResources;
+		this._drawResourceAssembler.bindFrameScope(frameResources, scope);
 		return frameResources;
 	}
 
@@ -590,6 +592,7 @@ export class WebGPUFrameServiceOwner {
 		if (!scope) {
 			return;
 		}
+		this._drawResourceAssembler.releaseFrameScope(scope);
 		scope.frameBindings.destroy();
 		scope.clusteredLighting.destroy();
 		this._frameScopes.delete(scopeKey);
@@ -742,6 +745,7 @@ export class WebGPUFrameServiceOwner {
 			return;
 		}
 		this._sceneDraws.onShaderRuntimeChanged();
+		this._drawResourceAssembler.clear();
 		this._materialPipelineResolver.clear();
 		this._environmentResources.onShaderRuntimeChanged();
 		this._particleRenderResources.onShaderRuntimeChanged();
@@ -779,12 +783,14 @@ export class WebGPUFrameServiceOwner {
 			return;
 		}
 		this._destroyed = true;
+		this._drawResourceAssembler.clear();
 		this.destroyShadowRuntimeResources();
 		this._particleRenderResources.destroy();
 		this.invalidateDeferredRuntimeResources();
 		this._environmentResources.destroy();
 		this._frameFeatureRegistry.destroy();
 		for (const scope of this._frameScopes.values()) {
+			this._drawResourceAssembler.releaseFrameScope(scope);
 			scope.frameBindings.destroy();
 			scope.clusteredLighting.destroy();
 		}
@@ -975,11 +981,11 @@ export class WebGPUFrameServiceOwner {
 		return Math.max(1, tileSize);
 	}
 
-	public async getDrawResources(
+	public getDrawResources(
 		packet: DrawPacket,
 		frameResources: WebGPUFrameServicePreparedResources,
 		options: WebGPUDrawResourceOptions,
-	): Promise<WebGPUDrawResources[] | null> {
+	): WebGPUDrawResourceResult {
 		const prepared = this._requirePreparedFrameResources(frameResources, "getDrawResources");
 		return this._sceneDraws.getDrawResources(
 			packet,

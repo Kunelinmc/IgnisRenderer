@@ -250,34 +250,31 @@ export class WebGPUScenePassRecorder {
 			WebGPUDrawResources[] | null
 		>();
 		const preflightEarlyZ = this._framePort.isEarlyZPrepassEnabled();
+		const defaultOptions = {
+			sceneTargetMode: "gbuffer" as const, deferredGBufferLayout, sampleCount: 1,
+		};
+		const earlyZOptions = { ...defaultOptions, drawMode: "early-z-prepass" as const };
+		const earlyZColorOptions = { ...defaultOptions, drawMode: "early-z-color" as const };
 		for (const packet of packets) {
 			let drawMode: "default" | "early-z-color" = "default";
 			if (preflightEarlyZ) {
-				const resources = await this._sceneResources.getDrawResources(
+				const preparation = this._sceneResources.getDrawResources(
 					packet,
 					frameResources,
-					{
-						sceneTargetMode: "gbuffer",
-						deferredGBufferLayout,
-						sampleCount: 1,
-						drawMode: "early-z-prepass",
-					},
+					earlyZOptions,
 				);
+				const resources = preparation instanceof Promise ? await preparation : preparation;
 				earlyZResources.set(packet, resources);
 				if (resources && resources.length > 0) {
 					drawMode = "early-z-color";
 				}
 			}
-			const resources = await this._sceneResources.getDrawResources(
+			const preparation = this._sceneResources.getDrawResources(
 				packet,
 				frameResources,
-				{
-					sceneTargetMode: "gbuffer",
-					deferredGBufferLayout,
-					sampleCount: 1,
-					drawMode,
-				},
+				drawMode === "early-z-color" ? earlyZColorOptions : defaultOptions,
 			);
+			const resources = preparation instanceof Promise ? await preparation : preparation;
 			gbufferResources.set(packet, resources);
 		}
 		return {

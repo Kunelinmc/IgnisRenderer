@@ -382,6 +382,12 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
 - Main-view and secondary-view packet state must be isolated. Reusing a packet
   for one camera must not overwrite sorting or visibility state consumed by
   another camera.
+- Opaque packet ordering must group compatible pipeline keys, material
+  identities, and geometry resource identities before comparing view depth.
+  The comparison must remain consistent across groups; display names and
+  instance identifiers must not interleave compatible geometry groups.
+  Packets within one group must remain front-to-back. Transparent packets
+  must retain back-to-front depth ordering.
 - Packet caches must be bounded and must not evict entries used by the active
   frame. Eviction must prefer least-recently-used inactive entries.
 - Dirty-state matrix and material signatures may be shared by object identity
@@ -417,8 +423,13 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
   full-frame coverage for that build and rebase cached packet rectangles before
   later partial deformation updates, even when no explicit `"camera"` dirty
   reason was supplied.
-- When full-frame coverage is already required by disabled incremental rendering,
-  the first build, a camera matrix change, or explicit `forceFullFrame`, the
+- When incremental rendering is disabled, the prepared-scene cache must skip
+  dirty-state signatures, projected packet rectangles, and spatial indexes.
+  It must invalidate incremental history while retaining camera-independent
+  submission reuse. Re-enabling incremental rendering must force one full-frame
+  build to establish current packet and decal baselines before partial updates.
+- When full-frame coverage is already required by the first enabled build,
+  a camera matrix change, or explicit `forceFullFrame`, the
   prepared-scene cache must skip previous-state comparisons and dirty-candidate
   collection. It must still refresh packet and decal baselines, projected packet
   rectangles, and the spatial index so later incremental builds use current state.

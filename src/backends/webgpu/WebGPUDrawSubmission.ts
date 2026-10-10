@@ -8,6 +8,7 @@ import type {
 } from "../types";
 import type {
 	WebGPUDrawResourceOptions,
+	WebGPUDrawResourceResult,
 	WebGPUDrawResources,
 	WebGPUPreparedFrameResources,
 } from "./WebGPUResourceContracts";
@@ -29,7 +30,7 @@ export interface WebGPUDrawResourceProvider {
 		packet: DrawPacket,
 		frameResources: WebGPUPreparedFrameResources,
 		options: WebGPUDrawResourceOptions
-	): Promise<WebGPUDrawResources[] | null>;
+	): WebGPUDrawResourceResult;
 }
 
 export interface WebGPUDrawSubmissionRequest {
@@ -256,11 +257,12 @@ async function prepareDrawResources(
 	await Promise.all(Array.from({ length: workerCount }, async () => {
 		while (cursor < tasks.length) {
 			const task = tasks[cursor++];
-			const resources = await request.resources.getDrawResources(
+			const preparation = request.resources.getDrawResources(
 				task.packet,
 				request.frameResources,
 				task.options,
 			);
+			const resources = preparation instanceof Promise ? await preparation : preparation;
 			target.get(task.packet)!.set(task.key, resources);
 		}
 	}));

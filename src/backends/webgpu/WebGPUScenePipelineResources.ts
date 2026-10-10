@@ -128,6 +128,11 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 	>();
 	private _shaderCacheGeneration = 0;
 
+	/** @internal Invalidates assembler preparation when scene pipelines are reset. */
+	public get preparationRevision(): number {
+		return this._shaderCacheGeneration;
+	}
+
 	constructor(
 		backend: WebGPUDeviceResourceHost,
 		layouts: WebGPUPipelineLayouts,

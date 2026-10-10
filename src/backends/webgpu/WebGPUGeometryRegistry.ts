@@ -133,6 +133,15 @@ export class WebGPUGeometryRegistry {
 		return handle;
 	}
 
+	/** @internal Checks scene preparation liveness without allocating or reuploading. */
+	public isCurrentGeometry(
+		binding: DrawGeometryBinding,
+		handle: WebGPUGeometryHandle,
+	): boolean {
+		const cached = this._cache.get(binding.resourceKey);
+		return cached?.handle === handle && cached.geometryVersion === binding.version;
+	}
+
 	public releaseGeometry(binding: DrawGeometryBinding): void {
 		const resourceKey = binding.resourceKey;
 		const cached = this._cache.get(resourceKey);

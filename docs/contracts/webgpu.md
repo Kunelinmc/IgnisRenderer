@@ -429,6 +429,10 @@ lighting, presentation configuration, reflections, and structured buffer packing
   destruction of a draw binding must release its material-buffer lease, and a
   shared material buffer must not be destroyed while any dynamic or static
   binding still references it.
+- Static material bindings referenced by prepared draws in the active frame
+  must not be evicted. Ready preparation reuse must refresh their usage.
+  Inactive bindings must be preferred for eviction; any temporary active-frame
+  overflow must be trimmed at the next frame boundary.
 - Shader-runtime invalidation and backend destruction must explicitly destroy
   each unique managed shader-module and pipeline handle before clearing cache
   maps. Alias caches must not cause duplicate destruction.
@@ -444,6 +448,23 @@ lighting, presentation configuration, reflections, and structured buffer packing
 - Static instance records must contain current and previous transforms, normal
   data, render layers, and shadow flags in a frame-owned arena. Arena growth
   must be geometric and uploads must be consolidated.
+- Unchanged static instance records may reuse their existing arena contents.
+  Reuse must observe current float32 matrix, normal, layer, and shadow data,
+  including direct matrix edits, packet reordering, and previous-pose changes.
+  Uploads must cover changed records; arena replacement must upload fresh data.
+- Prepared static draws must reuse material policy and geometry preparation
+  within an owning frame scope, pipeline provider, pass, and sample count.
+  Ready immutable preparation may be retained across frames. Ready cache
+  hits must return synchronously while preserving a distinct draw result and
+  instance index for each packet. Callers must await only pending preparation.
+- Shared preparation must be invalidated by material or geometry revision,
+  geometry resource replacement or release,
+  provider or shader-runtime invalidation, instance-arena binding replacement,
+  scope replacement, and backend destruction. A new frame must invalidate
+  pending work and refresh instance indices and frame bindings while retaining
+  valid ready preparation. Failed or stale in-flight work
+  must not populate a current preparation cache. Unsupported packets must
+  retain the legacy preparation path.
 - Incremental dirty-rectangle execution must build rect-local instance ranges;
   instances outside the rectangle must not be emitted by a batched draw.
 

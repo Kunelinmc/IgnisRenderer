@@ -7,6 +7,7 @@ import { WebGPUStaticMeshBatcher } from "../../../src/backends/webgpu/WebGPUStat
 import { WebGPUMaterialBufferCache } from "../../../src/backends/webgpu/WebGPUMaterialBufferCache.ts";
 import { WEBGPU_TEXTURE_SLOT_COUNT } from "../../../src/backends/webgpu/constants.ts";
 import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
+import { DRAW_PACKET_FLAG_SHADOW_RECEIVER } from "../../../src/pipeline/types.ts";
 
 const writes = [];
 const backend = {
@@ -126,5 +127,97 @@ assert.equal(instanceFloats[16 + 12], 0);
 assert.equal(instanceFloats[52 + 16 + 12], 1);
 
 batcher.commitFrame();
+
+const arenaWrites = () => writes.filter(write => write.buffer.label === "WebGPUStaticInstanceArena");
+writes.length = 0;
+batcher.beginFrame();
+batcher.preparePackets(packets);
+assert.equal(arenaWrites().length, 0, "unchanged records need no arena upload");
+batcher.commitFrame();
+
+packets[1].submission.instance.worldMatrix.elements[0][3] = 3;
+packets[1].submission.instance.previousWorldMatrix.elements[0][3] = 2;
+writes.length = 0;
+batcher.beginFrame();
+batcher.preparePackets(packets);
+assert.equal(arenaWrites().length, 1);
+assert.equal(arenaWrites()[0].offset, 52 * 4, "upload starts at the changed instance");
+assert.equal(arenaWrites()[0].data.byteLength, 52 * 4);
+const changed = new Float32Array(arenaWrites()[0].data.buffer, arenaWrites()[0].data.byteOffset, 52);
+assert.equal(changed[12], 3, "direct current-matrix edits are observed");
+assert.equal(changed[28], 2, "direct previous-matrix edits are observed");
+batcher.commitFrame();
+
+packets[0].submission.instance.normalMatrix.elements[0][0] = 2;
+writes.length = 0;
+batcher.beginFrame();
+batcher.preparePackets(packets);
+assert.equal(arenaWrites()[0].offset, 0);
+assert.equal(arenaWrites()[0].data.byteLength, 52 * 4);
+batcher.commitFrame();
+
+packets[0].submission.instance.renderLayers = 7;
+packets[0].submission.passFlags ^= DRAW_PACKET_FLAG_SHADOW_RECEIVER;
+writes.length = 0;
+batcher.beginFrame();
+batcher.preparePackets(packets);
+const flags = new Float32Array(arenaWrites()[0].data.buffer, arenaWrites()[0].data.byteOffset, 52);
+assert.equal(flags[48], 7, "layer edits update the instance record");
+assert.equal(flags[49], (packets[0].submission.passFlags & DRAW_PACKET_FLAG_SHADOW_RECEIVER) ? 1 : 0);
+batcher.commitFrame();
+
+packets[0].submission.instance.worldMatrix.elements[1][3] = -0;
+writes.length = 0;
+batcher.beginFrame();
+batcher.preparePackets(packets);
+const signed = new Float32Array(arenaWrites()[0].data.buffer, arenaWrites()[0].data.byteOffset, 52);
+assert.ok(Object.is(signed[13], -0), "record reuse preserves float32 signed-zero edits");
+batcher.commitFrame();
+
+packets[1].submission.instance.previousWorldMatrix = undefined;
+packets[1].submission.instance.worldMatrix.elements[0][3] = 5;
+batcher.beginFrame();
+batcher.preparePackets(packets);
+batcher.abortFrame();
+writes.length = 0;
+batcher.beginFrame();
+batcher.preparePackets(packets);
+assert.equal(arenaWrites().length, 0, "aborted pose must not advance history");
+batcher.commitFrame();
+writes.length = 0;
+batcher.beginFrame();
+batcher.preparePackets(packets);
+assert.equal(arenaWrites().length, 1, "previous pose settles after a committed move");
+assert.equal(arenaWrites()[0].data.byteLength, 52 * 4);
+batcher.commitFrame();
+writes.length = 0;
+batcher.beginFrame();
+batcher.preparePackets(packets);
+assert.equal(arenaWrites().length, 0, "settled poses reuse arena data");
+batcher.commitFrame();
+
+writes.length = 0;
+batcher.beginFrame();
+batcher.preparePackets([...packets].reverse());
+assert.equal(arenaWrites()[0].data.byteLength, 2 * 52 * 4, "reordering updates both slots");
+assert.equal(batcher.getDrawState(packets[1], pipeline, geometry, snapshot, "default").firstInstance, 0);
+batcher.commitFrame();
+
+writes.length = 0;
+batcher.beginFrame();
+batcher.preparePackets(Array.from({ length: 300 }, (_, i) => packet(`growth:${i}`, i)));
+assert.equal(arenaWrites()[0].data.byteLength, 300 * 52 * 4, "replacement arenas upload all records");
+batcher.commitFrame();
+batcher.beginFrame();
+batcher.preparePackets([packets[0]]);
+writes.length = 0;
+for (let i = 0; i < 512; i++) {
+	batcher.getDrawState(packet(`lazy-growth:${i}`, i), pipeline, geometry, snapshot, "default");
+}
+const grown = arenaWrites().find(write => write.offset === 0 && write.data.byteLength === 513 * 52 * 4);
+assert.ok(grown, "lazy arena replacement also uploads existing records");
+const grownFloats = new Float32Array(grown.data.buffer, grown.data.byteOffset, 52);
+assert.equal(grownFloats[12], 1, "lazy growth preserves an earlier prepared instance");
 batcher.destroy();
+materialBuffers.destroy();
 console.log("WebGPU static mesh batcher tests passed");

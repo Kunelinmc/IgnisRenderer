@@ -694,7 +694,7 @@ function testDeformationRevisionAndBoundsDirtyPreviousAndCurrentCoverage() {
 }
 
 function testFullFrameBuildSkipsDiffAndRebasesState() {
-	for (const reason of ["camera", "forced", "first", "disabled"]) {
+	for (const reason of ["camera", "forced", "first"]) {
 		const camera = createCamera();
 		let frame = createFrame(camera, [createPacket("old", -0.6, 0.05)], [
 			createDecalPacket("old-decal", -0.6, 0.05),
@@ -719,7 +719,7 @@ function testFullFrameBuildSkipsDiffAndRebasesState() {
 				camera.viewProjectionMatrix = Matrix4.fromTranslation([0.2, 0, 0]);
 			}
 			input.forceFullFrame = reason === "forced";
-			input.incrementalOptions.enabled = reason !== "disabled";
+			input.incrementalOptions.enabled = true;
 			frame = createFrame(camera, [
 				createPacket("old", -0.2, 0.05),
 				createPacket("new", 0.4, 0.05),
@@ -1129,9 +1129,10 @@ function testDirtySignaturesAreSharedOnlyWithinOneBuild() {
 			materialReads.fill(0);
 			matrixReads.fill(0);
 			const result = cache.build(input);
-			assert.deepEqual(materialReads, [1, 1], "hash each unique material once per build");
-			assert.deepEqual(matrixReads, [1, 1], "hash each unique matrix once per build");
-			assert.equal(result.packetRects.size, 3);
+			const hashes = input.incrementalOptions.enabled ? [1, 1] : [0, 0];
+			assert.deepEqual(materialReads, hashes, "hash only when incremental state is needed");
+			assert.deepEqual(matrixReads, hashes, "hash only when incremental state is needed");
+			assert.equal(result.packetRects.size, input.incrementalOptions.enabled ? 3 : 0);
 			return result;
 		};
 		try {
@@ -1155,8 +1156,9 @@ function testDirtySignaturesAreSharedOnlyWithinOneBuild() {
 				}
 				if (enabled) assert.equal(build().dirtyRects.length, 0);
 			}
-			// Disabled preparation still establishes the baseline for direct cache users.
+			// Re-enabling must rebase before comparing against incremental history.
 			input.incrementalOptions.enabled = true;
+			if (!enabled) assert.equal(build().forceFullFrame, true);
 			assert.equal(build().dirtyRects.length, 0);
 			cache.reset();
 			assert.equal(build().forceFullFrame, true);
@@ -1379,7 +1381,93 @@ function testRepeatedValidationDiscardsEarlierSuccesses() {
 	packets.endFrame();
 }
 
+function testDisabledIncrementalRebasesBeforePartialUpdates() {
+	const camera = createCamera();
+	const packet = createPacket("mesh", -0.6, 0.05);
+	const decal = createDecalPacket("decal", -0.5, 0.05);
+	let frame = createFrame(camera, [packet], [decal]);
+	const cache = new PreparedSceneCache();
+	const input = {
+		viewportWidth: 320, viewportHeight: 180, features: createFeatures(),
+		postProcess: createResolvedPostProcess(),
+		incrementalOptions: { ...DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
+			enabled: true, fullFrameFallbackAreaRatio: 1 },
+	};
+	const original = PreparedSceneBuilder.build;
+	PreparedSceneBuilder.build = () => frame;
+	try {
+		cache.build(input);
+		assert.deepEqual(cache.build(input).dirtyRects, []);
+		input.incrementalOptions.enabled = false;
+		for (const x of [-0.2, 0.4]) {
+			frame = createFrame(camera, [createPacket("mesh", x, 0.05)],
+				[createDecalPacket("decal", -x, 0.05)]);
+			const disabled = cache.build(input);
+			assert.equal(disabled.forceFullFrame, true);
+			assert.equal(disabled.packetRects.size, 0, "disabled builds skip projected coverage");
+			assert.equal(disabled.frame.spatialIndex, null, "full frames need no tile index");
+			assert.equal(disabled.dirtyTiles.length,
+				disabled.dirtyTileRows * disabled.dirtyTileColumns);
+		}
+		input.incrementalOptions.enabled = true;
+		const rebased = cache.build(input);
+		assert.equal(rebased.forceFullFrame, true, "re-enable cannot use stale incremental history");
+		assert.ok(rebased.packetRects.size > 0);
+		assert.ok(rebased.frame.spatialIndex);
+		assert.deepEqual(cache.build(input).dirtyRects, []);
+		frame = createFrame(camera, [], frame.decalPackets);
+		const removed = cache.build(input);
+		assert.equal(removed.forceFullFrame, false);
+		for (const rect of rebased.packetRects.values()) {
+			assert.ok(removed.dirtyRects.some(dirty => rectContainsRect(dirty, rect)),
+				"removed packets retain the re-enabled frame coverage");
+		}
+		assert.ok(removed.dirtyTiles.length > 0, "removed mesh coverage is dirty");
+		frame = createFrame(camera, [], []);
+		const removedDecal = cache.build(input);
+		assert.equal(removedDecal.forceFullFrame, false);
+		assert.ok(removedDecal.dirtyTiles.length > 0,
+			"removed decal retains independent re-enabled coverage");
+	} finally {
+		PreparedSceneBuilder.build = original;
+	}
+}
+
+function testOpaqueSortKeepsCompatibleGroupsContiguous() {
+	const camera = createCamera();
+	const material = new Material();
+	const otherMaterial = new Material();
+	material.name = otherMaterial.name = "same-name";
+	const geometryA = {};
+	const geometryB = {};
+	const make = (name, depth, geometry, effective = material) => {
+		const packet = createPacket(name, 0, 0.05);
+		packet.sortDepth = depth;
+		packet.submission.material = { ...packet.submission.material,
+			effective, pipelineKey: "same-pipeline" };
+		packet.submission.geometry = { ...packet.submission.geometry, resourceKey: geometry };
+		return packet;
+	};
+	const a = make("a", 3, geometryA);
+	const z = make("z", 1, geometryA);
+	const m = make("m", 2, geometryB);
+	const duplicateName = make("q", 2, geometryA, otherMaterial);
+	const transparent = [make("near", 1, geometryA), make("far", 3, geometryB)];
+	for (const [input, size] of [[[a, m, z], 3], [[a, m, z, duplicateName], 4],
+		[[z, a, duplicateName, m], 4], [[duplicateName, m, a, z], 4]]) {
+		PreparedSceneBuilder._finalizeViewPackets(input, transparent, camera, [], {});
+		const nearIndex = input.indexOf(z);
+		assert.equal(input[nearIndex + 1], a,
+			"compatible geometry must be contiguous and front-to-back regardless of instance IDs");
+		assert.equal(input.length, size, "all material and geometry groups remain present");
+		assert.deepEqual(transparent.map(packet => packet.sortDepth), [3, 1],
+			"transparent ordering remains back-to-front");
+	}
+}
+
 function run() {
+	testOpaqueSortKeepsCompatibleGroupsContiguous();
+	testDisabledIncrementalRebasesBeforePartialUpdates();
 	testDecalOnlyMemoDoesNotMixOtherDecals();
 	testRepeatedValidationDiscardsEarlierSuccesses();
 	testFallbackConsumesSuccessfulValidationOnce();

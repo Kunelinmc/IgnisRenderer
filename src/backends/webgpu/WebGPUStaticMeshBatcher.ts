@@ -49,6 +49,7 @@ const STATIC_HISTORY_LIMIT = 65_536;
 const IDENTITY_MATRIX = Matrix4.identity();
 
 interface StaticMaterialBindingEntry {
+	lastUsedFrame: number;
 	readonly objectUniformBuffer: IRenderBuffer;
 	readonly bindingGroup: IBindingGroup;
 	readonly materialLease: WebGPUMaterialBufferLease;
@@ -82,6 +83,31 @@ export class WebGPUStaticMeshBatcher {
 	private readonly _objectIds = new WeakMap<object, number>();
 	private _nextObjectId = 1;
 	private _reserved = false;
+	private _arenaRevision = 0;
+	private _bindingRevision = 0;
+	private _slotPacketIds: string[] = [];
+	private _dirtyStart = Infinity;
+	private _dirtyEnd = 0;
+
+	/** @internal Invalidates prepared scene bindings when the frame arena changes. */
+	public get arenaRevision(): number {
+		return this._arenaRevision;
+	}
+
+	/** @internal WebGPU scene preparation observes binding lifetime; use Renderer.renderFrame(). */
+	public get bindingRevision(): number {
+		return this._bindingRevision;
+	}
+
+	/** @internal Returns a prepacked scene instance without allocating or uploading. */
+	public getPreparedInstanceIndex(
+		packet: DrawPacket,
+		geometry: WebGPUGeometryHandle,
+		drawMode: WebGPUDrawPipelineMode,
+	): number | undefined {
+		return this._isEligible(packet, geometry, drawMode)
+			? this._packetIndices.get(packet) : undefined;
+	}
 
 	public constructor(
 		private readonly _backend: WebGPUDeviceResourceHost,
@@ -100,9 +126,13 @@ export class WebGPUStaticMeshBatcher {
 	}
 
 	public beginFrame(): void {
+		this._arenaRevision++;
+		this._evictInactiveMaterialBindings();
 		this._count = 0;
-		this._packetIndices = new Map();
-		this._pendingHistory = new Map();
+		this._packetIndices.clear();
+		this._pendingHistory.clear();
+		this._dirtyStart = Infinity;
+		this._dirtyEnd = 0;
 		this._reserved = false;
 	}
 
@@ -117,12 +147,7 @@ export class WebGPUStaticMeshBatcher {
 		for (const packet of packets) {
 			if (this._isPotentiallyEligible(packet)) this._appendPacket(packet);
 		}
-		if (this._count > 0) {
-			this._backend.writeBuffer(
-				this._instanceBuffer,
-				this._instanceData.subarray(0, this._count * STATIC_INSTANCE_FLOATS) as any,
-			);
-		}
+		this._uploadDirtyInstances();
 	}
 
 	public getDrawState(
@@ -137,14 +162,7 @@ export class WebGPUStaticMeshBatcher {
 		if (firstInstance === undefined) {
 			this._ensureCapacity(this._count + 1);
 			firstInstance = this._appendPacket(packet);
-			this._backend.writeBuffer(
-				this._instanceBuffer,
-				this._instanceData.subarray(
-					firstInstance * STATIC_INSTANCE_FLOATS,
-					(firstInstance + 1) * STATIC_INSTANCE_FLOATS,
-				) as any,
-				firstInstance * STATIC_INSTANCE_FLOATS * 4,
-			);
+			this._uploadDirtyInstances();
 		}
 		const modelBinding = this._getMaterialBinding(snapshot);
 		const batchKey = [
@@ -162,7 +180,9 @@ export class WebGPUStaticMeshBatcher {
 			const offset = instanceIndex * STATIC_INSTANCE_FLOATS;
 			let entry = this._history.get(packetId);
 			if (!entry) entry = { matrix: new Float32Array(16) };
-			entry.matrix.set(this._instanceData.subarray(offset, offset + 16));
+			if (!floatMatrixMatches(this._instanceData, offset, entry.matrix)) {
+				entry.matrix.set(this._instanceData.subarray(offset, offset + 16));
+			}
 			this._history.delete(packetId);
 			this._history.set(packetId, entry);
 		}
@@ -193,6 +213,7 @@ export class WebGPUStaticMeshBatcher {
 	}
 
 	public destroy(): void {
+		this._slotPacketIds = [];
 		this._destroyMaterialBindings();
 		this._instanceBuffer.destroy();
 		this._fallbackUniformBuffer.destroy();
@@ -237,12 +258,30 @@ export class WebGPUStaticMeshBatcher {
 	private _appendPacket(packet: DrawPacket): number {
 		const index = this._count++;
 		this._packetIndices.set(packet, index);
+		this._pendingHistory.set(packet.submission.id, index);
 		const offset = index * STATIC_INSTANCE_FLOATS;
+		const instance = packet.submission.instance;
+		const previous = instance.previousWorldMatrix ? null :
+			this._history.get(packet.submission.id)?.matrix ?? null;
+		if (this._slotPacketIds[index] === packet.submission.id &&
+			matrixMatchesRecord(this._instanceData, offset, instance.worldMatrix) &&
+			(instance.previousWorldMatrix
+				? matrixMatchesRecord(this._instanceData, offset + 16, instance.previousWorldMatrix)
+				: floatMatrixMatches(this._instanceData, offset + 16,
+					previous ?? this._instanceData, previous ? 0 : offset)) &&
+			normalMatchesRecord(this._instanceData, offset + 32, instance.normalMatrix) &&
+			Object.is(this._instanceData[offset + 48], Math.fround(instance.renderLayers >>> 0)) &&
+			this._instanceData[offset + 49] ===
+				((packet.submission.passFlags & DRAW_PACKET_FLAG_SHADOW_RECEIVER) !== 0 ? 1 : 0)) {
+			return index;
+		}
+		this._slotPacketIds[index] = packet.submission.id;
+		this._dirtyStart = Math.min(this._dirtyStart, index);
+		this._dirtyEnd = index + 1;
 		writeMatrix(this._instanceData, offset, packet.submission.instance.worldMatrix);
 		if (packet.submission.instance.previousWorldMatrix) {
 			writeMatrix(this._instanceData, offset + 16, packet.submission.instance.previousWorldMatrix);
 		} else {
-			const previous = this._history.get(packet.submission.id)?.matrix ?? null;
 			if (previous) {
 				this._instanceData.set(previous, offset + 16);
 			} else {
@@ -258,8 +297,19 @@ export class WebGPUStaticMeshBatcher {
 			: 0;
 		this._instanceData[offset + 50] = 0;
 		this._instanceData[offset + 51] = 0;
-		this._pendingHistory.set(packet.submission.id, index);
 		return index;
+	}
+
+	private _uploadDirtyInstances(): void {
+		if (this._dirtyEnd <= this._dirtyStart) return;
+		const offset = this._dirtyStart * STATIC_INSTANCE_FLOATS;
+		this._backend.writeBuffer(
+			this._instanceBuffer,
+			this._instanceData.subarray(offset, this._dirtyEnd * STATIC_INSTANCE_FLOATS) as any,
+			offset * 4,
+		);
+		this._dirtyStart = Infinity;
+		this._dirtyEnd = 0;
 	}
 
 	private _getMaterialBinding(
@@ -267,8 +317,7 @@ export class WebGPUStaticMeshBatcher {
 	): IBindingGroup {
 		const cached = this._materialBindings.get(snapshot.data);
 		if (cached) {
-			this._materialBindings.delete(snapshot.data);
-			this._materialBindings.set(snapshot.data, cached);
+			this._touchMaterialBinding(snapshot.data, cached);
 			return cached.bindingGroup;
 		}
 		const objectUniformData = packObjectUniformData(
@@ -334,20 +383,47 @@ export class WebGPUStaticMeshBatcher {
 			throw error;
 		}
 		this._materialBindings.set(snapshot.data, {
+			lastUsedFrame: this._arenaRevision,
 			objectUniformBuffer,
 			bindingGroup,
 			materialLease,
 		});
+		this._evictInactiveMaterialBindings();
+		return bindingGroup;
+	}
+
+	/**
+	 * @internal WebGPU scene preparation pins a matching live binding for this frame.
+	 * Returns false for an invalidated binding. Public rendering uses Renderer.renderFrame().
+	 */
+	public touchMaterialBinding(data: WebGPUMaterialUniformData, group: IBindingGroup): boolean {
+		const entry = this._materialBindings.get(data);
+		if (!entry || entry.bindingGroup !== group) return false;
+		this._touchMaterialBinding(data, entry);
+		return true;
+	}
+
+	private _touchMaterialBinding(
+		data: WebGPUMaterialUniformData, entry: StaticMaterialBindingEntry,
+	): void {
+		if (entry.lastUsedFrame === this._arenaRevision) return;
+		entry.lastUsedFrame = this._arenaRevision;
+		this._materialBindings.delete(data);
+		this._materialBindings.set(data, entry);
+	}
+
+	private _evictInactiveMaterialBindings(): void {
 		while (this._materialBindings.size > STATIC_MATERIAL_BINDING_LIMIT) {
 			const oldest = this._materialBindings.entries().next().value as
 				| [WebGPUMaterialUniformData, StaticMaterialBindingEntry]
 				| undefined;
 			if (!oldest) break;
+			// Active entries move to the end on first use; no inactive entry follows them.
+			if (oldest[1].lastUsedFrame === this._arenaRevision) break;
 			this._materialBindings.delete(oldest[0]);
 			oldest[1].objectUniformBuffer.destroy();
 			oldest[1].materialLease.release();
 		}
-		return bindingGroup;
 	}
 
 	private _ensureCapacity(required: number): void {
@@ -360,6 +436,10 @@ export class WebGPUStaticMeshBatcher {
 		this._capacity = nextCapacity;
 		this._instanceBuffer.destroy();
 		this._instanceBuffer = this._createInstanceBuffer(nextCapacity);
+		this._arenaRevision++;
+		this._slotPacketIds = [];
+		this._dirtyStart = 0;
+		this._dirtyEnd = this._count;
 		this._destroyMaterialBindings();
 	}
 
@@ -372,6 +452,7 @@ export class WebGPUStaticMeshBatcher {
 	}
 
 	private _destroyMaterialBindings(): void {
+		this._bindingRevision++;
 		for (const entry of this._materialBindings.values()) {
 			entry.objectUniformBuffer.destroy();
 			(entry.bindingGroup as { destroy?: () => void }).destroy?.();
@@ -402,6 +483,41 @@ function getLightingMaterialBinding(
 		case "unlit":
 			throw new Error("Unlit static bindings do not contain a lighting buffer.");
 	}
+}
+
+function matrixMatchesRecord(target: Float32Array, offset: number, matrix: Matrix4): boolean {
+	const source = matrix.elements;
+	for (let column = 0; column < 4; column++) {
+		for (let row = 0; row < 4; row++) {
+			if (!Object.is(target[offset + column * 4 + row], Math.fround(source[row][column]))) {
+				return false;
+			}
+		}
+	}
+	return true;
+}
+
+function floatMatrixMatches(
+	target: Float32Array, offset: number, source: Float32Array, sourceOffset = 0,
+): boolean {
+	for (let i = 0; i < 16; i++) {
+		if (!Object.is(target[offset + i], source[sourceOffset + i])) return false;
+	}
+	return true;
+}
+
+function normalMatchesRecord(
+	target: Float32Array, offset: number, matrix: Matrix4 | Matrix3Arr,
+): boolean {
+	const source = matrix instanceof Matrix4 ? matrix.elements : matrix;
+	for (let column = 0; column < 3; column++) {
+		for (let row = 0; row < 3; row++) {
+			if (!Object.is(target[offset + column * 4 + row], Math.fround(source[row][column]))) {
+				return false;
+			}
+		}
+	}
+	return true;
 }
 
 function writeMatrix(target: Float32Array, offset: number, matrix: Matrix4): void {

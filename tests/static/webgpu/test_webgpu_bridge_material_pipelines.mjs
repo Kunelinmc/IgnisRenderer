@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { MeshInstance } from "../../../src/meshes/MeshInstance.ts";
 import {
 	WebGPUFrameServiceOwner as WebGPURenderResources
 } from "../../../src/backends/webgpu/WebGPUFrameServiceOwner.ts";
@@ -1196,6 +1197,11 @@ async function testFeatureOwnedWarmupCompilesDeferredSceneVariants() {
 
 async function run() {
 	try {
+		await testSharedStaticDrawPreparation();
+		await testRetainedPreparationPinsMaterialBindings();
+		await testReleasedScopeDiscardsDrawPreparation();
+		await testSharedStaticPreparationLifecycle();
+		await testSharedStaticPreparationGeometryReplacement();
 		testWebGPUFrameServiceConstructionDoesNotCompilePipelines();
 		await testWebGPUBlendMaterialsUseTransparentPipelineState();
 		await testWebGPUTransmissionMaterialsUseTransparentPipelineState();
@@ -1224,6 +1230,356 @@ async function run() {
 		} else {
 			globalThis.GPUShaderStage = previousGPUShaderStage;
 		}
+	}
+}
+
+async function testSharedStaticDrawPreparation() {
+	const backend = new FakeBackend();
+	const owner = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
+	const material = new PBRMaterial();
+	const model = createModel([material]);
+	const packets = [createPacket(model), createPacket(new MeshInstance({ mesh: model.mesh }))];
+	const frame = createFrame(packets[0]);
+	frame.opaquePackets = packets;
+	owner.beginFrameResourceLifecycle();
+	const context = createFrameContext(frame, resolveFeatureState({}, {}, "webgpu"));
+	const prepared = owner.prepareFrame(context, createMainFrameOptions());
+	const pipelines = owner._sceneDraws._pipelines;
+	const resolvePipeline = pipelines.resolvePipeline.bind(pipelines);
+	let pipelineCalls = 0;
+	pipelines.resolvePipeline = (request) => {
+		pipelineCalls++;
+		return resolvePipeline(request);
+	};
+	try {
+		const options = { sampleCount: 1 };
+		const first = await owner.getDrawResources(packets[0], prepared, options);
+		const second = owner.getDrawResources(packets[1], prepared, options);
+		if (second instanceof Promise) await second;
+		assert.ok(!(second instanceof Promise), "prepared static hits must be synchronous");
+		assert.equal(pipelineCalls, 1, "shared geometry and material prepare once");
+		assert.notEqual(first[0], second[0], "instance draw wrappers must remain independent");
+		assert.equal(first[0].pipeline, second[0].pipeline);
+		assert.equal(first[0].modelBinding, second[0].modelBinding);
+		assert.notEqual(first[0].firstInstance, second[0].firstInstance);
+		await owner.getDrawResources(packets[1], prepared, { sampleCount: 4 });
+		assert.equal(pipelineCalls, 2, "sample count separates preparation");
+		await owner.getDrawResources(packets[1], prepared, { ...options, drawMode: "early-z-prepass" });
+		assert.equal(pipelineCalls, 3, "pass separates preparation");
+		material.roughness = 0.25;
+		material.refreshRevision();
+		const revised = await owner.getDrawResources(packets[1], prepared, options);
+		assert.equal(pipelineCalls, 4, "material revision invalidates preparation");
+		assert.notEqual(revised[0].resolvedInputs.materialData, first[0].resolvedInputs.materialData);
+		packets[1].submission.geometry.version++;
+		await owner.getDrawResources(packets[1], prepared, options);
+		assert.equal(pipelineCalls, 5, "geometry revision invalidates preparation");
+		pipelines.invalidateShaderRuntimeCaches();
+		await owner.getDrawResources(packets[1], prepared, options);
+		assert.equal(pipelineCalls, 6, "provider invalidation discards prepared pipelines");
+		const auxiliary = { ...prepared };
+		await owner.getDrawResources(packets[1], auxiliary, options);
+		assert.equal(pipelineCalls, 7, "frame scopes must not share preparation");
+		owner.commitTemporalFrame();
+		owner.beginFrameResourceLifecycle();
+		frame.opaquePackets = [packets[1], packets[0]];
+		const nextFrame = owner.prepareFrame(context, createMainFrameOptions());
+		nextFrame.frameBinding = { label: "next-frame-binding" };
+		const nextPreparation = owner.getDrawResources(packets[1], nextFrame, options);
+		const nextDraw = await nextPreparation;
+		assert.ok(!(nextPreparation instanceof Promise), "ready preparation survives frame reset");
+		assert.equal(pipelineCalls, 7, "new frames reuse immutable preparation");
+		assert.equal(nextDraw[0].firstInstance, 0, "reordered instances use current frame indices");
+		assert.equal(nextDraw[0].frameBinding, nextFrame.frameBinding);
+		owner.commitTemporalFrame();
+		material.roughness = 0.5;
+		owner.beginFrameResourceLifecycle();
+		const changedFrame = owner.prepareFrame(context, createMainFrameOptions());
+		const changedDraw = await owner.getDrawResources(packets[1], changedFrame, options);
+		assert.equal(pipelineCalls, 8, "new frames refresh direct built-in material changes");
+		assert.notEqual(changedDraw[0].resolvedInputs.materialData, nextDraw[0].resolvedInputs.materialData);
+		material.alphaMode = AlphaMode.Blend;
+		material.refreshRevision();
+		await owner.getDrawResources(packets[0], nextFrame, options);
+		const transparent = owner.getDrawResources(packets[1], nextFrame, options);
+		assert.ok(transparent instanceof Promise,
+			"transparent draws retain per-instance preparation");
+		await transparent;
+	} finally {
+		owner.destroy();
+	}
+}
+
+async function testSharedStaticPreparationLifecycle() {
+	const backend = new FakeBackend();
+	const owner = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
+	const material = new PBRMaterial();
+	const model = createModel([material]);
+	const packets = [createPacket(model), createPacket(new MeshInstance({ mesh: model.mesh })),
+		createPacket(createModel([material]))];
+	const frame = createFrame(packets[0]);
+	frame.opaquePackets = packets;
+	const context = createFrameContext(frame, resolveFeatureState({}, {}, "webgpu"));
+	owner.beginFrameResourceLifecycle();
+	const prepared = owner.prepareFrame(context, createMainFrameOptions());
+	const options = { sampleCount: 1 };
+	const assembler = owner._drawResourceAssembler;
+	const pipelines = owner._sceneDraws._pipelines;
+	let pipelineCalls = 0;
+	let policyCalls = 0;
+	let fail = false;
+	let gate = null;
+	const provider = {
+		preparationRevision: 0,
+		async resolvePipeline(request) {
+			pipelineCalls++;
+			if (gate) await gate;
+			if (fail) throw new Error("preparation failure");
+			return pipelines.resolvePipeline(request);
+		},
+	};
+	const resolvePolicy = owner._materialPipelineResolver.resolve.bind(owner._materialPipelineResolver);
+	owner._materialPipelineResolver.resolve = (...args) => {
+		policyCalls++;
+		return resolvePolicy(...args);
+	};
+	try {
+		const concurrent = await Promise.all(packets.map((packet) =>
+			assembler.getDrawResources(packet, prepared, options, provider)));
+		assert.equal(pipelineCalls, 2, "concurrent shared geometry requests coalesce");
+		assert.equal(policyCalls, 1, "one material policy serves different geometries");
+		assert.notEqual(concurrent[0][0].firstInstance, concurrent[1][0].firstInstance);
+		await assembler.getDrawResources(packets[0], prepared, options, { ...provider });
+		assert.equal(pipelineCalls, 3, "provider identity separates preparation");
+		const beforeGrowth = concurrent[0][0].modelBinding;
+		owner._staticBatcher._ensureCapacity(512);
+		assert.ok(beforeGrowth.destroyed, "arena growth destroys old static bindings");
+		const afterGrowth = await assembler.getDrawResources(packets[0], prepared, options, provider);
+		assert.notEqual(afterGrowth[0].modelBinding, beforeGrowth);
+		assert.equal(pipelineCalls, 4, "arena replacement rebuilds shared bindings");
+		let runtimeRevision = 0;
+		backend.getShaderRuntimeView = () => ({ revision: runtimeRevision, mode: "strict",
+			directiveCacheTag: "test" });
+		await assembler.getDrawResources(packets[0], prepared, options, provider);
+		runtimeRevision++;
+		await assembler.getDrawResources(packets[0], prepared, options, provider);
+		assert.equal(pipelineCalls, 6, "runtime fingerprint invalidates preparation");
+		assembler.clear();
+		fail = true;
+		await assert.rejects(assembler.getDrawResources(packets[0], prepared, options, provider),
+			/preparation failure/);
+		fail = false;
+		const retry = await assembler.getDrawResources(packets[0], prepared, options, provider);
+		assert.ok(retry, "failed preparation remains retryable");
+		assert.equal(pipelineCalls, 8);
+		assembler.clear();
+		let release;
+		gate = new Promise((resolve) => { release = resolve; });
+		const stale = assembler.getDrawResources(packets[0], prepared, options, provider);
+		// Let material inputs resolve and enter the provider before invalidating it.
+		await Promise.resolve();
+		await Promise.resolve();
+		provider.preparationRevision++;
+		release();
+		assert.equal(await stale, null, "late invalidated pipelines cannot publish draws");
+		gate = null;
+		const fresh = await assembler.getDrawResources(packets[0], prepared, options, provider);
+		assert.ok(fresh);
+		const ready = assembler.getDrawResources(packets[1], prepared, options, provider);
+		assert.ok(!(ready instanceof Promise), "fresh preparation replaces stale work");
+		prepared.frameBinding = { label: "updated-frame" };
+		assert.equal(assembler.getDrawResources(packets[0], prepared, options, provider)[0].frameBinding,
+			prepared.frameBinding, "ready draws use current frame bindings");
+		let releaseFrameGate;
+		let firstEntered;
+		let secondEntered;
+		let entries = 0;
+		const frameGate = new Promise(resolve => { releaseFrameGate = resolve; });
+		const firstStarted = new Promise(resolve => { firstEntered = resolve; });
+		const secondStarted = new Promise(resolve => { secondEntered = resolve; });
+		const resolveFramePipeline = provider.resolvePipeline.bind(provider);
+		provider.resolvePipeline = async request => {
+			if (++entries === 1) firstEntered(); else secondEntered();
+			await frameGate;
+			return resolveFramePipeline(request);
+		};
+		const pendingOldFrame = assembler.getDrawResources(packets[0], prepared,
+			{ sampleCount: 4 }, provider);
+		await firstStarted;
+		assembler.beginFrame();
+		const pendingNewFrame = assembler.getDrawResources(packets[1], prepared,
+			{ sampleCount: 4 }, provider);
+		await secondStarted;
+		releaseFrameGate();
+		const [oldFrameDraw, newFrameDraw] = await Promise.all([pendingOldFrame, pendingNewFrame]);
+		assert.equal(oldFrameDraw, null, "pending work cannot cross the frame boundary");
+		assert.ok(newFrameDraw);
+		const retained = assembler.getDrawResources(packets[1], prepared, { sampleCount: 4 }, provider);
+		if (retained instanceof Promise) await retained;
+		assert.ok(!(retained instanceof Promise), "stale cleanup cannot remove a replacement group");
+	} finally {
+		owner.destroy();
+	}
+}
+
+async function testSharedStaticPreparationGeometryReplacement() {
+	const backend = new FakeBackend();
+	const owner = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
+	const model = createModel([new PBRMaterial()]);
+	const packets = [createPacket(model), createPacket(new MeshInstance({ mesh: model.mesh }))];
+	const frame = createFrame(packets[0]);
+	frame.opaquePackets = packets;
+	owner.beginFrameResourceLifecycle();
+	const prepared = owner.prepareFrame(createFrameContext(frame,
+		resolveFeatureState({}, {}, "webgpu")), createMainFrameOptions());
+	const assembler = owner._drawResourceAssembler;
+	const registry = owner._geometryRegistry;
+	const pipelines = owner._sceneDraws._pipelines;
+	const options = { sampleCount: 1 };
+	let release;
+	let entered;
+	const gate = new Promise((resolve) => { release = resolve; });
+	const started = new Promise((resolve) => { entered = resolve; });
+	const provider = {
+		preparationRevision: 0,
+		async resolvePipeline(request) {
+			entered();
+			await gate;
+			return pipelines.resolvePipeline(request);
+		},
+	};
+	try {
+		const oldHandle = registry.getGeometry(packets[0].submission.geometry);
+		const old = assembler.getDrawResources(packets[0], prepared, options, provider);
+		await started;
+		packets[1].submission.geometry.version++;
+		const fresh = assembler.getDrawResources(packets[1], prepared, options, provider);
+		assert.ok(oldHandle.indexBuffer.destroyed);
+		release();
+		const [oldDraw, freshDraw] = await Promise.all([old, fresh]);
+		assert.equal(oldDraw, null, "shared geometry replacement discards waiting draws");
+		assert.ok(!freshDraw[0].indexBuffer.destroyed);
+		assembler.clear();
+		let releaseAgain;
+		let enteredAgain;
+		const gateAgain = new Promise((resolve) => { releaseAgain = resolve; });
+		const startedAgain = new Promise((resolve) => { enteredAgain = resolve; });
+		provider.resolvePipeline = async (request) => {
+			enteredAgain();
+			await gateAgain;
+			return pipelines.resolvePipeline(request);
+		};
+		const released = assembler.getDrawResources(packets[1], prepared, options, provider);
+		await startedAgain;
+		registry.releaseGeometry(packets[1].submission.geometry);
+		releaseAgain();
+		assert.equal(await released, null, "released geometry cannot publish waiting draws");
+	} finally {
+		owner.destroy();
+	}
+}
+
+function createStaticPreparationFixture() {
+	const backend = new FakeBackend();
+	const owner = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
+	const packet = createPacket(createModel([new PBRMaterial()]));
+	const frame = createFrame(packet);
+	const context = createFrameContext(frame, resolveFeatureState({}, {}, "webgpu"));
+	owner.beginFrameResourceLifecycle();
+	const prepared = owner.prepareFrame(context, createMainFrameOptions());
+	return { owner, packet, context, prepared };
+}
+
+async function testReleasedScopeDiscardsDrawPreparation() {
+	const { owner, packet, context, prepared } = createStaticPreparationFixture();
+	let release;
+	let entered;
+	const gate = new Promise(resolve => { release = resolve; });
+	const started = new Promise(resolve => { entered = resolve; });
+	const provider = {
+		preparationRevision: 0,
+		async resolvePipeline(request) {
+			entered();
+			await gate;
+			return owner._sceneDraws._pipelines.resolvePipeline(request);
+		},
+	};
+	const assembler = owner._drawResourceAssembler;
+	try {
+		const stale = assembler.getDrawResources(packet, prepared, { sampleCount: 1 }, provider);
+		await started;
+		owner.releaseScope(prepared.scopeKey);
+		const replacement = owner.prepareFrame(context, createMainFrameOptions());
+		const fresh = assembler.getDrawResources(packet, replacement, { sampleCount: 1 }, provider);
+		release();
+		const [oldDraw, newDraw] = await Promise.all([stale, fresh]);
+		assert.equal(oldDraw, null, "released scopes cannot publish waiting draws");
+		assert.equal(newDraw[0].frameBinding, replacement.frameBinding);
+		assert.equal(assembler.getDrawResources(packet, prepared, { sampleCount: 1 }, provider), null,
+			"old scope bindings cannot be reused after replacement");
+		let publish;
+		let enteredPublication;
+		const publicationGate = new Promise(resolve => { publish = resolve; });
+		const publicationStarted = new Promise(resolve => { enteredPublication = resolve; });
+		const publicationProvider = {
+			preparationRevision: 0,
+			resolvePipeline() {
+				enteredPublication();
+				return publicationGate;
+			},
+		};
+		const late = assembler.getDrawResources(packet, replacement,
+			{ sampleCount: 1 }, publicationProvider);
+		await publicationStarted;
+		publish(newDraw[0].pipeline);
+		queueMicrotask(() => owner.releaseScope(replacement.scopeKey));
+		assert.equal(await late, null, "scope release between promise reactions prevents publication");
+	} finally {
+		owner.destroy();
+	}
+}
+
+async function testRetainedPreparationPinsMaterialBindings() {
+	const { owner, packet, context, prepared } = createStaticPreparationFixture();
+	try {
+		const draws = await owner.getDrawResources(packet, prepared, { sampleCount: 1 });
+		const inputs = draws[0].resolvedInputs;
+		const snapshot = { revision: 0, data: inputs.materialData,
+			textures: inputs.textures, samplers: inputs.samplers };
+		const batcher = owner._staticBatcher;
+		const geometry = owner._geometryRegistry.getGeometry(packet.submission.geometry);
+		const hotBuffer = batcher._materialBindings.get(snapshot.data).objectUniformBuffer;
+		const fillers = Array.from({ length: 4095 }, () => ({ ...snapshot,
+			data: { ...snapshot.data } }));
+		for (const filler of fillers) {
+			batcher.getDrawState(packet, draws[0].pipeline, geometry, filler, "default");
+		}
+		owner.commitTemporalFrame();
+		owner.beginFrameResourceLifecycle();
+		const next = owner.prepareFrame(context, createMainFrameOptions());
+		const ready = owner.getDrawResources(packet, next, { sampleCount: 1 });
+		await ready;
+		assert.ok(!(ready instanceof Promise));
+		batcher.getDrawState(packet, draws[0].pipeline, geometry,
+			{ ...snapshot, data: { ...snapshot.data } }, "default");
+		assert.equal(hotBuffer.destroyed, false, "a retained current-frame binding must stay alive");
+		for (const filler of fillers) {
+			batcher.getDrawState(packet, draws[0].pipeline, geometry, filler, "default");
+		}
+		assert.equal(hotBuffer.destroyed, false, "active bindings remain alive during cache overflow");
+		owner.commitTemporalFrame();
+		owner.beginFrameResourceLifecycle();
+		assert.ok(batcher.getDebugStats().materialBindings <= 4096,
+			"inactive overflow is trimmed at the next frame boundary");
+		const newPacket = createPacket(createModel([new PBRMaterial()]));
+		const newContext = createFrameContext(createFrame(newPacket),
+			resolveFeatureState({}, {}, "webgpu"));
+		const newPrepared = owner.prepareFrame(newContext, createMainFrameOptions());
+		const freshMaterialDraw = await owner.getDrawResources(newPacket, newPrepared,
+			{ sampleCount: 1 });
+		assert.ok(freshMaterialDraw, "evicting another inactive material must not discard a fresh draw");
+	} finally {
+		owner.destroy();
 	}
 }
 

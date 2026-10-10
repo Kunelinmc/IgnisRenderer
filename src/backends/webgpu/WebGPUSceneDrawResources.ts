@@ -4,7 +4,7 @@ import { toShaderCompileError } from "../../pipeline/WarmupPlanner";
 import type { WebGPUDrawResourceAssembler } from "./WebGPUDrawResourceAssembler";
 import type {
 	WebGPUDrawResourceOptions,
-	WebGPUDrawResources,
+	WebGPUDrawResourceResult,
 	WebGPUPreparedFrameResources,
 } from "./WebGPUResourceContracts";
 import type { WebGPUScenePipelineResources } from "./WebGPUScenePipelineResources";
@@ -34,7 +34,7 @@ export class WebGPUSceneDrawResources
 		packet: DrawPacket,
 		frameResources: WebGPUPreparedFrameResources,
 		options: WebGPUDrawResourceOptions,
-	): Promise<WebGPUDrawResources[] | null> {
+	): WebGPUDrawResourceResult {
 		return this._assembler.getDrawResources(
 			packet,
 			frameResources,

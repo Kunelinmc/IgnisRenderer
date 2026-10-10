@@ -15,7 +15,7 @@ import type {
 	WebGPUDrawPipelineProvider,
 	WebGPUDrawPipelineRequest,
 	WebGPUDrawResourceOptions,
-	WebGPUDrawResources,
+	WebGPUDrawResourceResult,
 	WebGPUPreparedFrameResources,
 } from "./WebGPUResourceContracts";
 
@@ -49,7 +49,7 @@ export class WebGPUPlanarReflectionDrawResources
 		packet: DrawPacket,
 		frameResources: WebGPUPreparedFrameResources,
 		options: WebGPUDrawResourceOptions,
-	): Promise<WebGPUDrawResources[] | null> {
+	): WebGPUDrawResourceResult {
 		return this._draws.getDrawResources(packet, frameResources, options, this);
 	}
 

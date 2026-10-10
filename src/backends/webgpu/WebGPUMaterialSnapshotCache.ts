@@ -43,11 +43,7 @@ export class WebGPUMaterialSnapshotCache {
 		material: Material,
 		wireframe: boolean,
 	): Promise<WebGPUResolvedMaterialSnapshot> {
-		if (material instanceof ShaderMaterial || !this._refreshedMaterials.has(material)) {
-			material.refreshRevision();
-			this._refreshedMaterials.add(material);
-		}
-		const revision = material._getRevisionInternal();
+		const revision = this.refreshMaterialRevision(material);
 		let variants = this._entries.get(material);
 		if (!variants) {
 			variants = [null, null];
@@ -70,6 +66,18 @@ export class WebGPUMaterialSnapshotCache {
 			if (current?.[variantIndex] === entry) current[variantIndex] = null;
 		});
 		return promise;
+	}
+
+	/**
+	 * @internal Material preparation refreshes built-in inputs once per frame;
+	 * consumers should use `Material.revision` to observe material changes.
+	 */
+	public refreshMaterialRevision(material: Material): number {
+		if (material instanceof ShaderMaterial || !this._refreshedMaterials.has(material)) {
+			material.refreshRevision();
+			this._refreshedMaterials.add(material);
+		}
+		return material._getRevisionInternal();
 	}
 
 	public clear(): void {

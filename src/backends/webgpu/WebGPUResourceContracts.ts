@@ -79,6 +79,10 @@ export interface WebGPUDrawResources {
 	resolvedInputs: WebGPUResolvedDrawInputs;
 }
 
+/** @internal Ready scene preparation is synchronous; unresolved work remains awaitable. */
+export type WebGPUDrawResourceResult =
+	WebGPUDrawResources[] | null | Promise<WebGPUDrawResources[] | null>;
+
 /** @internal Immutable inputs accepted by a feature-owned draw pipeline provider. */
 export interface WebGPUDrawPipelineRequest {
 	readonly materialState: WebGPUMaterialPipelineState;
@@ -93,6 +97,8 @@ export interface WebGPUDrawPipelineRequest {
 
 /** @internal Feature-owned pipeline selection used by shared draw preparation. */
 export interface WebGPUDrawPipelineProvider {
+	/** @internal Revision of provider-owned pipelines; omission disables preparation reuse. */
+	readonly preparationRevision?: number;
 	resolvePipeline(
 		request: WebGPUDrawPipelineRequest,
 	): Promise<IRenderPipeline | null>;
@@ -187,7 +193,7 @@ export interface WebGPUSceneResourceProvider {
 		packet: DrawPacket,
 		frameResources: WebGPUPreparedFrameResources,
 		options: WebGPUDrawResourceOptions,
-	): Promise<WebGPUDrawResources[] | null>;
+	): WebGPUDrawResourceResult;
 	getEnvironmentResources(
 		frameResources: WebGPUPreparedFrameResources,
 		sceneTargetMode: WebGPUSceneTargetMode,
