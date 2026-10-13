@@ -107,6 +107,23 @@ WebGPU scene, planar-reflection composite, and shadow vertex stages share
 morph and skinning logic through `common/animation.wgsl`. Each consumer owns
 its bindings and pose selection; the shadow variant evaluates positions only.
 
+Built-in WebGPU depth prepasses also evaluate current positions only. Their
+camera, geometry, and alpha-coverage bindings are prepared independently from
+scene lighting materials. `WebGPUDrawResourceCache` owns object transform history,
+scene and depth model bindings, material snapshots, and shared material buffers
+under one frame lifecycle. Each draw record owns its transform history, fixed
+solid/wireframe binding slots, and depth binding. They share one usage frame and
+whole-record eviction. Object updates compare current inputs with the packed
+uniform payload and retain only the previous transform as separate history.
+Each material record tracks revision refresh and its solid/wireframe snapshots;
+each resolved material record holds its snapshot inputs and lazy GPU buffer set.
+Scene and static bindings hold the record directly; the draw resource cache owns
+reference counting and disposal. Animation buffers remain
+borrowed from `WebGPUAnimationPayloadPool`.
+Prepared draw commands carry explicit binding slots so submission does not
+assume that group `2` always contains lighting resources. Custom depth shaders
+continue to use the scene material ABI.
+
 Directive profiles follow the same ownership boundary. Prepared static bases
 provide asset-backed include modules, while each backend instance contributes a
 capability-resolved overlay. Backend material compilers may add structured

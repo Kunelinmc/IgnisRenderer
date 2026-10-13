@@ -518,6 +518,7 @@ async function testWebGPUAnimationConsumers() {
 	// Reuse one compile stage to catch position-only defines leaking between jobs.
 	for (const key of [
 		"webgpu.shadow.depth",
+		"webgpu.scene.depth",
 		"webgpu.scene",
 		"webgpu.utility.planarReflectionComposite",
 		"webgpu.shadow.depth",
@@ -547,17 +548,28 @@ async function testWebGPUAnimationConsumers() {
 		assert.ok(compact.includes("deltaIndex+2u<morphDeltaCount"));
 		assert.ok(compact.includes("matrixIndex>=matrixCount"));
 		assert.ok(compact.includes("weightSum<=EPSILON"));
+		// Depth must match scene rounding: multiply by the reciprocal after summing weights.
+		// Resolve the final position expression through any shared intermediate variable.
+		const locals = new Map([...compact.matchAll(/let(\w+)=([^;]+);/g)]
+			.map((match) => [match[1], match[2]]));
+		let normalizedPosition = [...compact.matchAll(/returnSkinnedVertex\(([^,]+),/g)]
+			.at(-1)[1];
+		while (locals.has(normalizedPosition)) normalizedPosition = locals.get(normalizedPosition);
+		normalizedPosition = normalizedPosition.replace(/\b\w+\b/g,
+			(name) => locals.has(name) ? `(${locals.get(name)})` : name);
+		assert.equal(normalizedPosition, "skinnedPosition*(1.0/weightSum)",
+			`${key} must preserve scene skinning position arithmetic`);
 
-		if (key === "webgpu.shadow.depth") {
-			// Shadows have no normal-delta binding or direction-normalization helper.
+		if (key === "webgpu.shadow.depth" || key === "webgpu.scene.depth") {
+			// Depth and shadows have no normal-delta binding or direction-normalization helper.
 			assert.doesNotMatch(code, /\b(?:morphNormalDeltas|safeNormalize)\b/);
 			assert.doesNotMatch(code, /\b(?:skinnedNormal|skinnedTangent)\b/);
-			assert.ok(compact.includes(
+			if (key === "webgpu.shadow.depth") assert.ok(compact.includes(
 				"applyMorphDeltas(input.position,vec3<f32>(0.0),localVertexIndex," +
 				"morphTargetCount,morphWeightOffset,instanceData.morphDeltaBaseOffset," +
 				"animationParams.vertexCount,animationParams.morphSemanticMask)",
 			));
-			assert.ok(compact.includes(
+			if (key === "webgpu.shadow.depth") assert.ok(compact.includes(
 				"applySkinning(morphed.position,vec3<f32>(0.0),vec3<f32>(0.0)," +
 				"joints,weights,jointCount,jointOffset)",
 			));

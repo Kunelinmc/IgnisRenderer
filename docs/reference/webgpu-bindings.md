@@ -66,7 +66,7 @@ The following pipeline layouts must preserve these bind group roles:
 | --- | --- | --- | --- | --- |
 | `scenePipelineLayout` | `sceneFrameBindGroupLayout` | `modelBindGroupLayout` | `clusteredSceneBindGroupLayout` | N/A |
 | `sceneGBufferPipelineLayout` | `sceneFrameBindGroupLayout` | `modelBindGroupLayout` | `clusteredSceneBindGroupLayout` | `gbufferWriteBindGroupLayout` |
-| `sceneDepthPrepassPipelineLayout` | `sceneFrameBindGroupLayout` | `modelBindGroupLayout` | `clusteredSceneBindGroupLayout` | N/A |
+| `sceneDepthPrepassPipelineLayout` | `depthFrameBindGroupLayout` | `depthModelBindGroupLayout` | `depthMaterialBindGroupLayout` | N/A |
 | `deferredLightingPipelineLayout` | `sceneFrameBindGroupLayout` | `deferredUnusedBindGroupLayout` | `clusteredSceneBindGroupLayout` | `gbufferReadBindGroupLayout` |
 | `environmentPipelineLayout` | `environmentFrameBindGroupLayout` | N/A | N/A | N/A |
 | `particlePipelineLayout` | `sceneFrameBindGroupLayout` | `particleBindGroupLayout` | N/A | N/A |
@@ -99,6 +99,13 @@ The following pipeline layouts must preserve these bind group roles:
 | `3` | `environmentBackground` | Environment background uniform buffer |
 
 ### `modelBindGroupLayout` - `group(1)`
+
+`WebGPUDrawResourceCache` stores solid, wireframe, and depth model binding slots
+with their draw-owned object history. Bindings hold material resource records
+directly, and the cache manages references to shared common, lighting, and custom
+shader uniform buffers. A new material revision gets a
+distinct buffer set; replaced bindings retain the previous set until the next
+frame boundary.
 
 | Binding | Shader name | Resource contract |
 | --- | --- | --- |
@@ -158,9 +165,39 @@ binding `36` must migrate to binding `39`.
 Every model bind-group layout contains the common bindings through `41`,
 subject to the existing sparse sampler entries. It additionally contains
 exactly one of bindings `42..44` for PBR, Phong/Gouraud, or Flat. The Unlit
-layout contains no lighting-model binding. Scene, G-buffer, Early-Z, and planar
-pipeline layouts must select the same family layout as the draw binding they
-consume.
+layout contains no lighting-model binding. Scene, G-buffer, planar, and custom
+`ShaderMaterial` depth pipeline layouts select the same family layout as the
+draw binding they consume. Built-in Early-Z uses the independent layout below.
+
+### Built-in depth prepass bindings
+
+The single `sceneDepthPrepassPipelineLayout` is shared across shading families.
+Its camera, object, animation, and static-instance buffers preserve the scene
+ABI offsets and storage strides while the depth shader reads current positions
+only. `WebGPUDrawResourceCache` shares dynamic object buffers between scene and
+depth bindings. `WebGPUStaticMeshBatcher` owns the static control uniform and
+instance arena independently of material bindings.
+
+| Group | Binding | Resource |
+| --- | --- | --- |
+| `0` | `0` | Shared `FrameCameraUniforms` camera buffer |
+| `1` | `0` | Shared `ObjectUniforms` draw or static control buffer |
+| `1` | `34` | `AnimationParams` |
+| `1` | `35` | Joint matrices storage buffer |
+| `1` | `36` | Morph weights storage buffer |
+| `1` | `37` | Morph position deltas storage buffer |
+| `1` | `40` | Static instance arena storage buffer |
+| `2` | `0` | 48-byte `DepthMaterialUniforms` |
+| `2` | `1` | Base-color texture sampled for alpha |
+| `2` | `2` | Base-color filtering sampler |
+
+`DepthMaterialUniforms` contains three `vec4<f32>` values: `params` stores
+alpha factor and cutoff in its first two lanes; `transformA` stores offset and
+scale; `transformB` stores rotation and UV-set index in its first two lanes.
+Opaque draws use shared neutral material bindings and have no fragment stage.
+MASK draws resolve only the base texture and alpha coverage data. The depth
+binding and material caches retain replaced bindings through the current frame.
+Custom shader depth draws retain the scene model ABI and family scene layouts.
 
 ### `clusteredSceneBindGroupLayout` - `group(2)`
 

@@ -11,13 +11,17 @@ import {
 	resolveWebGPUScenePassDescriptor,
 } from "../../../src/backends/webgpu/WebGPUScenePassDescriptors.ts";
 import { resolveWebGPUPlanarReflectionPassDescriptor } from "../../../src/backends/webgpu/WebGPUPlanarReflectionPassDescriptor.ts";
+import { WebGPUDirtyRectResolver } from "../../../src/backends/webgpu/rendergraph/WebGPUDirtyRectResolver.ts";
+import { PreparedSceneTileSpatialIndex } from "../../../src/pipeline/PreparedSceneSpatialIndex.ts";
 
 function createDrawResource(id) {
 	return {
 		pipeline: { id: `pipeline-${id}` },
-		frameBinding: { id: `frame-${id}` },
-		modelBinding: { id: `model-${id}` },
-		clusteredBinding: { id: `clustered-${id}` },
+		bindings: [
+			{ slot: 0, group: { id: `frame-${id}` } },
+			{ slot: 1, group: { id: `model-${id}` } },
+			{ slot: 2, group: { id: `clustered-${id}` } },
+		],
 		vertexBuffer: { id: `vertex-${id}` },
 		indexBuffer: { id: `index-${id}` },
 		indexCount: 3,
@@ -118,6 +122,120 @@ async function testFiveThousandStaticDrawsCollapseToEightBatches() {
 	assert.equal(result.submittedPacketIds.size, 5_000);
 }
 
+async function submitStaticFixture(draws, options = {}) {
+	const encoder = createEncoder();
+	const packets = draws.map((_, index) => drawPacket(`instance:${index}`));
+	const shared = new Map();
+	const prepared = new Map(packets.map((packet, index) => {
+		const entry = draws[index];
+		if (!entry) return [packet, null];
+		const [key, firstInstance] = entry;
+		if (!shared.has(key)) shared.set(key, createDrawResource(key ?? "dynamic"));
+		return [packet, [{ ...shared.get(key), staticBatchKey: key, firstInstance }]];
+	}));
+	const result = await submitWebGPUDraws({
+		encoder,
+		resources: {},
+		frameResources: createFrameResources(),
+		packets,
+		preparedResources: prepared,
+		resolveDrawOptions() {
+			throw new Error("Prepared fixture must not resolve draw options.");
+		},
+		...options,
+	});
+	return { result, calls: encoder.calls };
+}
+
+async function testStaticBatchSplitReasonsPreserveDrawCommands() {
+	const cases = [
+		{ name: "empty", draws: [], splits: [0, 0], commands: [] },
+		{
+			name: "contiguous range",
+			draws: [["A", 0], ["A", 1]], splits: [0, 0], commands: [[2, 0]],
+		},
+		{
+			name: "gap after merged range",
+			draws: [["A", 0], ["A", 1], ["A", 3], ["A", 4]],
+			splits: [0, 1], commands: [[2, 0], [2, 3]],
+		},
+		{
+			name: "duplicate index",
+			draws: [["A", 0], ["A", 0]], splits: [0, 1], commands: [[1, 0], [1, 0]],
+		},
+		{
+			name: "descending index",
+			draws: [["A", 2], ["A", 0]], splits: [0, 1], commands: [[1, 2], [1, 0]],
+		},
+		{
+			name: "first batch of another key is not a split",
+			draws: [["A", 0], ["B", 1]], splits: [0, 0], commands: [[1, 0], [1, 1]],
+		},
+		{
+			name: "non-adjacent key with contiguous indices",
+			draws: [["A", 0], ["B", 8], ["A", 1]],
+			splits: [1, 0], commands: [[1, 0], [1, 8], [1, 1]],
+		},
+		{
+			name: "non-adjacency takes precedence over an index gap",
+			draws: [["A", 0], ["B", 1], ["A", 2], ["A", 3]],
+			splits: [1, 0], commands: [[1, 0], [1, 1], [2, 2]],
+		},
+		{
+			name: "each later run counts once",
+			draws: [["A", 0], ["A", 2], ["B", 3], ["A", 4], ["B", 5]],
+			splits: [2, 1], commands: [[1, 0], [1, 2], [1, 3], [1, 4], [1, 5]],
+		},
+		{
+			name: "dynamic draw separates static batches",
+			draws: [["A", 0], [undefined, 0], ["A", 1]],
+			splits: [1, 0], commands: [[1, 0], [1, 0], [1, 1]],
+		},
+		{
+			name: "skipped draw does not separate commands",
+			draws: [["A", 0], null, ["A", 1]], splits: [0, 0], commands: [[2, 0]],
+		},
+	];
+	for (const { name, draws, splits, commands } of cases) {
+		const { result, calls } = await submitStaticFixture(draws);
+		assert.deepEqual(result.staticBatching, {
+			nonAdjacentKeySplits: splits[0],
+			nonContiguousInstanceSplits: splits[1],
+		}, name);
+		assert.equal(result.drawCount, commands.length, name);
+		assert.deepEqual(
+			calls.filter((call) => call[0] === "drawIndexed")
+				.map((call) => [call[2], call[5]]),
+			commands,
+			name,
+		);
+	}
+}
+
+async function testStaticBatchSplitsAreLocalToEachDirtyRectangle() {
+	const { result, calls } = await submitStaticFixture(
+		[["A", 0], ["B", 1], ["A", 2], ["A", 3]],
+		{
+			dirtyRects: [
+				{ x: 0, y: 0, width: 8, height: 8 },
+				{ x: 8, y: 0, width: 8, height: 8 },
+				{ x: 16, y: 0, width: 8, height: 8 },
+			],
+			selectPacketsForRect: (packets, rect) => rect.x === 0
+				? packets : rect.x === 8 ? [packets[0], packets[2], packets[3]] : [],
+		},
+	);
+	assert.deepEqual(result.staticBatching, {
+		nonAdjacentKeySplits: 1,
+		nonContiguousInstanceSplits: 1,
+	});
+	assert.equal(result.drawCount, 5);
+	assert.deepEqual(
+		calls.filter((call) => call[0] === "drawIndexed").map((call) => [call[2], call[5]]),
+		[[1, 0], [1, 1], [2, 2], [1, 0], [2, 2]],
+	);
+}
+
 function createFrameResources() {
 	return {
 		scopeKey: "test",
@@ -127,6 +245,81 @@ function createFrameResources() {
 		environmentBinding: { id: "environment" },
 		clusteredSceneBinding: { id: "clustered" },
 	};
+}
+
+function createSpatialContext(opaquePackets, transparentPackets, packetRects) {
+	return { scene: {
+		opaquePackets, transparentPackets,
+		spatialIndex: new PreparedSceneTileSpatialIndex({
+			viewportWidth: 100, viewportHeight: 100, tileSize: 16,
+			opaquePackets, transparentPackets, packetRects,
+		}),
+	} };
+}
+
+function testDirtyRectSelectionPreservesCallerSubsetAndOrder() {
+	const inside = drawPacket("inside");
+	const outside = drawPacket("outside");
+	const fallback = drawPacket("unknown-bounds");
+	const transparentInside = drawPacket("transparent-inside");
+	const transparentOutside = drawPacket("transparent-outside");
+	const transient = drawPacket("transient-not-indexed");
+	const rect = { x: 0, y: 0, width: 20, height: 20 };
+	const away = { x: 70, y: 70, width: 10, height: 10 };
+	const opaque = [inside, outside, fallback];
+	const transparent = [transparentInside, transparentOutside];
+	const context = createSpatialContext(opaque, transparent, new Map([
+		[inside.submission.id, rect], [outside.submission.id, away],
+		[transparentInside.submission.id, rect], [transparentOutside.submission.id, away],
+	]));
+	const cases = [
+		{ packets: opaque, expected: [inside, fallback] },
+		{ packets: opaque.slice(), expected: [inside, fallback] },
+		{ packets: transparent, expected: [transparentInside] },
+		{ packets: transparent.slice(), expected: [transparentInside] },
+		{ packets: [fallback, outside], expected: [fallback] },
+		{ packets: [outside], expected: [] },
+		{ packets: [], expected: [] },
+		{
+			packets: [transparentOutside, fallback, transparentInside, inside, transient, outside, inside],
+			expected: [fallback, transparentInside, inside, transient, inside],
+		},
+	];
+	for (const { packets, expected } of cases) {
+		const before = packets.slice();
+		assert.deepEqual(WebGPUDirtyRectResolver.selectPacketsForRect(context, packets, rect), expected);
+		assert.deepEqual(packets, before, "Selection must not mutate the caller's candidates.");
+	}
+	assert.deepEqual(WebGPUDirtyRectResolver.selectPacketsForRect(
+		{ scene: { ...context.scene, spatialIndex: null } }, [outside, transient], rect,
+	), [outside, transient]);
+}
+
+async function testCopiedOpaqueDirtyRectsDoNotBatchExcludedInstances() {
+	const packets = [drawPacket("left-a"), drawPacket("right"), drawPacket("left-b")];
+	const rect = { x: 0, y: 0, width: 20, height: 20 };
+	const context = createSpatialContext(packets, [], new Map([
+		["left-a", rect], ["right", { x: 70, y: 70, width: 10, height: 10 }], ["left-b", rect],
+	]));
+	const shared = createDrawResource("shared");
+	const encoder = createEncoder();
+	const result = await submitWebGPUDraws({
+		encoder, resources: {}, frameResources: createFrameResources(), packets: packets.slice(),
+		preparedResources: new Map(packets.map((packet, firstInstance) => [packet, [{
+			...shared, staticBatchKey: "shared", firstInstance,
+		}]])),
+		dirtyRects: [rect],
+		selectPacketsForRect: (candidates, dirtyRect) =>
+			WebGPUDirtyRectResolver.selectPacketsForRect(context, candidates, dirtyRect),
+		resolveDrawOptions() { throw new Error("Prepared draws must be reused."); },
+	});
+	assert.deepEqual([...result.submittedPacketIds], ["left-a", "left-b"]);
+	assert.deepEqual(result.staticBatching, {
+		nonAdjacentKeySplits: 0, nonContiguousInstanceSplits: 1,
+	});
+	assert.deepEqual(encoder.calls.filter((call) => call[0] === "drawIndexed"), [
+		["drawIndexed", 3, 1, 0, 0, 0], ["drawIndexed", 3, 1, 0, 0, 2],
+	]);
 }
 
 async function testDefaultSubmissionFiltersDirtyRectsAndTracksPackets() {
@@ -217,8 +410,7 @@ async function testSubmissionSupportsExtraAndReplacementBindings() {
 		packets: [drawPacket("planar")],
 		resolveDrawOptions: () => ({ sampleCount: 1 }),
 		resolveBindings: (draw) => [
-			{ slot: 0, group: draw.frameBinding },
-			{ slot: 1, group: draw.modelBinding },
+			...draw.bindings.filter((binding) => binding.slot < 2),
 			{ slot: 2, group: { id: "reflection-texture" } },
 		],
 	});
@@ -341,5 +533,9 @@ await testSubmissionReusesPreparedResourcesAcrossDirtyRects();
 await testEmptyDirtyRectsUseFullFramePreparation();
 await testStaticDrawsMergeContiguousInstanceRanges();
 await testFiveThousandStaticDrawsCollapseToEightBatches();
+await testStaticBatchSplitReasonsPreserveDrawCommands();
+await testStaticBatchSplitsAreLocalToEachDirtyRectangle();
+testDirtyRectSelectionPreservesCallerSubsetAndOrder();
+await testCopiedOpaqueDirtyRectsDoNotBatchExcludedInstances();
 testScenePassDescriptorsExposePipelineStateKeyParts();
 console.log("WebGPU draw submission tests passed");

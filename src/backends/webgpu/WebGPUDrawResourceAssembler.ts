@@ -1,11 +1,13 @@
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
 import { Logger } from "../../foundation/Logger";
 import type { Material } from "../../materials/Material";
+import { ShaderMaterial } from "../../materials/ShaderMaterial";
 import type { DrawPacket } from "../../pipeline/types";
 import type { WebGPUAnimationPayloadPool } from "./WebGPUAnimationPayloadPool";
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
 import type { WebGPUGeometryHandle, WebGPUGeometryRegistry } from "./WebGPUGeometryRegistry";
-import type { WebGPUMaterialBindingCache } from "./WebGPUMaterialBindingCache";
+import type { WebGPUDepthMaterialResources } from "./WebGPUDepthMaterialResources";
+import type { WebGPUMaterialUniformData } from "./types";
 import {
 	readWebGPUShaderRuntimeView,
 	type WebGPUMaterialPipelinePurpose,
@@ -13,16 +15,15 @@ import {
 	type WebGPUMaterialPipelineState,
 	type WebGPUShaderRuntimeView,
 } from "./WebGPUMaterialPipelineResolver";
+import type { WebGPUDrawResourceCache } from "./WebGPUDrawResourceCache";
 import type {
-	WebGPUMaterialSnapshotCache,
-	WebGPUResolvedMaterialSnapshot,
-} from "./WebGPUMaterialSnapshotCache";
-import type {
+	WebGPUMaterialResource,
 	WebGPUDrawPipelineProvider,
 	WebGPUDrawResourceOptions,
 	WebGPUDrawResources,
 	WebGPUDrawResourceResult,
 	WebGPUPreparedFrameResources,
+	WebGPUResolvedDrawInputs,
 } from "./WebGPUResourceContracts";
 import {
 	resolveWebGPUScenePassDescriptor,
@@ -35,7 +36,7 @@ interface SharedMaterialPreparation {
 	validatedEpoch: number;
 	readonly revision: number;
 	readonly inputs: Promise<{
-		snapshot: WebGPUResolvedMaterialSnapshot;
+		snapshot: WebGPUMaterialResource;
 		state: WebGPUMaterialPipelineState | null;
 	}>;
 	readonly geometries: WeakMap<WebGPUGeometryHandle, SharedDrawPreparation>;
@@ -43,9 +44,11 @@ interface SharedMaterialPreparation {
 
 interface SharedDrawPreparation {
 	readonly epoch: number;
-	ready: WebGPUDrawResources | null;
-	pending: Promise<WebGPUDrawResources | null>;
+	ready: PreparedSceneDraw | null;
+	pending: Promise<PreparedSceneDraw | null>;
 }
+
+type PreparedSceneDraw = WebGPUDrawResources & { resolvedInputs: WebGPUResolvedDrawInputs };
 
 interface PreparationScope {
 	readonly providerRevision: number;
@@ -67,10 +70,10 @@ export class WebGPUDrawResourceAssembler {
 		private readonly _backend: WebGPUDeviceResourceHost,
 		private readonly _geometry: WebGPUGeometryRegistry,
 		private readonly _animation: WebGPUAnimationPayloadPool,
-		private readonly _snapshots: WebGPUMaterialSnapshotCache,
-		private readonly _bindings: WebGPUMaterialBindingCache,
+		private readonly _resources: WebGPUDrawResourceCache,
 		private readonly _batcher: WebGPUStaticMeshBatcher,
 		private readonly _materialPipelines: WebGPUMaterialPipelineResolver,
+		private readonly _depthMaterials: WebGPUDepthMaterialResources,
 	) {}
 
 	/** @internal WebGPU scene preparation clears templates; public rendering uses Renderer. */
@@ -105,6 +108,10 @@ export class WebGPUDrawResourceAssembler {
 		const scopeOwner = this._frameScopes.get(frameResources) ?? frameResources;
 		if (this._releasedScopes.has(scopeOwner)) return null;
 		const drawMode = options.drawMode ?? "default";
+		if (drawMode === "early-z-prepass" &&
+			!(packet.submission.material.effective instanceof ShaderMaterial)) {
+			return this._resolveBuiltinDepthDraw(packet, frameResources, options, pipelines);
+		}
 		const geometry = this._geometry.getGeometry(packet.submission.geometry);
 		const firstInstance = this._batcher.getPreparedInstanceIndex(packet, geometry, drawMode);
 		const providerRevision = pipelines.preparationRevision;
@@ -140,13 +147,13 @@ export class WebGPUDrawResourceAssembler {
 		const material = packet.submission.material.effective;
 		let shared = materials.get(material);
 		const materialRevision = shared?.validatedEpoch === this._epoch
-			? material._getRevisionInternal() : this._snapshots.refreshMaterialRevision(material);
+			? material._getRevisionInternal() : this._resources.refreshMaterialRevision(material);
 		if (shared) shared.validatedEpoch = this._epoch;
 		if (!shared || shared.revision !== materialRevision) {
 			const descriptor = resolveWebGPUScenePassDescriptor(
 				sceneTargetMode, transparentMode, drawMode, options.deferredGBufferLayout,
 			);
-			const snapshot = this._snapshots.resolve(material, false);
+			const snapshot = this._resources.resolveMaterial(material, false);
 			shared = {
 				validatedEpoch: this._epoch,
 				revision: material._getRevisionInternal(),
@@ -171,7 +178,7 @@ export class WebGPUDrawResourceAssembler {
 		}
 		let group = shared.geometries.get(geometry);
 		if (group?.ready && !this._batcher.touchMaterialBinding(
-			group.ready.resolvedInputs.materialData, group.ready.modelBinding,
+			group.ready.resolvedInputs.materialData, group.ready.bindings[1].group,
 		)) {
 			shared.geometries.delete(geometry);
 			group = undefined;
@@ -232,7 +239,7 @@ export class WebGPUDrawResourceAssembler {
 		descriptor: WebGPUDrawPassDescriptor,
 		shared: SharedMaterialPreparation,
 		isCurrent: () => boolean,
-	): Promise<WebGPUDrawResources | null> {
+	): Promise<PreparedSceneDraw | null> {
 		const { snapshot, state } = await shared.inputs;
 		if (!state || !isCurrent()) return null;
 		const pipeline = await pipelines.resolvePipeline({
@@ -245,8 +252,13 @@ export class WebGPUDrawResourceAssembler {
 		);
 		if (!draw) return null;
 		return {
-			pipeline, frameBinding: frame.frameBinding, modelBinding: draw.modelBinding,
-			clusteredBinding: frame.clusteredSceneBinding, vertexBindings: geometry.vertexBindings,
+			pipeline,
+			bindings: [
+				{ slot: 0, group: frame.frameBinding },
+				{ slot: 1, group: draw.modelBinding },
+				{ slot: 2, group: frame.clusteredSceneBinding },
+			],
+			vertexBindings: geometry.vertexBindings,
 			indexBuffer: geometry.indexBuffer, indexFormat: geometry.indexFormat,
 			indexCount: geometry.indexCount, staticBatchKey: draw.batchKey,
 			resolvedInputs: {
@@ -254,6 +266,66 @@ export class WebGPUDrawResourceAssembler {
 				samplers: snapshot.samplers, geometry,
 			},
 		};
+	}
+
+	private async _resolveBuiltinDepthDraw(
+		packet: DrawPacket,
+		frame: WebGPUPreparedFrameResources,
+		options: WebGPUDrawResourceOptions,
+		pipelines: WebGPUDrawPipelineProvider,
+	): Promise<WebGPUDrawResources[] | null> {
+		const material = packet.submission.material.effective;
+		const runtime = readWebGPUShaderRuntimeView(this._backend);
+		const state = this._materialPipelines.resolveBuiltinDepth(material, runtime);
+		if (state.transparent || !state.depthWrite) return null;
+		const epoch = this._epoch;
+		const scopeOwner = this._frameScopes.get(frame) ?? frame;
+		const revision = pipelines.preparationRevision;
+		const geometry = this._geometry.getGeometry(packet.submission.geometry);
+		const geometryVersion = packet.submission.geometry.version;
+		const pass = resolveWebGPUScenePassDescriptor(
+			options.sceneTargetMode ?? frame.sceneTargetMode,
+			options.transparentPipelineMode ?? "default", "early-z-prepass",
+			options.deferredGBufferLayout,
+		);
+		const isCurrent = () => epoch === this._epoch &&
+			!this._releasedScopes.has(scopeOwner) &&
+			pipelines.preparationRevision === revision &&
+			packet.submission.geometry.version === geometryVersion &&
+			this._geometry.isCurrentGeometry(packet.submission.geometry, geometry) &&
+			sameRuntime(runtime, readWebGPUShaderRuntimeView(this._backend));
+		const pipeline = await pipelines.resolvePipeline({
+			materialState: state, pass, topology: geometry.topology,
+			geometryLayout: geometry, sampleCount: options.sampleCount,
+		});
+		if (!pipeline || !isCurrent()) return null;
+		const depthMaterial = await this._depthMaterials.resolve(material);
+		if (!isCurrent() || !this._depthMaterials.isCurrent(material, depthMaterial)) return null;
+		const currentState = this._materialPipelines.resolveBuiltinDepth(material, runtime);
+		if (currentState.cullMode !== state.cullMode || currentState.alphaMode !== state.alphaMode ||
+			currentState.transparent || !currentState.depthWrite) return null;
+		const animation = this._animation.getScenePayload(
+			packet, geometry, frame.jointMatrixMap, frame.morphWeightMap,
+		);
+		if (!animation) return null;
+		const staticDraw = this._batcher.getDepthDrawState(
+			packet, pipeline, geometry, depthMaterial.binding,
+		);
+		const modelBinding = this._resources.getDepthBinding(
+			packet, animation, geometry.morphPositionBuffer, staticDraw ?? undefined,
+		);
+		return [{
+			pipeline,
+			bindings: [
+				{ slot: 0, group: frame.depthFrameBinding },
+				{ slot: 1, group: modelBinding },
+				{ slot: 2, group: depthMaterial.binding },
+			],
+			vertexBindings: geometry.vertexBindings,
+			indexBuffer: geometry.indexBuffer, indexFormat: geometry.indexFormat,
+			indexCount: geometry.indexCount, firstInstance: staticDraw?.firstInstance,
+			staticBatchKey: staticDraw?.batchKey,
+		}];
 	}
 
 	private async _resolveDrawResources(
@@ -282,7 +354,9 @@ export class WebGPUDrawResourceAssembler {
 		);
 		if (!animationPayload) return null;
 		const results: WebGPUDrawResources[] = [];
-		const solidSnapshot = await this._snapshots.resolve(packet.submission.material.effective, false);
+		const solidSnapshot = await this._resources.resolveMaterial(
+			packet.submission.material.effective, false,
+		);
 		for (const warning of solidSnapshot.data.warnings) {
 			Logger.warn(`[${warning.key}] ${warning.message}`, {
 				scope: "WebGPUDrawResourceAssembler",
@@ -311,21 +385,20 @@ export class WebGPUDrawResourceAssembler {
 			solidSnapshot,
 			drawMode,
 		);
-		const solidModelBinding = staticDraw?.modelBinding ?? this._bindings.getBinding(
+		const solidModelBinding = staticDraw?.modelBinding ?? this._resources.getMaterialBinding(
 			packet,
-			solidPipeline,
-			solidSnapshot.data,
-			solidSnapshot.textures,
-			solidSnapshot.samplers,
+			solidSnapshot,
 			animationPayload,
 			geometry.morphPositionBuffer,
 			geometry.morphNormalBuffer,
 		);
 		results.push({
 			pipeline: solidPipeline,
-			frameBinding: frameResources.frameBinding,
-			modelBinding: solidModelBinding,
-			clusteredBinding: frameResources.clusteredSceneBinding,
+			bindings: [
+				{ slot: 0, group: frameResources.frameBinding },
+				{ slot: 1, group: solidModelBinding },
+				{ slot: 2, group: frameResources.clusteredSceneBinding },
+			],
 			vertexBindings: geometry.vertexBindings,
 			indexBuffer: geometry.indexBuffer,
 			indexFormat: geometry.indexFormat,
@@ -349,7 +422,9 @@ export class WebGPUDrawResourceAssembler {
 		const wireGeometry = this._geometry.getWireframeGeometry(
 			packet.submission.geometry,
 		);
-		const wireSnapshot = await this._snapshots.resolve(packet.submission.material.effective, true);
+		const wireSnapshot = await this._resources.resolveMaterial(
+			packet.submission.material.effective, true,
+		);
 		const wireState = this._resolveMaterialState(
 			packet,
 			wireSnapshot.data,
@@ -365,21 +440,20 @@ export class WebGPUDrawResourceAssembler {
 			sampleCount: options.sampleCount,
 		});
 		if (!wirePipeline) return results;
-		const wireModelBinding = this._bindings.getBinding(
+		const wireModelBinding = this._resources.getMaterialBinding(
 			packet,
-			wirePipeline,
-			wireSnapshot.data,
-			wireSnapshot.textures,
-			wireSnapshot.samplers,
+			wireSnapshot,
 			animationPayload,
 			wireGeometry.morphPositionBuffer,
 			wireGeometry.morphNormalBuffer,
 		);
 		results.push({
 			pipeline: wirePipeline,
-			frameBinding: frameResources.frameBinding,
-			modelBinding: wireModelBinding,
-			clusteredBinding: frameResources.clusteredSceneBinding,
+			bindings: [
+				{ slot: 0, group: frameResources.frameBinding },
+				{ slot: 1, group: wireModelBinding },
+				{ slot: 2, group: frameResources.clusteredSceneBinding },
+			],
 			vertexBindings: wireGeometry.vertexBindings,
 			indexBuffer: wireGeometry.wireframeIndexBuffer!,
 			indexFormat: wireGeometry.wireframeIndexFormat,
@@ -396,7 +470,7 @@ export class WebGPUDrawResourceAssembler {
 
 	private _resolveMaterialState(
 		packet: DrawPacket,
-		materialData: WebGPUDrawResources["resolvedInputs"]["materialData"],
+		materialData: WebGPUMaterialUniformData,
 		wireframe: boolean,
 		descriptor: WebGPUDrawPassDescriptor,
 	) {
@@ -437,8 +511,12 @@ function instantiateStaticDraw(
 	firstInstance: number,
 ): WebGPUDrawResources[] {
 	return [{
-		...ready, firstInstance, frameBinding: frame.frameBinding,
-		clusteredBinding: frame.clusteredSceneBinding,
+		...ready, firstInstance,
+		bindings: [
+			{ slot: 0, group: frame.frameBinding },
+			ready.bindings[1],
+			{ slot: 2, group: frame.clusteredSceneBinding },
+		],
 	}];
 }
 

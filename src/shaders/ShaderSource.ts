@@ -65,6 +65,7 @@ export interface WebGLDeformationSpecialization {
 
 type WebGPUFixedShaderKey =
 	| "webgpu.scene"
+	| "webgpu.scene.depth"
 	| "webgpu.environment"
 	| "webgpu.deferredLighting"
 	| "webgpu.particle"

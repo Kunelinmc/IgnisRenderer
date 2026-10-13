@@ -383,6 +383,38 @@ lighting, presentation configuration, reflections, and structured buffer packing
 
 ### CPU draw preparation and static batching
 
+- `WebGPUFrameServiceOwner` must own one `WebGPUDrawResourceCache` for object
+  transform history, scene and depth model bindings, material snapshots, and
+  shared material buffers. It must advance resource history once per logical frame
+  and destroy them through one lifecycle entrypoint after static bindings release
+  their material references.
+- The draw resource cache must index draw records and material snapshots. Each
+  draw record must own its object transform history and scene/depth model bindings
+  together, without a separate object-buffer lookup or object reference count.
+  The draw's frame marker must also govern object history advancement; object
+  state must not maintain a second frame marker or initialization flag.
+  Using either pass must retain the draw record. Eviction must dispose the whole
+  inactive record; active-frame records must remain live through submission.
+- A draw record must retain at most one solid and one wireframe scene binding.
+  Replacing either slot must retire its previous binding through the next frame
+  boundary. The slots must share the draw record's lifetime rather than maintain
+  independent pipeline-key caches or expiry frames.
+- Static depth records must use instance-arena buffer identity directly. Depth
+  binding reuse must depend on the bound native buffer identities and sizes;
+  animation generation alone must not trigger a rebuild when those are unchanged.
+- Material revision refresh must be tracked on the material record, shared by
+  solid and wireframe snapshots. Built-in materials must refresh at most once
+  per logical frame; `ShaderMaterial` must continue to observe same-frame edits.
+- Each material resource record must contain immutable snapshot inputs and lazily
+  created common, lighting-model, and custom shader uniform buffers. Scene and
+  static bindings must hold that record directly. `WebGPUDrawResourceCache` must
+  own reference counting and buffer disposal; bindings and snapshots must not
+  allocate leases or per-reference retain/release callbacks. Depth model bindings
+  must not carry material resource fields. Material revision changes must produce
+  a new record, without a second material-data-to-buffer cache.
+- Depth model preparation must not resolve scene material snapshots or allocate
+  scene material buffers. Borrowed animation and static instance buffers must
+  remain owned by their existing resource owners.
 - WebGPU material uniform data, texture resources, sampler resources, and
   pipeline keys must be resolved once per material render revision and reused
   by every compatible draw in the frame.
@@ -421,14 +453,41 @@ lighting, presentation configuration, reflections, and structured buffer packing
   `GouraudMaterial` must continue to use the `phong` family until Gouraud is
   removed by a separate public API change. An unlit draw must not bind an
   inactive lighting-model uniform buffer.
-- Each shading family must use its own model bind-group and pipeline layouts.
-  Pipeline, shader-module, warmup, and binding cache identity must include the
-  resolved shading family. Public PBR feature and texture masks must remain
-  runtime uniform data and must not enter pipeline identity.
-- Material GPU buffers must use reference-counted ownership. Eviction or
-  destruction of a draw binding must release its material-buffer lease, and a
-  shared material buffer must not be destroyed while any dynamic or static
-  binding still references it.
+- Scene color, G-buffer, and reflection draws must use the model bind-group and
+  pipeline layouts of their shading family. Their pipeline, shader-module,
+  warmup, and binding cache identity must include the resolved shading family.
+  Public PBR feature and texture masks must remain runtime uniform data and
+  must not enter pipeline identity.
+- Built-in Early-Z draws must use one family-independent pipeline layout with
+  camera bindings in group `0`, object and current-position deformation
+  bindings in group `1`, and alpha-mask material bindings in group `2`.
+  They must not resolve or bind lighting buffers, clustered lighting, normal
+  maps, or unrelated material textures. Opaque draws may share neutral
+  alpha-mask bindings required by the common depth layout.
+- Built-in depth material snapshots must contain only alpha-mask coverage and
+  base-map sampling inputs. Unrelated material revisions must not replace depth
+  material resources. Native texture or sampler replacement must invalidate the
+  corresponding depth binding even when authored material values are unchanged.
+  Depth preparation must reject results when relevant draw policy or alpha
+  coverage inputs change while shader compilation or texture resolution awaits.
+- Object and animation buffers must be shared through their resource owners;
+  scene and depth binding lifetimes must not destroy each other's live buffers.
+  Static depth preparation must reuse the instance arena without first creating
+  scene material bindings. Prepared bindings must stay live through submission.
+- The shared static object control buffer must be cached only after its initial
+  upload succeeds. A failed upload must release the allocation and leave scene
+  and depth preparation retryable without reusing uninitialized control data.
+- Built-in depth pipeline identity must depend on the actual shader, vertex
+  layout, primitive, depth, sample-count, and shader-runtime state, not the
+  shading family. Concurrent equivalent requests must share pipeline creation.
+  Custom `ShaderMaterial` depth programs must retain the existing scene binding
+  ABI and use the corresponding scene pipeline layout.
+- Material GPU buffers must use reference-counted ownership. Each successful
+  retain must be balanced by one release through the owning draw resource cache.
+  Failed binding creation must release its retained reference. Retired bindings
+  must retain their reference until disposal; a shared buffer must not be
+  destroyed while any dynamic or static binding still references it. Cache
+  destruction must release remaining allocations and make later releases harmless.
 - Static material bindings referenced by prepared draws in the active frame
   must not be evicted. Ready preparation reuse must refresh their usage.
   Inactive bindings must be preferred for eviction; any temporary active-frame
@@ -467,6 +526,26 @@ lighting, presentation configuration, reflections, and structured buffer packing
   retain the legacy preparation path.
 - Incremental dirty-rectangle execution must build rect-local instance ranges;
   instances outside the rectangle must not be emitted by a batched draw.
+- Dirty-rectangle packet selection must intersect indexed candidates with the
+  spatial query even when a caller supplies a copied, reordered, or filtered
+  packet array. It must preserve candidate order and must not reintroduce
+  packets omitted by the caller. Candidates absent from the prepared scene's
+  indexed packet lists must remain eligible conservatively, including transient
+  particle packets. Without a spatial index, selection must retain candidates.
+- `submitWebGPUDraws()` must report `staticBatching.nonAdjacentKeySplits` and
+  `staticBatching.nonContiguousInstanceSplits` without changing draw order or
+  the adjacent-key and contiguous-instance merge requirements.
+- Split accounting must restart for each submission and dirty rectangle. A
+  key's first emitted batch in that scope must not count as a split. Each later
+  batch for that key must count once: `nonAdjacentKeySplits` when another
+  command intervenes, otherwise `nonContiguousInstanceSplits` when its
+  `firstInstance` does not follow the preceding batch's instance range.
+  Non-adjacency must take precedence when both conditions apply. Skipped draws
+  must not act as intervening commands; non-static emitted draws must.
+- Frame resource diagnostics must accumulate both counters from successful
+  submissions under `getDebugStats().staticBatching` and reset them in
+  `beginFrameResourceLifecycle()`. Counters must describe recorded batch
+  fragmentation, not a guaranteed number of safely removable draw calls.
 
 ### Geometry packing
 

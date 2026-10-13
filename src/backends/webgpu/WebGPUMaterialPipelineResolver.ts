@@ -124,6 +124,56 @@ interface CachedPipelineState {
 export class WebGPUMaterialPipelineResolver {
 	private _entries = new WeakMap<Material, CachedPipelineState[]>();
 
+	/**
+	 * Resolves built-in depth eligibility and primitive policy without a GPU material snapshot.
+	 * @internal Owned by WebGPU draw preparation; applications submit materials through scenes.
+	 * @param material Built-in material; the caller must exclude `ShaderMaterial`.
+	 * @param runtime Current shader-runtime fingerprint used for depth pipeline identity.
+	 * @returns Immutable policy shared by compatible depth draws.
+	 */
+	public resolveBuiltinDepth(
+		material: Material,
+		runtime: WebGPUShaderRuntimeView,
+	): WebGPUMaterialPipelineState {
+		const revision = material._getRevisionInternal();
+		// Preparation can await GPU work after the once-per-frame revision refresh.
+		// Read depth policy directly so mid-preparation authoring changes remain observable.
+		const cullMode = material.cullMode;
+		const depthWrite = material.depthWrite;
+		const alphaMode = material.alphaMode;
+		const transparent = isMaterialTransparentPass(material);
+		const usesTransmission = materialUsesTransmission(material);
+		const key = `builtin-depth|${cullMode}|${depthWrite}|${alphaMode}|` +
+			`${transparent}|${usesTransmission}|${runtime.revision}|${runtime.mode}|` +
+			runtime.directiveCacheTag;
+		const entries = this._entries.get(material);
+		const cached = entries?.find((entry) => entry.key === key);
+		if (cached) return cached.state;
+		const state: WebGPUMaterialPipelineState = {
+			materialRevision: revision,
+			pipelineKey: "builtin-depth",
+			shaderCacheKey: `builtin-depth|runtime:${runtime.revision}|` +
+				`directive:${runtime.directiveCacheTag}`,
+			cullMode,
+			depthWrite,
+			alphaMode,
+			transparent,
+			usesTransmission,
+			// Early-Z uses solid geometry; authored wireframe is a separate color overlay.
+			wireframe: false,
+			// The standalone program has no lighting family; retain the common state type.
+			shadingFamily: "unlit",
+			shaderRuntime: runtime,
+			diagnostic: { materialName: material.name, shaderId: null, fallbackReason: null },
+			program: { kind: "builtin" },
+		};
+		const nextEntries = entries ?? [];
+		nextEntries.push({ key, state });
+		while (nextEntries.length > 16) nextEntries.shift();
+		if (!entries) this._entries.set(material, nextEntries);
+		return state;
+	}
+
 	public resolve(
 		material: Material,
 		materialData: WebGPUMaterialUniformData,

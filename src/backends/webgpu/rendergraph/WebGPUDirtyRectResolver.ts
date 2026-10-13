@@ -90,9 +90,9 @@ export class WebGPUDirtyRectResolver {
 	 * spatial index is available.
 	 *
 	 * @param context Current frame context.
-	 * @param packets Candidate draw packets.
+	 * @param packets Candidate draw packets, including caller-owned copies or subsets.
 	 * @param rect Dirty rectangle in target coordinates.
-	 * @returns Candidate packets filtered for the rectangle.
+	 * @returns Candidates in input order, retaining packets not covered by the scene index.
 	 * @sideEffects None.
 	 */
 	public static selectPacketsForRect(
@@ -101,7 +101,7 @@ export class WebGPUDirtyRectResolver {
 		rect: DirtyRect
 	): DrawPacket[] {
 		const spatialIndex = context.scene.spatialIndex;
-		if (!spatialIndex) {
+		if (!spatialIndex || packets.length === 0) {
 			return packets;
 		}
 		if (packets === context.scene.opaquePackets) {
@@ -110,7 +110,12 @@ export class WebGPUDirtyRectResolver {
 		if (packets === context.scene.transparentPackets) {
 			return spatialIndex.queryTransparentPackets(rect);
 		}
-		return packets;
+		// Only exclude known scene packets: transient frame work may not be indexed.
+		const excluded = new Set(context.scene.opaquePackets);
+		for (const packet of context.scene.transparentPackets) excluded.add(packet);
+		for (const packet of spatialIndex.queryOpaquePackets(rect)) excluded.delete(packet);
+		for (const packet of spatialIndex.queryTransparentPackets(rect)) excluded.delete(packet);
+		return packets.filter((packet) => !excluded.has(packet));
 	}
 
 	/**

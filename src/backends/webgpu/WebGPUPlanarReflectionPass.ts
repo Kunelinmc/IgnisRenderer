@@ -285,8 +285,7 @@ export class WebGPUPlanarReflectionPass
 					reflection!.targets.sceneColor
 				);
 				return [
-					{ slot: 0, group: draw.frameBinding },
-					{ slot: 1, group: draw.modelBinding },
+					...draw.bindings.filter((binding) => binding.slot < 2),
 					{ slot: 2, group: binding },
 				];
 			},

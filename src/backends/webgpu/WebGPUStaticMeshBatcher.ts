@@ -31,16 +31,15 @@ import {
 } from "./constants";
 import { packObjectUniformData } from "./packing";
 import type { WebGPUAnimationPayloadPool } from "./WebGPUAnimationPayloadPool";
+import type { WebGPUDrawResourceCache } from "./WebGPUDrawResourceCache";
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
 import type { WebGPUGeometryHandle } from "./WebGPUGeometryRegistry";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
 import type { WebGPUDrawPipelineMode } from "./WebGPUScenePassDescriptors";
-import type { WebGPUResolvedMaterialSnapshot } from "./WebGPUMaterialSnapshotCache";
 import type { WebGPUMaterialUniformData } from "./types";
 import type {
-	WebGPUMaterialBufferCache,
-	WebGPUMaterialBufferLease,
-} from "./WebGPUMaterialBufferCache";
+	WebGPUMaterialResource,
+} from "./WebGPUResourceContracts";
 
 const STATIC_INSTANCE_FLOATS = 52;
 const STATIC_INSTANCE_INITIAL_CAPACITY = 256;
@@ -50,9 +49,8 @@ const IDENTITY_MATRIX = Matrix4.identity();
 
 interface StaticMaterialBindingEntry {
 	lastUsedFrame: number;
-	readonly objectUniformBuffer: IRenderBuffer;
 	readonly bindingGroup: IBindingGroup;
-	readonly materialLease: WebGPUMaterialBufferLease;
+	readonly material: WebGPUMaterialResource;
 }
 
 interface StaticHistoryEntry {
@@ -66,9 +64,19 @@ export interface WebGPUStaticDrawState {
 	readonly batchKey: string;
 }
 
+/** @internal Static depth instance resources; public rendering uses Renderer. */
+export interface WebGPUStaticDepthDrawState {
+	readonly objectBuffer: IRenderBuffer;
+	readonly instanceBuffer: IRenderBuffer;
+	readonly firstInstance: number;
+	readonly batchKey: string;
+}
+
 /** @internal Owns static instance records and per-material batch bindings. */
 export class WebGPUStaticMeshBatcher {
 	private _instanceBuffer: IRenderBuffer;
+	private _objectUniformBuffer: IRenderBuffer | null = null;
+	private readonly _retiredInstanceBuffers: IRenderBuffer[] = [];
 	private readonly _fallbackUniformBuffer: IRenderBuffer;
 	private _instanceData: Float32Array;
 	private _capacity = STATIC_INSTANCE_INITIAL_CAPACITY;
@@ -113,7 +121,7 @@ export class WebGPUStaticMeshBatcher {
 		private readonly _backend: WebGPUDeviceResourceHost,
 		private readonly _layouts: WebGPUPipelineLayouts,
 		private readonly _animations: WebGPUAnimationPayloadPool,
-		private readonly _materialBuffers: WebGPUMaterialBufferCache,
+		private readonly _drawResources: WebGPUDrawResourceCache,
 	) {
 		this._instanceData = new Float32Array(this._capacity * STATIC_INSTANCE_FLOATS);
 		this._instanceBuffer = this._createInstanceBuffer(this._capacity);
@@ -126,6 +134,8 @@ export class WebGPUStaticMeshBatcher {
 	}
 
 	public beginFrame(): void {
+		for (const buffer of this._retiredInstanceBuffers) buffer.destroy();
+		this._retiredInstanceBuffers.length = 0;
 		this._arenaRevision++;
 		this._evictInactiveMaterialBindings();
 		this._count = 0;
@@ -154,7 +164,7 @@ export class WebGPUStaticMeshBatcher {
 		packet: DrawPacket,
 		pipeline: IRenderPipeline,
 		geometry: WebGPUGeometryHandle,
-		snapshot: WebGPUResolvedMaterialSnapshot,
+		snapshot: WebGPUMaterialResource,
 		drawMode: WebGPUDrawPipelineMode,
 	): WebGPUStaticDrawState | null {
 		if (!this._isEligible(packet, geometry, drawMode)) return null;
@@ -173,6 +183,34 @@ export class WebGPUStaticMeshBatcher {
 			this._getObjectId(snapshot.data as object),
 		].join("|");
 		return { modelBinding, firstInstance, batchKey };
+	}
+
+	/** @internal Prepares instance resources without scene materials; use Renderer. */
+	public getDepthDrawState(
+		packet: DrawPacket,
+		pipeline: IRenderPipeline,
+		geometry: WebGPUGeometryHandle,
+		materialBinding: IBindingGroup,
+	): WebGPUStaticDepthDrawState | null {
+		if (!this._isEligible(packet, geometry, "early-z-prepass")) return null;
+		let firstInstance = this._packetIndices.get(packet);
+		if (firstInstance === undefined) {
+			this._ensureCapacity(this._count + 1);
+			firstInstance = this._appendPacket(packet);
+			this._uploadDirtyInstances();
+		}
+		return {
+			objectBuffer: this._getObjectUniformBuffer(),
+			instanceBuffer: this._instanceBuffer,
+			firstInstance,
+			batchKey: [
+				"depth", this._getObjectId(pipeline as object),
+				this._getObjectId(geometry.indexBuffer as object),
+				geometry.indexFormat, geometry.layoutKey,
+				this._getObjectId(materialBinding as object),
+				this._getObjectId(this._instanceBuffer as object),
+			].join("|"),
+		};
 	}
 
 	public commitFrame(): void {
@@ -216,6 +254,9 @@ export class WebGPUStaticMeshBatcher {
 		this._slotPacketIds = [];
 		this._destroyMaterialBindings();
 		this._instanceBuffer.destroy();
+		this._objectUniformBuffer?.destroy();
+		for (const buffer of this._retiredInstanceBuffers) buffer.destroy();
+		this._retiredInstanceBuffers.length = 0;
 		this._fallbackUniformBuffer.destroy();
 		this._history.clear();
 		this._packetIndices.clear();
@@ -313,29 +354,15 @@ export class WebGPUStaticMeshBatcher {
 	}
 
 	private _getMaterialBinding(
-		snapshot: WebGPUResolvedMaterialSnapshot,
+		snapshot: WebGPUMaterialResource,
 	): IBindingGroup {
 		const cached = this._materialBindings.get(snapshot.data);
 		if (cached) {
 			this._touchMaterialBinding(snapshot.data, cached);
 			return cached.bindingGroup;
 		}
-		const objectUniformData = packObjectUniformData(
-			IDENTITY_MATRIX,
-			IDENTITY_MATRIX,
-			IDENTITY_MATRIX,
-			1,
-			true,
-			true,
-		);
-		const objectUniformBuffer = this._backend.createBuffer({
-			size: objectUniformData.byteLength,
-			usage: BufferUsage.Uniform | BufferUsage.CopyDst,
-			label: "WebGPUStaticBatchObjectUniform",
-		});
-		this._backend.writeBuffer(objectUniformBuffer, objectUniformData);
-		const materialLease = this._materialBuffers.acquire(snapshot.data);
-		const materialResources = materialLease.resources;
+		const objectUniformBuffer = this._getObjectUniformBuffer();
+		const materialResources = this._drawResources.retainMaterial(snapshot);
 		const animation = this._animations.getStaticScenePayload();
 		const fallbackStorage = this._animations.getFallbackStorageBuffer();
 		const entries: Array<{ binding: number; resource: any }> = [
@@ -378,15 +405,13 @@ export class WebGPUStaticMeshBatcher {
 				cache: false,
 			});
 		} catch (error) {
-			objectUniformBuffer.destroy();
-			materialLease.release();
+			this._drawResources.releaseMaterial(snapshot);
 			throw error;
 		}
 		this._materialBindings.set(snapshot.data, {
 			lastUsedFrame: this._arenaRevision,
-			objectUniformBuffer,
 			bindingGroup,
-			materialLease,
+			material: snapshot,
 		});
 		this._evictInactiveMaterialBindings();
 		return bindingGroup;
@@ -421,8 +446,8 @@ export class WebGPUStaticMeshBatcher {
 			// Active entries move to the end on first use; no inactive entry follows them.
 			if (oldest[1].lastUsedFrame === this._arenaRevision) break;
 			this._materialBindings.delete(oldest[0]);
-			oldest[1].objectUniformBuffer.destroy();
-			oldest[1].materialLease.release();
+			(oldest[1].bindingGroup as { destroy?: () => void }).destroy?.();
+			this._drawResources.releaseMaterial(oldest[1].material);
 		}
 	}
 
@@ -434,7 +459,8 @@ export class WebGPUStaticMeshBatcher {
 		nextData.set(this._instanceData.subarray(0, this._count * STATIC_INSTANCE_FLOATS));
 		this._instanceData = nextData;
 		this._capacity = nextCapacity;
-		this._instanceBuffer.destroy();
+		// Prepared draws in this frame may still reference the previous arena.
+		this._retiredInstanceBuffers.push(this._instanceBuffer);
 		this._instanceBuffer = this._createInstanceBuffer(nextCapacity);
 		this._arenaRevision++;
 		this._slotPacketIds = [];
@@ -454,11 +480,31 @@ export class WebGPUStaticMeshBatcher {
 	private _destroyMaterialBindings(): void {
 		this._bindingRevision++;
 		for (const entry of this._materialBindings.values()) {
-			entry.objectUniformBuffer.destroy();
 			(entry.bindingGroup as { destroy?: () => void }).destroy?.();
-			entry.materialLease.release();
+			this._drawResources.releaseMaterial(entry.material);
 		}
 		this._materialBindings.clear();
+	}
+
+	private _getObjectUniformBuffer(): IRenderBuffer {
+		if (!this._objectUniformBuffer) {
+			const data = packObjectUniformData(
+				IDENTITY_MATRIX, IDENTITY_MATRIX, IDENTITY_MATRIX, 1, true, true,
+			);
+			const buffer = this._backend.createBuffer({
+				size: data.byteLength, usage: BufferUsage.Uniform | BufferUsage.CopyDst,
+				label: "WebGPUStaticBatchObjectUniform",
+			});
+			try {
+				this._backend.writeBuffer(buffer, data);
+			} catch (error) {
+				buffer.destroy();
+				throw error;
+			}
+			// Publish only initialized control data so failed uploads remain retryable.
+			this._objectUniformBuffer = buffer;
+		}
+		return this._objectUniformBuffer;
 	}
 
 	private _getObjectId(value: object): number {

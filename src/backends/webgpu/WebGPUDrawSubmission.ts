@@ -7,10 +7,12 @@ import type {
 	IndexFormat,
 } from "../types";
 import type {
+	WebGPUDrawBinding,
 	WebGPUDrawResourceOptions,
 	WebGPUDrawResourceResult,
 	WebGPUDrawResources,
 	WebGPUPreparedFrameResources,
+	WebGPUStaticBatchingStats,
 } from "./WebGPUResourceContracts";
 
 export interface WebGPUDrawSubmissionRect {
@@ -18,11 +20,6 @@ export interface WebGPUDrawSubmissionRect {
 	y: number;
 	width: number;
 	height: number;
-}
-
-export interface WebGPUDrawSubmissionBinding {
-	slot: number;
-	group: IBindingGroup;
 }
 
 export interface WebGPUDrawResourceProvider {
@@ -52,28 +49,31 @@ export interface WebGPUDrawSubmissionRequest {
 		draw: WebGPUDrawResources,
 		packet: DrawPacket,
 		rect: WebGPUDrawSubmissionRect | null
-	) => readonly WebGPUDrawSubmissionBinding[];
+	) => readonly WebGPUDrawBinding[];
 }
 
 export interface WebGPUDrawSubmissionResult {
 	drawCount: number;
 	submittedPacketIds: Set<string>;
+	/** @internal WebGPU submission-local split counts; public rendering uses Renderer.renderFrame(). */
+	readonly staticBatching: Readonly<WebGPUStaticBatchingStats>;
 }
 
 export function getDefaultWebGPUDrawBindings(
 	draw: WebGPUDrawResources
-): WebGPUDrawSubmissionBinding[] {
-	return [
-		{ slot: 0, group: draw.frameBinding },
-		{ slot: 1, group: draw.modelBinding },
-		{ slot: 2, group: draw.clusteredBinding },
-	];
+): readonly WebGPUDrawBinding[] {
+	return draw.bindings;
 }
 
 export async function submitWebGPUDraws(
 	request: WebGPUDrawSubmissionRequest
 ): Promise<WebGPUDrawSubmissionResult> {
 	const submittedPacketIds = new Set<string>();
+	const staticBatching: WebGPUStaticBatchingStats = {
+		nonAdjacentKeySplits: 0,
+		nonContiguousInstanceSplits: 0,
+	};
+	let seenBatchKeys: Set<string> | null = null;
 	let drawCount = 0;
 	const rects = request.dirtyRects;
 	const selectedByRect = rects && rects.length > 0 ? rects.map((rect) =>
@@ -111,6 +111,7 @@ export async function submitWebGPUDraws(
 		packets: DrawPacket[],
 		rect: WebGPUDrawSubmissionRect | null
 	): Promise<void> => {
+		seenBatchKeys?.clear();
 		const commands: Array<{
 			packet: DrawPacket;
 			draw: WebGPUDrawResources;
@@ -139,6 +140,15 @@ export async function submitWebGPUDraws(
 					previous.packetIds.push(packet.submission.id);
 					continue;
 				}
+				if (draw.staticBatchKey) {
+					// Each extra run has one cause; non-adjacency takes precedence over a gap.
+					if (previous?.draw.staticBatchKey === draw.staticBatchKey) {
+						staticBatching.nonContiguousInstanceSplits++;
+					} else if (seenBatchKeys?.has(draw.staticBatchKey)) {
+						staticBatching.nonAdjacentKeySplits++;
+					}
+					(seenBatchKeys ??= new Set<string>()).add(draw.staticBatchKey);
+				}
 				commands.push({
 					packet,
 					draw,
@@ -160,9 +170,7 @@ export async function submitWebGPUDraws(
 						bindGroup(binding.slot, binding.group);
 					}
 				} else {
-					bindGroup(0, draw.frameBinding);
-					bindGroup(1, draw.modelBinding);
-					bindGroup(2, draw.clusteredBinding);
+					for (const binding of draw.bindings) bindGroup(binding.slot, binding.group);
 				}
 				const vertexBindings = draw.vertexBindings;
 				if (!vertexBindings) {
@@ -198,25 +206,27 @@ export async function submitWebGPUDraws(
 
 	if (!rects || rects.length <= 0) {
 		await submitPackets(request.packets, null);
-		return {
-			drawCount,
-			submittedPacketIds,
-		};
-	}
-
-	for (let rectIndex = 0; rectIndex < rects.length; rectIndex++) {
-		const rect = rects[rectIndex];
-		const packetsInRect = selectedByRect?.[rectIndex] ?? request.packets;
-		if (packetsInRect.length <= 0) {
-			continue;
+	} else {
+		for (let rectIndex = 0; rectIndex < rects.length; rectIndex++) {
+			const rect = rects[rectIndex];
+			const packetsInRect = selectedByRect?.[rectIndex] ?? request.packets;
+			if (packetsInRect.length <= 0) {
+				continue;
+			}
+			request.encoder.setScissorRect?.(rect.x, rect.y, rect.width, rect.height);
+			await submitPackets(packetsInRect, rect);
 		}
-		request.encoder.setScissorRect?.(rect.x, rect.y, rect.width, rect.height);
-		await submitPackets(packetsInRect, rect);
 	}
 
+	const frameStats = request.frameResources.staticBatchingStats;
+	if (frameStats) {
+		frameStats.nonAdjacentKeySplits += staticBatching.nonAdjacentKeySplits;
+		frameStats.nonContiguousInstanceSplits += staticBatching.nonContiguousInstanceSplits;
+	}
 	return {
 		drawCount,
 		submittedPacketIds,
+		staticBatching,
 	};
 }
 

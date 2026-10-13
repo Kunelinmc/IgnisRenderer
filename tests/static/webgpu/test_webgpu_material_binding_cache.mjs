@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
+import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
+import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
-import { WebGPUMaterialBindingCache } from "../../../src/backends/webgpu/WebGPUMaterialBindingCache.ts";
-import { WebGPUMaterialBufferCache } from "../../../src/backends/webgpu/WebGPUMaterialBufferCache.ts";
+import { WebGPUDrawResourceCache } from "../../../src/backends/webgpu/WebGPUDrawResourceCache.ts";
 import { WEBGPU_TEXTURE_SLOT_COUNT } from "../../../src/backends/webgpu/constants.ts";
 import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
@@ -45,328 +46,218 @@ function createBackendStub() {
 	return backend;
 }
 
-function createMaterialData(pipelineKey = "none-opaque-solid") {
-	const vec4 = [0, 0, 0, 0];
-	return {
-		shadingFamily: "pbr",
-		common: {
-			baseColorFactor: vec4,
-			emissiveFactor: vec4,
-			materialParams: vec4,
-			renderParams: vec4,
-			textureSlots: Array.from({ length: WEBGPU_TEXTURE_SLOT_COUNT }, () => ({
-				map: null,
-				transformA: vec4,
-				transformB: vec4,
-			})),
-		},
-		lighting: {
-			surfaceParams0: vec4,
-			surfaceParams1: vec4,
-			surfaceParams2: vec4,
-			surfaceParams3: vec4,
-			specularColorFactor: vec4,
-			sheenColorClearcoatNormalScale: vec4,
-			attenuationColor: vec4,
-			anisotropyParams: vec4,
-			pbrMasks: [0, 0, 0, 0],
-		},
-		shaderUniforms: {
-			cacheKey: "",
-			byteLength: 0,
-			valueRevision: 0,
-			data: null,
-		},
-		pipelineKey,
-		warnings: [],
-	};
-}
-
 function createPacket(id = "meshInstance_8:primitive_8") {
-	return createTestDrawPacket({
-		id,
-		worldMatrix: Matrix4.identity(),
-		normalMatrix: Matrix4.identity(),
-	});
+	return createTestDrawPacket({ id, worldMatrix: Matrix4.identity(), normalMatrix: Matrix4.identity() });
 }
 
 function createAnimationState() {
-	return {
-		generation: 0,
-		paramsBuffer: { id: "animation:params" },
-		jointMatricesBuffer: { id: "animation:joints" },
-		morphWeightsBuffer: { id: "animation:morph" },
-		jointCount: 0,
-		morphCount: 0,
-	};
+	return { generation: 0, paramsBuffer: {}, jointMatricesBuffer: {}, morphWeightsBuffer: {} };
 }
 
-function createAnimationPayloadPoolStub() {
-	const fallbackStorage = { id: "animation:fallback" };
-	return {
-		getFallbackStorageBuffer() {
-			return fallbackStorage;
-		},
-	};
+function createCache(backend, textures = Array.from({ length: WEBGPU_TEXTURE_SLOT_COUNT }, () => ({}))) {
+	const fallback = {};
+	const sampler = {};
+	return new WebGPUDrawResourceCache(backend,
+		{ modelBindGroupLayouts: { pbr: {}, phong: {}, flat: {}, unlit: {} } },
+		{ getFallbackStorageBuffer: () => fallback }, {
+			async getTextureForSlotAsync(_texture, index) { return textures[index]; },
+			getSamplerForTexture() { return sampler; },
+		});
 }
 
-function createCache(backend) {
-	const materialBuffers = new WebGPUMaterialBufferCache(backend);
-	return new WebGPUMaterialBindingCache(
-		backend,
-		createLayoutsStub(),
-		createAnimationPayloadPoolStub(),
-		materialBuffers,
-	);
+function getWriteCountForLabel(backend, prefix) {
+	return backend.writeCalls.filter(({ buffer }) => buffer.label?.startsWith(prefix)).length;
 }
 
-function createLayoutsStub() {
-	return {
-		modelBindGroupLayouts: {
-			pbr: { id: "layout:pbr" },
-			phong: { id: "layout:phong" },
-			flat: { id: "layout:flat" },
-			unlit: { id: "layout:unlit" },
-		},
-	};
-}
-
-function getWriteCountForLabel(backend, labelPrefix) {
-	return backend.writeCalls.filter((call) =>
-		call.buffer?.label?.startsWith(labelPrefix)
-	).length;
-}
-
-function testBudgetedCacheRetainsModelBindingGroup() {
+async function testBudgetedCacheRetainsModelBindingGroup() {
 	const backend = createBackendStub();
 	const cache = createCache(backend);
-	const packet = createPacket();
-	const materialData = createMaterialData();
-	const animation = createAnimationState();
+	const snapshot = await cache.resolveMaterial(new PBRMaterial(), false);
 	cache.beginFrame();
-	cache.getBinding(
-		packet,
-		{ id: "pipeline:a" },
-		materialData,
-		[],
-		[],
-		animation
-	);
-	assert.equal(backend.bindingGroupDestroyCalls, 0);
-
-	for (let i = 0; i < 6; i++) {
-		cache.beginFrame();
-	}
-
+	cache.getMaterialBinding(createPacket(), snapshot, createAnimationState());
+	for (let i = 0; i < 6; i++) cache.beginFrame();
 	assert.equal(backend.bindingGroupDestroyCalls, 0);
 	cache.destroy();
 	assert.equal(backend.bindingGroupDestroyCalls, 1);
 }
 
-function testTextureRebindDestroysPreviousModelBindingGroup() {
+async function testTextureRebindRetainsPreparedBindingUntilFrameEnd() {
 	const backend = createBackendStub();
-	const cache = createCache(backend);
+	const textures = Array.from({ length: WEBGPU_TEXTURE_SLOT_COUNT }, () => ({}));
+	const cache = createCache(backend, textures);
+	const snapshot = await cache.resolveMaterial(new PBRMaterial(), false);
+	textures[WEBGPU_TEXTURE_SLOT_COUNT - 1] = {};
+	const replacement = await cache.resolveMaterial(new PBRMaterial(), false);
 	const packet = createPacket();
-	const materialData = createMaterialData();
 	const animation = createAnimationState();
 	cache.beginFrame();
-	const firstTextures = Array.from(
-		{ length: WEBGPU_TEXTURE_SLOT_COUNT },
-		(_, index) => ({ id: `texture:${index}` })
-	);
-	const secondTextures = firstTextures.slice();
-	secondTextures[WEBGPU_TEXTURE_SLOT_COUNT - 1] = {
-		id: "texture:anisotropy:next",
-	};
-	const samplers = Array.from(
-		{ length: WEBGPU_TEXTURE_SLOT_COUNT },
-		(_, index) => ({ id: `sampler:${index}` })
-	);
-	const firstGroup = cache.getBinding(
-		packet,
-		{ id: "pipeline:a" },
-		materialData,
-		firstTextures,
-		samplers,
-		animation
-	);
-	const secondGroup = cache.getBinding(
-		packet,
-		{ id: "pipeline:a" },
-		materialData,
-		secondTextures,
-		samplers,
-		animation
-	);
-
-	assert.notEqual(firstGroup, secondGroup);
+	const first = cache.getMaterialBinding(packet, snapshot, animation);
+	const second = cache.getMaterialBinding(packet, replacement, animation);
+	assert.notEqual(first, second);
+	assert.equal(backend.bindingGroupDestroyCalls, 0, "prepared bindings survive the active frame");
+	cache.beginFrame();
 	assert.equal(backend.bindingGroupDestroyCalls, 1);
+	cache.destroy();
 }
 
-function testPipelineChangeReusesModelBindingGroup() {
+async function testSnapshotReuseDoesNotUploadOrRebind() {
 	const backend = createBackendStub();
 	const cache = createCache(backend);
+	const snapshot = await cache.resolveMaterial(new PBRMaterial(), false);
 	const packet = createPacket();
-	const materialData = createMaterialData();
 	const animation = createAnimationState();
 	cache.beginFrame();
-	const firstGroup = cache.getBinding(
-		packet,
-		{ id: "pipeline:a" },
-		materialData,
-		[],
-		[],
-		animation
-	);
-	const writeCount = backend.writeBufferCalls;
-	const secondGroup = cache.getBinding(
-		packet,
-		{ id: "pipeline:b" },
-		materialData,
-		[],
-		[],
-		animation
-	);
-
-	assert.equal(firstGroup, secondGroup);
+	const first = cache.getMaterialBinding(packet, snapshot, animation);
+	const writes = backend.writeBufferCalls;
+	assert.equal(cache.getMaterialBinding(packet, snapshot, animation), first);
 	assert.equal(backend.createBindingGroupCalls, 1);
-	assert.equal(backend.bindingGroupDestroyCalls, 0);
-	assert.equal(backend.writeBufferCalls, writeCount);
-}
-
-function testStaticMeshDoesNotWriteAnimationPayloads() {
-	const backend = createBackendStub();
-	const cache = createCache(backend);
-	const packet = createPacket();
-	const materialData = createMaterialData();
-	const animation = createAnimationState();
-	cache.beginFrame();
-	cache.getBinding(
-		packet,
-		{ id: "pipeline:a" },
-		materialData,
-		[],
-		[],
-		animation
-	);
-	cache.getBinding(
-		packet,
-		{ id: "pipeline:a" },
-		materialData,
-		[],
-		[],
-		animation
-	);
-
+	assert.equal(backend.writeBufferCalls, writes);
 	assert.equal(getWriteCountForLabel(backend, "ModelJointMatrices_"), 0);
 	assert.equal(getWriteCountForLabel(backend, "ModelMorphWeights_"), 0);
 	assert.equal(getWriteCountForLabel(backend, "ModelAnimationParams_"), 0);
-	assert.equal(
-		backend.bufferLabels.some((label) => label.startsWith("ModelAnimationParams_")),
-		false
-	);
+	cache.destroy();
 }
 
-function testMaterialSnapshotChangeRebindsWithoutObjectUpload() {
+async function testMaterialSnapshotChangeRebindsWithoutObjectUpload() {
 	const backend = createBackendStub();
 	const cache = createCache(backend);
+	const material = new PBRMaterial();
+	const snapshot = await cache.resolveMaterial(material, false);
 	const packet = createPacket();
-	const materialData = createMaterialData();
 	const animation = createAnimationState();
 	cache.beginFrame();
-	const firstGroup = cache.getBinding(
-		packet,
-		{ id: "pipeline:a" },
-		materialData,
-		[],
-		[],
-		animation
-	);
+	const first = cache.getMaterialBinding(packet, snapshot, animation);
 	const objectWrites = getWriteCountForLabel(backend, "ObjectUniform_");
-	const nextMaterialData = createMaterialData();
-	nextMaterialData.lighting.pbrMasks = [1, 2, 0, 0];
-	const secondGroup = cache.getBinding(
-		packet,
-		{ id: "pipeline:a" },
-		nextMaterialData,
-		[],
-		[],
-		animation
-	);
-
-	assert.notEqual(firstGroup, secondGroup);
-	assert.equal(
-		getWriteCountForLabel(backend, "ObjectUniform_"),
-		objectWrites
-	);
+	material.roughness = 0.2;
+	cache.beginFrame();
+	const next = await cache.resolveMaterial(material, false);
+	const second = cache.getMaterialBinding(packet, next, animation);
+	assert.notEqual(first, second);
+	assert.equal(getWriteCountForLabel(backend, "ObjectUniform_"), objectWrites);
 	assert.equal(backend.createBindingGroupCalls, 2);
+	cache.destroy();
 }
 
-function testPayloadGenerationRebuildsBindingWithoutOwningPayloadBuffers() {
+async function testPayloadGenerationRebuildsBindingWithoutOwningPayloadBuffers() {
 	const backend = createBackendStub();
 	const cache = createCache(backend);
+	const snapshot = await cache.resolveMaterial(new PBRMaterial(), false);
 	const packet = createPacket();
-	const materialData = createMaterialData();
-	const animation = {
-		...createAnimationState(),
-		generation: 1,
-		paramsBuffer: { id: "params:1" },
-		jointMatricesBuffer: { id: "joint:1" },
-	};
+	const animation = createAnimationState();
 	cache.beginFrame();
-	const first = cache.getBinding(
-		packet,
-		{ id: "pipeline:a" },
-		materialData,
-		[],
-		[],
-		animation,
-		null,
-		null
-	);
-	const payloadDestroyCount = backend.bufferDestroyCalls;
-	animation.generation = 2;
-	animation.jointMatricesBuffer = { id: "joint:2" };
-	const rebuilt = cache.getBinding(
-		packet,
-		{ id: "pipeline:a" },
-		materialData,
-		[],
-		[],
-		animation,
-		null,
-		null
-	);
-
-	assert.notStrictEqual(rebuilt, first);
-	assert.equal(backend.createBindingGroupCalls, 2);
-	assert.equal(backend.bufferDestroyCalls, payloadDestroyCount);
-}
-
-function testMaterialBuffersDestroyAfterLastLease() {
-	const backend = createBackendStub();
-	const materialBuffers = new WebGPUMaterialBufferCache(backend);
-	const materialData = createMaterialData();
-	const first = materialBuffers.acquire(materialData);
-	const second = materialBuffers.acquire(materialData);
-	assert.deepEqual(materialBuffers.getDebugStats(), { entries: 1, references: 2 });
-	first.release();
-	assert.deepEqual(materialBuffers.getDebugStats(), { entries: 1, references: 1 });
+	const first = cache.getMaterialBinding(packet, snapshot, animation);
 	const destroyCount = backend.bufferDestroyCalls;
-	second.release();
-	assert.deepEqual(materialBuffers.getDebugStats(), { entries: 0, references: 0 });
-	assert.equal(backend.bufferDestroyCalls, destroyCount + 2);
+	animation.generation++;
+	animation.jointMatricesBuffer = { destroy() { throw new Error("borrowed buffer"); } };
+	const second = cache.getMaterialBinding(packet, snapshot, animation);
+	assert.notEqual(first, second);
+	assert.equal(backend.createBindingGroupCalls, 2);
+	assert.equal(backend.bufferDestroyCalls, destroyCount);
+	cache.destroy();
 }
 
-function run() {
-	testBudgetedCacheRetainsModelBindingGroup();
-	testTextureRebindDestroysPreviousModelBindingGroup();
-	testPipelineChangeReusesModelBindingGroup();
-	testStaticMeshDoesNotWriteAnimationPayloads();
-	testMaterialSnapshotChangeRebindsWithoutObjectUpload();
-	testPayloadGenerationRebuildsBindingWithoutOwningPayloadBuffers();
-	testMaterialBuffersDestroyAfterLastLease();
-	console.log("WebGPU material binding cache tests passed");
+async function testMaterialBuffersDestroyAfterLastReference() {
+	const backend = createBackendStub();
+	const cache = createCache(backend);
+	const snapshot = await cache.resolveMaterial(new PBRMaterial(), false);
+	assert.equal(backend.bufferLabels.length, 0, "resolving a material leaves buffers unallocated");
+	const first = cache.retainMaterial(snapshot);
+	const second = cache.retainMaterial(snapshot);
+	assert.equal(first, second,
+		"retaining one material returns its shared buffers without per-reference handles");
+	assert.deepEqual(cache.getDebugStats().materialBuffers, { entries: 1, references: 2 });
+	cache.releaseMaterial(snapshot);
+	assert.deepEqual(cache.getDebugStats().materialBuffers, { entries: 1, references: 1 });
+	const destroyed = backend.bufferDestroyCalls;
+	cache.releaseMaterial(snapshot);
+	assert.deepEqual(cache.getDebugStats().materialBuffers, { entries: 0, references: 0 });
+	assert.equal(backend.bufferDestroyCalls, destroyed + 2);
+	assert.throws(() => cache.releaseMaterial(snapshot), /no retained reference/);
+	const revived = cache.retainMaterial(snapshot);
+	assert.notEqual(revived, first, "a retained CPU snapshot can rebuild its buffers");
+	cache.releaseMaterial(snapshot);
+	cache.destroy();
 }
 
-run();
+async function testCacheTeardownReleasesOutstandingMaterialReferences() {
+	const backend = createBackendStub();
+	const cache = createCache(backend);
+	const snapshot = await cache.resolveMaterial(new PBRMaterial(), false);
+	cache.retainMaterial(snapshot);
+	cache.destroy();
+	assert.equal(backend.bufferDestroyCalls, backend.bufferLabels.length);
+	assert.equal(snapshot.references, 0);
+	assert.equal(snapshot.buffers, null);
+	cache.releaseMaterial(snapshot); cache.releaseMaterial(snapshot); cache.destroy();
+	assert.equal(backend.bufferDestroyCalls, backend.bufferLabels.length);
+	assert.throws(() => cache.retainMaterial(snapshot), /destroyed/);
+}
+
+async function testShaderUniformsBelongToTheMaterialSnapshot() {
+	const backend = createBackendStub();
+	const cache = createCache(backend);
+	const material = new ShaderMaterial({ uniformBindings: [{ name: "time", type: "f32", value: 1 }] });
+	const snapshot = await cache.resolveMaterial(material, false);
+	const animation = createAnimationState();
+	const first = cache.getMaterialBinding(createPacket("first"), snapshot, animation);
+	const second = cache.getMaterialBinding(createPacket("second"), snapshot, animation);
+	const uniform = (group) => group.desc.entries.find((entry) => entry.binding === 39).resource;
+	assert.equal(uniform(first), uniform(second), "draws share the snapshot's custom uniform buffer");
+	assert.equal(getWriteCountForLabel(backend, "ShaderMaterialUniform_"), 1);
+	material.setUniform("time", 2);
+	const next = await cache.resolveMaterial(material, false);
+	const changed = cache.getMaterialBinding(createPacket("first"), next, animation);
+	assert.notEqual(uniform(changed), uniform(first), "new revisions preserve old snapshot buffers");
+	assert.equal(getWriteCountForLabel(backend, "ShaderMaterialUniform_"), 2);
+	cache.destroy();
+}
+
+async function testFailedMaterialAllocationReleasesPartialBuffers() {
+	const backend = createBackendStub();
+	const cache = createCache(backend);
+	const material = new ShaderMaterial({ uniformBindings: [{ name: "time", type: "f32", value: 1 }] });
+	const snapshot = await cache.resolveMaterial(material, false);
+	const writeBuffer = backend.writeBuffer;
+	backend.writeBuffer = (buffer, data) => {
+		if (buffer.label.startsWith("ShaderMaterialUniform_")) throw new Error("upload failed");
+		writeBuffer(buffer, data);
+	};
+	assert.throws(() => cache.retainMaterial(snapshot), /upload failed/);
+	assert.equal(backend.bufferDestroyCalls, backend.bufferLabels.length,
+		"failed allocation releases the entire partial material buffer set");
+	assert.deepEqual(cache.getDebugStats().materialBuffers, { entries: 0, references: 0 });
+	backend.writeBuffer = writeBuffer;
+	cache.retainMaterial(snapshot);
+	cache.releaseMaterial(snapshot);
+	cache.destroy();
+}
+
+async function testFailedBindingPreparationReleasesItsMaterialReference() {
+	const backend = createBackendStub();
+	const cache = createCache(backend);
+	const snapshot = await cache.resolveMaterial(new PBRMaterial(), false);
+	const writeBuffer = backend.writeBuffer;
+	backend.writeBuffer = (buffer, data) => {
+		if (buffer.label === "WebGPUFallbackShaderUniformBuffer") throw new Error("fallback failed");
+		writeBuffer(buffer, data);
+	};
+	assert.throws(() => cache.getMaterialBinding(createPacket(), snapshot, createAnimationState()),
+		/fallback failed/);
+	assert.deepEqual(cache.getDebugStats().materialBuffers, { entries: 0, references: 0 });
+	backend.writeBuffer = writeBuffer;
+	cache.getMaterialBinding(createPacket(), snapshot, createAnimationState());
+	cache.destroy();
+	assert.equal(backend.bufferDestroyCalls, backend.bufferLabels.length);
+}
+
+await testFailedMaterialAllocationReleasesPartialBuffers();
+await testFailedBindingPreparationReleasesItsMaterialReference();
+await testBudgetedCacheRetainsModelBindingGroup();
+await testTextureRebindRetainsPreparedBindingUntilFrameEnd();
+await testSnapshotReuseDoesNotUploadOrRebind();
+await testMaterialSnapshotChangeRebindsWithoutObjectUpload();
+await testPayloadGenerationRebuildsBindingWithoutOwningPayloadBuffers();
+await testMaterialBuffersDestroyAfterLastReference();
+await testCacheTeardownReleasesOutstandingMaterialReferences();
+await testShaderUniformsBelongToTheMaterialSnapshot();
+console.log("WebGPU draw material resource tests passed");

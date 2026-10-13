@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { Logger } from "../../../src/foundation/Logger.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";
 import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
+import { Material, AlphaMode } from "../../../src/materials/Material.ts";
+import { createWebGPUPipelineLayouts } from "../../../src/backends/webgpu/WebGPUPipelineLayouts.ts";
+import { ShaderSource } from "../../../src/shaders/ShaderSource.ts";
 import { WebGPUScenePipelineResources } from "../../../src/backends/webgpu/WebGPUScenePipelineResources.ts";
 import {
 	WebGPUMaterialPipelineResolver,
@@ -10,8 +14,9 @@ import {
 } from "../../../src/backends/webgpu/WebGPUMaterialPipelineResolver.ts";
 import { createWebGPUMaterialUniformData } from "../../../src/backends/webgpu/material.ts";
 import { resolveWebGPUScenePassDescriptor } from "../../../src/backends/webgpu/WebGPUScenePassDescriptors.ts";
-import { ShaderRuntime } from "../../../src/shaders/runtime/index.ts";
+import { ShaderRuntime, ShaderBackendCompileStage } from "../../../src/shaders/runtime/index.ts";
 import { createShaderMaterialSourceBlocks } from "../../../src/shaders/ShaderMaterialSource.ts";
+import { WEBGPU_TEST_PROFILE } from "./shaderDirectiveTestProfiles.mjs";
 
 import { FakeWebGPUBackend as FakeBackend } from "../../helpers/fakes.mjs";
 
@@ -42,7 +47,7 @@ function createLayouts() {
 	return {
 		scenePipelineLayouts: familyLayouts("scene-layout"),
 		sceneGBufferPipelineLayouts: familyLayouts("scene-gbuffer-layout"),
-		sceneDepthPrepassPipelineLayouts: familyLayouts("scene-depth-layout"),
+		sceneDepthPrepassPipelineLayout: { id: "scene-depth-layout" },
 		planarReflectionPipelineLayouts: familyLayouts("planar-layout"),
 		environmentPipelineLayout: { id: "environment-layout" },
 	};
@@ -1319,7 +1324,233 @@ function testGeneratedMaterialABIOwnershipRejectsRedeclarations() {
 	);
 }
 
+async function testBuiltinDepthIsolation() {
+	globalThis.GPUShaderStage ??= { VERTEX: 1, FRAGMENT: 2, COMPUTE: 4 };
+	const layouts = createWebGPUPipelineLayouts({
+		createBindGroupLayout: (desc) => ({ desc }),
+		createPipelineLayout: (desc) => ({ desc }),
+	});
+	assert.ok(layouts.depthFrameBindGroupLayout, "depth frame must use an isolated binding layout");
+	assert.deepEqual(layouts.depthFrameBindGroupLayout.desc.entries.map((e) => e.binding), [0]);
+	assert.deepEqual(layouts.depthModelBindGroupLayout.desc.entries.map((e) => e.binding),
+		[0, 34, 35, 36, 37, 40]);
+	assert.ok(layouts.depthModelBindGroupLayout.desc.entries.every(
+		(e) => e.visibility === GPUShaderStage.VERTEX,
+	));
+	assert.deepEqual(layouts.depthMaterialBindGroupLayout.desc.entries.map((e) => e.binding),
+		[0, 1, 2]);
+	assert.equal(layouts.depthMaterialBindGroupLayout.desc.entries[0].buffer.minBindingSize, 48);
+	assert.deepEqual(layouts.sceneDepthPrepassPipelineLayout.desc.bindGroupLayouts,
+		[layouts.depthFrameBindGroupLayout, layouts.depthModelBindGroupLayout,
+			layouts.depthMaterialBindGroupLayout]);
+
+	const backend = new FakeBackend();
+	const resources = new WebGPUScenePipelineResources(backend, layouts);
+	const resolver = new WebGPUMaterialPipelineResolver();
+	const runtime = readWebGPUShaderRuntimeView(backend);
+	const pbr = new PBRMaterial();
+	const flat = new Material();
+	const policy = resolver.resolveBuiltinDepth(pbr, runtime);
+	assert.equal(policy, resolver.resolveBuiltinDepth(pbr, runtime));
+	assert.equal(policy.program.kind, "builtin");
+	assert.equal(resolver.resolveBuiltinDepth(new Material({ wireframe: true }), runtime).wireframe,
+		false, "authored wireframe retains the solid early-z pass");
+	const directPolicyMaterial = new Material();
+	const directPolicy = resolver.resolveBuiltinDepth(directPolicyMaterial, runtime);
+	directPolicyMaterial.depthWrite = false;
+	assert.equal(resolver.resolveBuiltinDepth(directPolicyMaterial, runtime).depthWrite, false,
+		"depth policy observes direct mutation without a refreshed general material revision");
+	directPolicyMaterial.depthWrite = true;
+	directPolicyMaterial.cullMode = "front";
+	assert.equal(resolver.resolveBuiltinDepth(directPolicyMaterial, runtime).cullMode, "front");
+	directPolicyMaterial.alphaMode = AlphaMode.Blend;
+	assert.equal(resolver.resolveBuiltinDepth(directPolicyMaterial, runtime).transparent, true);
+	directPolicyMaterial.alphaMode = AlphaMode.Mask;
+	assert.equal(resolver.resolveBuiltinDepth(directPolicyMaterial, runtime).alphaMode, AlphaMode.Mask);
+	directPolicyMaterial.alphaMode = AlphaMode.Opaque;
+	directPolicyMaterial.cullMode = directPolicy.cullMode;
+	assert.equal(resolver.resolveBuiltinDepth(directPolicyMaterial, runtime), directPolicy);
+	const directTransmission = new PBRMaterial();
+	resolver.resolveBuiltinDepth(directTransmission, runtime);
+	directTransmission.transmissionFactor = 0.5;
+	assert.equal(resolver.resolveBuiltinDepth(directTransmission, runtime).usesTransmission, true);
+	const request = {
+		materialState: policy,
+		pass: resolveWebGPUScenePassDescriptor("single", "default", "early-z-prepass"),
+		topology: "triangle-list",
+		geometryLayout: { layoutKey: "depth-geometry", sceneVertexLayouts: [] },
+		sampleCount: 1,
+	};
+	const [first, shared] = await Promise.all([
+		resources.resolvePipeline(request),
+		resources.resolvePipeline({ ...request,
+			materialState: resolver.resolveBuiltinDepth(flat, runtime) }),
+	]);
+	assert.equal(first, shared, "compatible builtin material families share depth creation");
+	assert.equal(backend.pipelines.length, 1);
+	assert.equal(first.desc.layout, layouts.sceneDepthPrepassPipelineLayout);
+	assert.equal(first.desc.fragment, undefined);
+	assert.equal(backend.shaderModules[0].label, "WebGPUSceneDepthShader");
+	assert.equal(await resources.resolvePipeline({ ...request,
+		materialState: { ...policy, shadingFamily: "pbr", pipelineKey: "pbr:features",
+			shaderCacheKey: "scene:unrelated-features" } }), first,
+		"scene shading family and material features do not specialize builtin depth");
+
+	for (const variant of [
+		{ geometryLayout: { layoutKey: "other", sceneVertexLayouts: [] } },
+		{ topology: "line-list" },
+		{ pass: { ...request.pass, frontFace: "cw" } },
+		{ materialState: { ...policy, cullMode: "none" } },
+		{ materialState: { ...policy, shaderRuntime: { ...runtime, revision: 2 } } },
+		{ materialState: { ...policy, shaderRuntime: { ...runtime, directiveCacheTag: "other" } } },
+	]) {
+		assert.notEqual(await resources.resolvePipeline({ ...request, ...variant }), first);
+	}
+	const mask = new PBRMaterial({ alphaMode: AlphaMode.Mask });
+	const maskPipeline = await resources.resolvePipeline({ ...request,
+		materialState: resolver.resolveBuiltinDepth(mask, runtime) });
+	assert.notEqual(maskPipeline, first);
+	assert.equal(maskPipeline.desc.fragment.entryPoint, "fsMainDepthMask");
+	const transparent = new PBRMaterial({ alphaMode: AlphaMode.Blend });
+	assert.equal(await resources.resolvePipeline({ ...request,
+		materialState: resolver.resolveBuiltinDepth(transparent, runtime) }), null);
+	assert.equal(await resources.resolvePipeline({ ...request,
+		materialState: resolver.resolveBuiltinDepth(new Material({ depthWrite: false }), runtime) }),
+		null);
+	const transmission = new PBRMaterial({ transmissionFactor: 0.5 });
+	assert.equal(await resources.resolvePipeline({ ...request,
+		materialState: resolver.resolveBuiltinDepth(transmission, runtime) }), null);
+	const custom = new ShaderMaterial({
+		vertexEntryPoint: "customVs", fragmentEntryPoint: "customFsSingle", chunks: [
+		{ backend: "webgpu", language: "wgsl", stage: "vertex", code: WGSL_VERTEX },
+		{ backend: "webgpu", language: "wgsl", stage: "fragment", mode: "single",
+			code: WGSL_FRAGMENT_SINGLE },
+	] });
+	const customPolicy = resolver.resolve(custom, createWebGPUMaterialUniformData(custom, false),
+		false, "single", "early-z", runtime);
+	const customPipeline = await resources.resolvePipeline({ ...request, materialState: customPolicy });
+	assert.equal(customPipeline.desc.layout, layouts.scenePipelineLayouts[customPolicy.shadingFamily],
+		"custom depth preserves original scene ABI");
+	assert.equal(customPipeline.desc.vertex.entryPoint, "customVs");
+
+	const shader = await ShaderSource.load("webgpu.scene.depth");
+	const definitions = readFileSync(new URL(
+		"../../../src/shaders/webgpu/common/definitions.wgsl", import.meta.url), "utf8");
+	for (const name of ["FrameCameraUniforms", "ObjectUniforms", "AnimationParams", "StaticInstance"]) {
+		const struct = new RegExp(`struct ${name} \\{[^}]*\\}`, "s");
+		assert.equal(shader.source.code.match(struct)?.[0].replace(/\s+/g, " "),
+			definitions.match(struct)?.[0].replace(/\s+/g, " "),
+			`${name} preserves scene buffer ABI`);
+	}
+	const bindings = [...shader.source.code.matchAll(/@group\((\d+)\) @binding\((\d+)\)/g)]
+		.map((m) => `${m[1]}:${m[2]}`);
+	assert.deepEqual(bindings, ["0:0", "1:0", "1:34", "1:35", "1:36", "1:37", "1:40", "2:0", "2:1", "2:2"]);
+	assert.ok(shader.source.code.includes("#define IGNIS_WEBGPU_ANIMATION_POSITION_ONLY 1"));
+	assert.ok(shader.source.code.includes("staticInstances[input.instanceIndex]"));
+	assert.ok(shader.source.code.includes("clipPosition.z * 0.5 + clipPosition.w * 0.5"));
+	assert.ok(shader.source.code.includes("taaJitterCurrentPrev.xy * clipPosition.w"));
+	assert.ok(shader.source.code.includes("clamp(depthMaterial.params.x * baseAlpha, 0.0, 1.0)"));
+	const compiled = new ShaderBackendCompileStage({
+		runtime: new ShaderRuntime({ mode: "strict" }), profile: WEBGPU_TEST_PROFILE, mode: "strict",
+	}).compile({
+		code: shader.source.code, language: "wgsl", stage: "unknown", sourceKind: "builtin-scene",
+		sourceMap: shader.source.sourceMap,
+	});
+	assert.ok(!compiled.code.includes("arrayLength(&morphNormalDeltas)"));
+	assert.ok(!compiled.code.includes("safeNormalize("));
+	assert.ok(compiled.code.includes("fn applySkinning"));
+	assert.ok(!compiled.code.includes("#import"));
+	resources.destroy();
+	assert.ok(backend.shaderModules.every((module) => module.destroyed));
+	assert.ok(backend.pipelines.every((pipeline) => pipeline.destroyed));
+}
+
+async function testBuiltinDepthInvalidationDuringCreation() {
+	const backend = new FakeBackend();
+	const resources = new WebGPUScenePipelineResources(backend, createLayouts());
+	const resolver = new WebGPUMaterialPipelineResolver();
+	const request = {
+		materialState: resolver.resolveBuiltinDepth(new PBRMaterial(), readWebGPUShaderRuntimeView(backend)),
+		pass: resolveWebGPUScenePassDescriptor("single", "default", "early-z-prepass"),
+		topology: "triangle-list",
+		geometryLayout: { layoutKey: "depth-race", sceneVertexLayouts: [] },
+		sampleCount: 1,
+	};
+	let releaseCreation;
+	let enteredCreation;
+	const creationGate = new Promise((resolve) => { releaseCreation = resolve; });
+	const creationEntered = new Promise((resolve) => { enteredCreation = resolve; });
+	const createModule = backend.createShaderModule.bind(backend);
+	let calls = 0;
+	backend.createShaderModule = async (desc) => {
+		if (calls++ === 0) {
+			enteredCreation();
+			await creationGate;
+		}
+		return createModule(desc);
+	};
+	const first = resources.resolvePipeline(request);
+	const second = resources.resolvePipeline(request);
+	await creationEntered;
+	resources.invalidateShaderRuntimeCaches();
+	releaseCreation();
+	const [pipeline, shared] = await Promise.all([first, second]);
+	assert.equal(pipeline, shared);
+	assert.equal(backend.shaderModules.length, 2);
+	assert.equal(backend.shaderModules[0].destroyed, true,
+		"module created under invalidated generation is destroyed");
+	assert.equal(pipeline.desc.vertex.module, backend.shaderModules[1]);
+	assert.equal(backend.pipelines.filter((entry) => !entry.destroyed).length, 1,
+		"only the winning pipeline stays live after retry");
+	resources.destroy();
+	assert.ok(backend.shaderModules.every((module) => module.destroyed));
+	assert.ok(backend.pipelines.every((entry) => entry.destroyed));
+}
+
+async function testBuiltinDepthDestructionDuringCreation(stage = "createShaderModule") {
+	const backend = new FakeBackend();
+	const resources = new WebGPUScenePipelineResources(backend, createLayouts());
+	const resolver = new WebGPUMaterialPipelineResolver();
+	const request = {
+		materialState: resolver.resolveBuiltinDepth(new Material(), readWebGPUShaderRuntimeView(backend)),
+		pass: resolveWebGPUScenePassDescriptor("single", "default", "early-z-prepass"),
+		topology: "triangle-list",
+		geometryLayout: { layoutKey: "depth-teardown", sceneVertexLayouts: [] },
+		sampleCount: 1,
+	};
+	let releaseCreation;
+	let enteredCreation;
+	const creationGate = new Promise((resolve) => { releaseCreation = resolve; });
+	const creationEntered = new Promise((resolve) => { enteredCreation = resolve; });
+	const createResource = backend[stage].bind(backend);
+	let calls = 0;
+	backend[stage] = async (desc) => {
+		if (calls++ === 0) {
+			enteredCreation();
+			await creationGate;
+		}
+		return createResource(desc);
+	};
+	const pending = resources.resolvePipeline(request);
+	await creationEntered;
+	resources.destroy();
+	releaseCreation();
+	assert.equal(await pending, null);
+	assert.equal(backend.shaderModules.length, 1,
+		"pending creation must not retry after permanent teardown");
+	assert.equal(backend.shaderModules[0].destroyed, true);
+	assert.equal(backend.pipelines.length, stage === "createPipeline" ? 1 : 0);
+	assert.ok(backend.pipelines.every((pipeline) => pipeline.destroyed),
+		"pending pipeline must be destroyed without publishing after teardown");
+	assert.equal(await resources.resolvePipeline(request), null);
+	assert.equal(backend.shaderModules.length, 1);
+}
+
 async function run() {
+	await testBuiltinDepthIsolation();
+	await testBuiltinDepthInvalidationDuringCreation();
+	await testBuiltinDepthDestructionDuringCreation();
+	await testBuiltinDepthDestructionDuringCreation("createPipeline");
 	testWebGPUMaterialPipelineResolverProducesImmutableRuntimeVariants();
 	await testWGSLProgramSelection();
 	await testWebGPUPipelineCacheIncludesGeometryLayout();

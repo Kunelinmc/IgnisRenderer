@@ -102,6 +102,7 @@ export class WebGPUFrameBindingCache {
 	private _particleShadowVolumeBufferSize = 0;
 	private _fogUniformData: Float32Array<ArrayBuffer> = new Float32Array(8);
 	private _sceneBinding: IBindingGroup | null = null;
+	private _depthFrameBinding: IBindingGroup | null = null;
 	private _decalFrameBinding: IBindingGroup | null = null;
 	private _environmentBinding: IBindingGroup | null = null;
 	private _shadowAtlas: IRenderTexture | null = null;
@@ -511,6 +512,18 @@ export class WebGPUFrameBindingCache {
 	 * @returns A binding group compatible with `WebGPUDecalFrameBindGroupLayout`.
 	 * @sideEffects Lazily creates the binding group while reusing the shared frame uniform buffer.
 	 */
+	/** @internal Camera-only Early-Z bindings owned by frame resources; use Renderer. */
+	public getDepthFrameBinding(): IBindingGroup {
+		if (!this._depthFrameBinding) {
+			this._depthFrameBinding = this._backend.createBindingGroup({
+				label: "WebGPUDepthFrameBinding",
+				layout: this._layouts.depthFrameBindGroupLayout,
+				entries: [{ binding: 0, resource: this._getFrameCameraUniformBuffer() }],
+			});
+		}
+		return this._depthFrameBinding;
+	}
+
 	public getDecalFrameBinding(): IBindingGroup {
 		if (!this._decalFrameBinding) {
 			this._decalFrameBinding = this._backend.createBindingGroup({
@@ -761,9 +774,11 @@ export class WebGPUFrameBindingCache {
 
 	public destroy(): void {
 		this._destroyBindingGroup(this._sceneBinding);
+		this._destroyBindingGroup(this._depthFrameBinding);
 		this._destroyBindingGroup(this._decalFrameBinding);
 		this._destroyBindingGroup(this._environmentBinding);
 		this._sceneBinding = null;
+		this._depthFrameBinding = null;
 		this._decalFrameBinding = null;
 		this._environmentBinding = null;
 		this._frameCameraUniformBuffer?.destroy();

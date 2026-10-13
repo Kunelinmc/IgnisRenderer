@@ -218,6 +218,13 @@ const concat = (
 const assets: Record<string, { path: string; sync?: boolean }> = {};
 const sources: Record<string, any> = {};
 
+assets["scene.depthPrepass"] = { path: "./webgpu/scene/depthPrepass.wgsl" };
+sources["webgpu.scene.depth"] = {
+	kind: "module",
+	sourceKind: "builtin-scene",
+	source: asset("scene.depthPrepass"),
+};
+
 for (const [part, path] of Object.entries(WEBGPU_SCENE_SHADER_FILES)) {
 	const id = `scene.${part}`;
 	assets[id] = { path };

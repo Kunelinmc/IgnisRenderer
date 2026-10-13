@@ -643,7 +643,7 @@ fn customFs() -> @location(0) vec4<f32> {
 		sampleCount: 1,
 	});
 	assert.ok(firstDraw && firstDraw.length > 0);
-	const firstUniformEntry = firstDraw[0].modelBinding.desc.entries.find(
+	const firstUniformEntry = firstDraw[0].bindings[1].group.desc.entries.find(
 		(entry) => entry.binding === WEBGPU_MODEL_BINDING_SHADER_UNIFORMS
 	);
 	assert.ok(firstUniformEntry);
@@ -664,10 +664,12 @@ fn customFs() -> @location(0) vec4<f32> {
 	const secondDraw = await resources.getDrawResources(packet, frameResources, {
 		sampleCount: 1,
 	});
-	const secondUniformEntry = secondDraw[0].modelBinding.desc.entries.find(
+	const secondUniformEntry = secondDraw[0].bindings[1].group.desc.entries.find(
 		(entry) => entry.binding === WEBGPU_MODEL_BINDING_SHADER_UNIFORMS
 	);
-	assert.strictEqual(secondUniformEntry.resource, firstResource);
+	assert.notStrictEqual(secondUniformEntry.resource, firstResource);
+	assert.deepEqual(firstResource.lastWrite.slice(0, 4), [0, 0, 128, 63],
+		"a new material snapshot does not overwrite an already prepared uniform buffer");
 	assert.deepEqual(secondUniformEntry.resource.lastWrite.slice(0, 4), [
 		0,
 		0,
@@ -683,7 +685,7 @@ fn customFs() -> @location(0) vec4<f32> {
 	const thirdDraw = await resources.getDrawResources(packet, frameResources, {
 		sampleCount: 1,
 	});
-	const thirdUniformEntry = thirdDraw[0].modelBinding.desc.entries.find(
+	const thirdUniformEntry = thirdDraw[0].bindings[1].group.desc.entries.find(
 		(entry) => entry.binding === WEBGPU_MODEL_BINDING_SHADER_UNIFORMS
 	);
 	assert.notStrictEqual(thirdUniformEntry.resource, firstResource);
@@ -1197,6 +1199,9 @@ async function testFeatureOwnedWarmupCompilesDeferredSceneVariants() {
 
 async function run() {
 	try {
+		await testBuiltinDepthUsesOnlyDepthResources();
+		await testDepthPreparationRejectsPolicyChangesDuringCompilation();
+		await testDepthPreparationRejectsCoverageChangesDuringUpload();
 		await testSharedStaticDrawPreparation();
 		await testRetainedPreparationPinsMaterialBindings();
 		await testReleasedScopeDiscardsDrawPreparation();
@@ -1233,6 +1238,89 @@ async function run() {
 	}
 }
 
+async function testBuiltinDepthUsesOnlyDepthResources() {
+	const backend = new FakeBackend();
+	const owner = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
+	const model = createModel([new PBRMaterial()]);
+	const packets = [createPacket(model), createPacket(new MeshInstance({ mesh: model.mesh }))];
+	const frame = createFrame(packets[0]);
+	frame.opaquePackets = packets;
+	owner.beginFrameResourceLifecycle();
+	const prepared = owner.prepareFrame(
+		createFrameContext(frame, resolveFeatureState({}, {}, "webgpu")), createMainFrameOptions(),
+	);
+	try {
+		owner._drawResources.resolveMaterial = () => {
+			throw new Error("Depth must not resolve complete scene material resources");
+		};
+		const options = { sampleCount: 1, drawMode: "early-z-prepass" };
+		const draws = await owner.getDrawResources(packets[0], prepared, options);
+		assert.ok(draws?.length);
+		const bindings = draws[0].bindings;
+		assert.deepEqual(bindings.map((binding) => binding.slot), [0, 1, 2]);
+		assert.deepEqual(bindings[0].group.desc.entries.map((entry) => entry.binding), [0]);
+		assert.deepEqual(bindings[1].group.desc.entries.map((entry) => entry.binding),
+			[0, 34, 35, 36, 37, 40]);
+		assert.deepEqual(bindings[2].group.desc.entries.map((entry) => entry.binding), [0, 1, 2]);
+		assert.equal(owner.getDebugStats().materialBuffers.entries, 0);
+		assert.equal(owner._staticBatcher.getDebugStats().materialBindings, 0);
+		const second = await owner.getDrawResources(packets[1], prepared, options);
+		assert.equal(second[0].pipeline, draws[0].pipeline);
+		assert.equal(second[0].bindings[1].group, bindings[1].group);
+		assert.equal(second[0].staticBatchKey, draws[0].staticBatchKey);
+		assert.notEqual(second[0].firstInstance, draws[0].firstInstance);
+	} finally {
+		owner.destroy();
+	}
+}
+
+async function testDepthPreparationRejectsPolicyChangesDuringCompilation() {
+	const { owner, packet, prepared } = createStaticPreparationFixture();
+	try {
+		const pipelines = owner._sceneDraws._pipelines;
+		const resolve = pipelines.resolvePipeline.bind(pipelines);
+		let release;
+		pipelines.resolvePipeline = async (request) => {
+			await new Promise((done) => { release = done; });
+			return resolve(request);
+		};
+		const pending = owner.getDrawResources(packet, prepared, {
+			sampleCount: 1, drawMode: "early-z-prepass",
+		});
+		packet.submission.material.effective.depthWrite = false;
+		release();
+		assert.equal(await pending, null, "changed depth policy must not publish a draw");
+	} finally {
+		owner.destroy();
+	}
+}
+
+async function testDepthPreparationRejectsCoverageChangesDuringUpload() {
+	const { owner, packet, prepared } = createStaticPreparationFixture();
+	try {
+		const material = packet.submission.material.effective;
+		material.alphaMode = AlphaMode.Mask;
+		const textures = owner._textureRegistry;
+		const resolve = textures.getTextureForSlotAsync.bind(textures);
+		let started;
+		const entered = new Promise((done) => { started = done; });
+		let release;
+		textures.getTextureForSlotAsync = async (...args) => {
+			await new Promise((done) => { release = done; started(); });
+			return resolve(...args);
+		};
+		const pending = owner.getDrawResources(packet, prepared, {
+			sampleCount: 1, drawMode: "early-z-prepass",
+		});
+		await entered;
+		material.opacity = 0;
+		release();
+		assert.equal(await pending, null, "changed alpha coverage must not publish a draw");
+	} finally {
+		owner.destroy();
+	}
+}
+
 async function testSharedStaticDrawPreparation() {
 	const backend = new FakeBackend();
 	const owner = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
@@ -1260,7 +1348,7 @@ async function testSharedStaticDrawPreparation() {
 		assert.equal(pipelineCalls, 1, "shared geometry and material prepare once");
 		assert.notEqual(first[0], second[0], "instance draw wrappers must remain independent");
 		assert.equal(first[0].pipeline, second[0].pipeline);
-		assert.equal(first[0].modelBinding, second[0].modelBinding);
+		assert.equal(first[0].bindings[1].group, second[0].bindings[1].group);
 		assert.notEqual(first[0].firstInstance, second[0].firstInstance);
 		await owner.getDrawResources(packets[1], prepared, { sampleCount: 4 });
 		assert.equal(pipelineCalls, 2, "sample count separates preparation");
@@ -1290,7 +1378,7 @@ async function testSharedStaticDrawPreparation() {
 		assert.ok(!(nextPreparation instanceof Promise), "ready preparation survives frame reset");
 		assert.equal(pipelineCalls, 7, "new frames reuse immutable preparation");
 		assert.equal(nextDraw[0].firstInstance, 0, "reordered instances use current frame indices");
-		assert.equal(nextDraw[0].frameBinding, nextFrame.frameBinding);
+		assert.equal(nextDraw[0].bindings[0].group, nextFrame.frameBinding);
 		owner.commitTemporalFrame();
 		material.roughness = 0.5;
 		owner.beginFrameResourceLifecycle();
@@ -1351,11 +1439,11 @@ async function testSharedStaticPreparationLifecycle() {
 		assert.notEqual(concurrent[0][0].firstInstance, concurrent[1][0].firstInstance);
 		await assembler.getDrawResources(packets[0], prepared, options, { ...provider });
 		assert.equal(pipelineCalls, 3, "provider identity separates preparation");
-		const beforeGrowth = concurrent[0][0].modelBinding;
+		const beforeGrowth = concurrent[0][0].bindings[1].group;
 		owner._staticBatcher._ensureCapacity(512);
 		assert.ok(beforeGrowth.destroyed, "arena growth destroys old static bindings");
 		const afterGrowth = await assembler.getDrawResources(packets[0], prepared, options, provider);
-		assert.notEqual(afterGrowth[0].modelBinding, beforeGrowth);
+		assert.notEqual(afterGrowth[0].bindings[1].group, beforeGrowth);
 		assert.equal(pipelineCalls, 4, "arena replacement rebuilds shared bindings");
 		let runtimeRevision = 0;
 		backend.getShaderRuntimeView = () => ({ revision: runtimeRevision, mode: "strict",
@@ -1388,7 +1476,7 @@ async function testSharedStaticPreparationLifecycle() {
 		const ready = assembler.getDrawResources(packets[1], prepared, options, provider);
 		assert.ok(!(ready instanceof Promise), "fresh preparation replaces stale work");
 		prepared.frameBinding = { label: "updated-frame" };
-		assert.equal(assembler.getDrawResources(packets[0], prepared, options, provider)[0].frameBinding,
+		assert.equal(assembler.getDrawResources(packets[0], prepared, options, provider)[0].bindings[0].group,
 			prepared.frameBinding, "ready draws use current frame bindings");
 		let releaseFrameGate;
 		let firstEntered;
@@ -1514,7 +1602,7 @@ async function testReleasedScopeDiscardsDrawPreparation() {
 		release();
 		const [oldDraw, newDraw] = await Promise.all([stale, fresh]);
 		assert.equal(oldDraw, null, "released scopes cannot publish waiting draws");
-		assert.equal(newDraw[0].frameBinding, replacement.frameBinding);
+		assert.equal(newDraw[0].bindings[0].group, replacement.frameBinding);
 		assert.equal(assembler.getDrawResources(packet, prepared, { sampleCount: 1 }, provider), null,
 			"old scope bindings cannot be reused after replacement");
 		let publish;
@@ -1543,14 +1631,12 @@ async function testRetainedPreparationPinsMaterialBindings() {
 	const { owner, packet, context, prepared } = createStaticPreparationFixture();
 	try {
 		const draws = await owner.getDrawResources(packet, prepared, { sampleCount: 1 });
-		const inputs = draws[0].resolvedInputs;
-		const snapshot = { revision: 0, data: inputs.materialData,
-			textures: inputs.textures, samplers: inputs.samplers };
+		const snapshot = await owner._drawResources.resolveMaterial(packet.submission.material.effective, false);
 		const batcher = owner._staticBatcher;
 		const geometry = owner._geometryRegistry.getGeometry(packet.submission.geometry);
-		const hotBuffer = batcher._materialBindings.get(snapshot.data).objectUniformBuffer;
-		const fillers = Array.from({ length: 4095 }, () => ({ ...snapshot,
-			data: { ...snapshot.data } }));
+		const hotBuffer = batcher._materialBindings.get(snapshot.data).material.buffers.commonBuffer;
+		const fillers = await Promise.all(Array.from({ length: 4095 }, () =>
+			owner._drawResources.resolveMaterial(new PBRMaterial(), false)));
 		for (const filler of fillers) {
 			batcher.getDrawState(packet, draws[0].pipeline, geometry, filler, "default");
 		}
@@ -1561,7 +1647,7 @@ async function testRetainedPreparationPinsMaterialBindings() {
 		await ready;
 		assert.ok(!(ready instanceof Promise));
 		batcher.getDrawState(packet, draws[0].pipeline, geometry,
-			{ ...snapshot, data: { ...snapshot.data } }, "default");
+			await owner._drawResources.resolveMaterial(new PBRMaterial(), false), "default");
 		assert.equal(hotBuffer.destroyed, false, "a retained current-frame binding must stay alive");
 		for (const filler of fillers) {
 			batcher.getDrawState(packet, draws[0].pipeline, geometry, filler, "default");

@@ -2,9 +2,8 @@ import assert from "node:assert/strict";
 
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
-import { createWebGPUMaterialUniformData } from "../../../src/backends/webgpu/material.ts";
 import { WebGPUStaticMeshBatcher } from "../../../src/backends/webgpu/WebGPUStaticMeshBatcher.ts";
-import { WebGPUMaterialBufferCache } from "../../../src/backends/webgpu/WebGPUMaterialBufferCache.ts";
+import { WebGPUDrawResourceCache } from "../../../src/backends/webgpu/WebGPUDrawResourceCache.ts";
 import { WEBGPU_TEXTURE_SLOT_COUNT } from "../../../src/backends/webgpu/constants.ts";
 import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 import { DRAW_PACKET_FLAG_SHADOW_RECEIVER } from "../../../src/pipeline/types.ts";
@@ -70,7 +69,11 @@ function packet(id, x) {
 }
 
 const packets = [packet("a", 1), packet("b", 2)];
-const materialBuffers = new WebGPUMaterialBufferCache(backend);
+const materialBuffers = new WebGPUDrawResourceCache(backend,
+	{ modelBindGroupLayouts: { pbr: {}, phong: {}, flat: {}, unlit: {} } }, animations, {
+	async getTextureForSlotAsync(_texture, slot) { return { id: "texture:" + slot }; },
+	getSamplerForTexture() { return {}; },
+});
 const batcher = new WebGPUStaticMeshBatcher(
 	backend,
 	{
@@ -86,19 +89,7 @@ const batcher = new WebGPUStaticMeshBatcher(
 );
 batcher.beginFrame();
 batcher.preparePackets(packets);
-const materialData = createWebGPUMaterialUniformData(material, false);
-const snapshot = {
-	revision: material.revision,
-	data: materialData,
-	textures: Array.from(
-		{ length: WEBGPU_TEXTURE_SLOT_COUNT },
-		(_, index) => ({ id: `texture:${index}` })
-	),
-	samplers: Array.from(
-		{ length: WEBGPU_TEXTURE_SLOT_COUNT },
-		(_, index) => ({ id: `sampler:${index}` })
-	),
-};
+const snapshot = await materialBuffers.resolveMaterial(material, false);
 const geometry = {
 	indexBuffer: { id: "index" },
 	indexFormat: "uint16",
@@ -112,6 +103,11 @@ const second = batcher.getDrawState(packets[1], pipeline, geometry, snapshot, "d
 assert.ok(first);
 assert.ok(second);
 assert.equal(first.modelBinding, second.modelBinding);
+const dynamic = materialBuffers.getMaterialBinding(packets[0], snapshot, animations.getStaticScenePayload());
+const commonBuffer = snapshot.buffers.commonBuffer;
+assert.ok(dynamic.desc.entries.some(({ resource }) => resource === commonBuffer));
+assert.ok(first.modelBinding.desc.entries.some(({ resource }) => resource === commonBuffer));
+assert.deepEqual(materialBuffers.getDebugStats().materialBuffers, { entries: 1, references: 2 });
 assert.equal(first.batchKey, second.batchKey);
 assert.equal(first.firstInstance, 0);
 assert.equal(second.firstInstance, 1);
@@ -218,6 +214,83 @@ const grown = arenaWrites().find(write => write.offset === 0 && write.data.byteL
 assert.ok(grown, "lazy arena replacement also uploads existing records");
 const grownFloats = new Float32Array(grown.data.buffer, grown.data.byteOffset, 52);
 assert.equal(grownFloats[12], 1, "lazy growth preserves an earlier prepared instance");
+const failedMaterial = await materialBuffers.resolveMaterial(new PBRMaterial(), false);
+const createBindingGroup = backend.createBindingGroup;
+backend.createBindingGroup = () => { throw new Error("static binding failed"); };
+assert.throws(() => batcher.getDrawState(packets[0], pipeline, geometry, failedMaterial, "default"),
+	/static binding failed/);
+assert.equal(failedMaterial.buffers, null, "failed static binding returns its material reference");
+assert.equal(failedMaterial.references, 0);
+backend.createBindingGroup = createBindingGroup;
+assert.ok(batcher.getDrawState(packets[0], pipeline, geometry, failedMaterial, "default"));
 batcher.destroy();
+assert.equal(commonBuffer.destroyed, false, "a dynamic binding still retains the shared buffer");
+assert.deepEqual(materialBuffers.getDebugStats().materialBuffers, { entries: 1, references: 1 });
 materialBuffers.destroy();
+assert.equal(commonBuffer.destroyed, true);
+assert.equal(snapshot.references, 0);
+
+async function testStaticControlUploadRetry() {
+	for (const firstPass of ["scene", "depth"]) {
+		let objectUploadAttempts = 0;
+		let failedBuffer = null;
+		const retryBackend = {
+			...backend,
+			writeBuffer(buffer, data, offset = 0) {
+				if (buffer.label === "WebGPUStaticBatchObjectUniform") {
+					objectUploadAttempts++;
+					if (objectUploadAttempts === 1) {
+						failedBuffer = buffer;
+						throw new Error("static control upload failed");
+					}
+				}
+				backend.writeBuffer(buffer, data, offset);
+			},
+		};
+		const retryLayouts = { modelBindGroupLayouts: { pbr: {} } };
+		const retryResources = new WebGPUDrawResourceCache(
+			retryBackend, retryLayouts, animations, {
+				async getTextureForSlotAsync() { return {}; },
+				getSamplerForTexture() { return {}; },
+			},
+		);
+		const retryBatcher = new WebGPUStaticMeshBatcher(
+			retryBackend, retryLayouts, animations, retryResources,
+		);
+		retryBatcher.beginFrame();
+		retryBatcher.preparePackets([packets[0]]);
+		const retrySnapshot = await retryResources.resolveMaterial(material, false);
+		const resolveScene = () => retryBatcher.getDrawState(
+			packets[0], pipeline, geometry, retrySnapshot, "default",
+		);
+		const resolveDepth = () => retryBatcher.getDepthDrawState(
+			packets[0], pipeline, geometry, {},
+		);
+		const resolveFirst = firstPass === "scene" ? resolveScene : resolveDepth;
+		assert.throws(resolveFirst, /static control upload failed/);
+		resolveFirst();
+		assert.equal(objectUploadAttempts, 2, "preparation retries the failed initial upload");
+		assert.equal(failedBuffer.destroyed, true, "failed control allocations are released");
+		const scene = resolveScene();
+		const depth = resolveDepth();
+		assert.equal(scene.modelBinding.desc.entries[0].resource, depth.objectBuffer,
+			"scene and depth share the successfully initialized control buffer");
+		assert.notEqual(depth.objectBuffer, failedBuffer);
+		const upload = writes.find((write) => write.buffer === depth.objectBuffer);
+		assert.ok(upload, "prepared control data must have been uploaded");
+		const control = new Float32Array(
+			upload.data.buffer, upload.data.byteOffset, upload.data.byteLength / 4,
+		);
+		assert.deepEqual(Array.from(control.subarray(0, 16)), [
+			1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1,
+		], "static control preserves the identity transform");
+		assert.equal(control[50], 1, "static draws read transforms from the instance arena");
+		assert.equal(objectUploadAttempts, 2, "initialized control data is reused across passes");
+		retryBatcher.destroy();
+		retryResources.destroy();
+		assert.equal(depth.objectBuffer.destroyed, true);
+	}
+}
+
+await testStaticControlUploadRetry();
 console.log("WebGPU static mesh batcher tests passed");

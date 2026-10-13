@@ -29,6 +29,9 @@ const WEBGPU_DECAL_BATCH_STORAGE_BUFFER_COUNT = 3;
 
 export interface WebGPUPipelineLayouts {
 	sceneFrameBindGroupLayout: GPUBindGroupLayout;
+	depthFrameBindGroupLayout: GPUBindGroupLayout;
+	depthModelBindGroupLayout: GPUBindGroupLayout;
+	depthMaterialBindGroupLayout: GPUBindGroupLayout;
 	decalFrameBindGroupLayout: GPUBindGroupLayout;
 	clusteredSceneBindGroupLayout: GPUBindGroupLayout;
 	gbufferWriteBindGroupLayout: GPUBindGroupLayout;
@@ -43,7 +46,7 @@ export interface WebGPUPipelineLayouts {
 	particleBindGroupLayout: GPUBindGroupLayout;
 	scenePipelineLayouts: Record<WebGPUShadingFamily, GPUPipelineLayout>;
 	sceneGBufferPipelineLayouts: Record<WebGPUShadingFamily, GPUPipelineLayout>;
-	sceneDepthPrepassPipelineLayouts: Record<WebGPUShadingFamily, GPUPipelineLayout>;
+	sceneDepthPrepassPipelineLayout: GPUPipelineLayout;
 	planarReflectionPipelineLayouts: Record<WebGPUShadingFamily, GPUPipelineLayout>;
 	deferredLightingPipelineLayout: GPUPipelineLayout;
 	decalPipelineLayout: GPUPipelineLayout;
@@ -55,6 +58,67 @@ export interface WebGPUPipelineLayouts {
 export function createWebGPUPipelineLayouts(
 	device: GPUDevice
 ): WebGPUPipelineLayouts {
+	const depthFrameBindGroupLayout = device.createBindGroupLayout({
+		label: "WebGPUDepthFrameBindGroupLayout",
+		entries: [{
+			binding: 0,
+			visibility: GPUShaderStage.VERTEX,
+			buffer: { type: "uniform" },
+		}],
+	});
+	const depthModelBindGroupLayout = device.createBindGroupLayout({
+		label: "WebGPUDepthModelBindGroupLayout",
+		entries: [
+			{
+				binding: 0,
+				visibility: GPUShaderStage.VERTEX,
+				buffer: { type: "uniform", minBindingSize: WEBGPU_OBJECT_UNIFORM_BYTE_SIZE },
+			},
+			{
+				binding: WEBGPU_MODEL_BINDING_ANIMATION_PARAMS,
+				visibility: GPUShaderStage.VERTEX,
+				buffer: { type: "uniform" },
+			},
+			...[
+				WEBGPU_MODEL_BINDING_JOINT_MATRICES,
+				WEBGPU_MODEL_BINDING_MORPH_WEIGHTS,
+				WEBGPU_MODEL_BINDING_MORPH_POSITION,
+				WEBGPU_MODEL_BINDING_STATIC_INSTANCES,
+			].map((binding): GPUBindGroupLayoutEntry => ({
+				binding,
+				visibility: GPUShaderStage.VERTEX,
+				buffer: { type: "read-only-storage" },
+			})),
+		],
+	});
+	const depthMaterialBindGroupLayout = device.createBindGroupLayout({
+		label: "WebGPUDepthMaterialBindGroupLayout",
+		entries: [
+			{
+				binding: 0,
+				visibility: GPUShaderStage.FRAGMENT,
+				buffer: { type: "uniform", minBindingSize: 48 },
+			},
+			{
+				binding: 1,
+				visibility: GPUShaderStage.FRAGMENT,
+				texture: { sampleType: "float" },
+			},
+			{
+				binding: 2,
+				visibility: GPUShaderStage.FRAGMENT,
+				sampler: { type: "filtering" },
+			},
+		],
+	});
+	const sceneDepthPrepassPipelineLayout = device.createPipelineLayout({
+		label: "WebGPUSceneDepthPrepassPipelineLayout",
+		bindGroupLayouts: [
+			depthFrameBindGroupLayout,
+			depthModelBindGroupLayout,
+			depthMaterialBindGroupLayout,
+		],
+	});
 	const sceneFrameBindGroupLayout = device.createBindGroupLayout({
 		label: "WebGPUSceneFrameBindGroupLayout",
 		entries: [
@@ -464,10 +528,6 @@ export function createWebGPUPipelineLayouts(
 		WebGPUShadingFamily,
 		GPUPipelineLayout
 	>;
-	const sceneDepthPrepassPipelineLayouts = {} as Record<
-		WebGPUShadingFamily,
-		GPUPipelineLayout
-	>;
 	const planarReflectionPipelineLayouts = {} as Record<
 		WebGPUShadingFamily,
 		GPUPipelineLayout
@@ -489,14 +549,6 @@ export function createWebGPUPipelineLayouts(
 				modelLayout,
 				clusteredSceneBindGroupLayout,
 				gbufferWriteBindGroupLayout,
-			],
-		});
-		sceneDepthPrepassPipelineLayouts[family] = device.createPipelineLayout({
-			label: `WebGPUSceneDepthPrepassPipelineLayout_${family}`,
-			bindGroupLayouts: [
-				sceneFrameBindGroupLayout,
-				modelLayout,
-				clusteredSceneBindGroupLayout,
 			],
 		});
 		planarReflectionPipelineLayouts[family] = device.createPipelineLayout({
@@ -546,6 +598,9 @@ export function createWebGPUPipelineLayouts(
 
 	return {
 		sceneFrameBindGroupLayout,
+		depthFrameBindGroupLayout,
+		depthModelBindGroupLayout,
+		depthMaterialBindGroupLayout,
 		decalFrameBindGroupLayout,
 		clusteredSceneBindGroupLayout,
 		gbufferWriteBindGroupLayout,
@@ -560,7 +615,7 @@ export function createWebGPUPipelineLayouts(
 		particleBindGroupLayout,
 		scenePipelineLayouts,
 		sceneGBufferPipelineLayouts,
-		sceneDepthPrepassPipelineLayouts,
+		sceneDepthPrepassPipelineLayout,
 		planarReflectionPipelineLayouts,
 		deferredLightingPipelineLayout,
 		decalPipelineLayout,

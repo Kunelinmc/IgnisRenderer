@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
 	WebGPUFrameServiceOwner as WebGPURenderResources
 } from "../../../src/backends/webgpu/WebGPUFrameServiceOwner.ts";
+import { submitWebGPUDraws } from "../../../src/backends/webgpu/WebGPUDrawSubmission.ts";
 import {
 	WebGPUFrameOrchestrator as WebGPUFrameExecutor
 } from "../../../src/backends/webgpu/rendergraph/WebGPUFrameOrchestrator.ts";
@@ -272,41 +273,41 @@ async function testRenderResourcesUseCopyDstForUploads() {
 	);
 	assert.equal("anisotropyTexture" in firstDraw.resolvedInputs, false);
 	assert.ok(firstDraw.resolvedInputs.textures[WEBGPU_TEXTURE_SLOT.ANISOTROPY]);
-	assert.equal(firstDraw.frameBinding.desc.entries.length, 13);
+	assert.equal(firstDraw.bindings[0].group.desc.entries.length, 13);
 	assert.ok(
-		firstDraw.frameBinding.desc.entries.some((entry) => entry.binding === 5)
+		firstDraw.bindings[0].group.desc.entries.some((entry) => entry.binding === 5)
 	);
 	assert.ok(
-		firstDraw.frameBinding.desc.entries.some((entry) => entry.binding === 8)
+		firstDraw.bindings[0].group.desc.entries.some((entry) => entry.binding === 8)
 	);
 	for (const binding of [0, 10, 11, 12]) {
 		assert.ok(
-			firstDraw.frameBinding.desc.entries.some(
+			firstDraw.bindings[0].group.desc.entries.some(
 				(entry) => entry.binding === binding
 			)
 		);
 	}
 	assert.equal(
-		firstDraw.modelBinding.desc.entries.length,
+		firstDraw.bindings[1].group.desc.entries.length,
 		1 +
 			WEBGPU_TEXTURE_SLOT_COUNT +
 			WEBGPU_TEXTURE_DEDICATED_SAMPLER_SLOT_COUNT +
 			9
 	);
 	assert.ok(
-		firstDraw.modelBinding.desc.entries.some(
+		firstDraw.bindings[1].group.desc.entries.some(
 			(entry) => entry.binding === WEBGPU_MODEL_BINDING_SHADER_UNIFORMS
 		)
 	);
 	assert.ok(
-		firstDraw.modelBinding.desc.entries.some(
+		firstDraw.bindings[1].group.desc.entries.some(
 			(entry) =>
 				entry.binding === 1 + WEBGPU_TEXTURE_SLOT.ANISOTROPY * 2
 		)
 	);
-	assert.equal(
-		firstDraw.pipeline.desc.layout,
-		backend.device.pipelineLayouts[0]
+	assert.deepEqual(
+		firstDraw.pipeline.desc.layout.desc.bindGroupLayouts,
+		firstDraw.bindings.map((binding) => binding.group.desc.layout)
 	);
 	assert.equal(
 		firstDraw.pipeline.desc.layout.desc.bindGroupLayouts.length,
@@ -317,7 +318,7 @@ async function testRenderResourcesUseCopyDstForUploads() {
 		firstDraw.pipeline.desc.fragment.targets.map((target) => target.format),
 		["rgba16float", "rgba8unorm", "rgba8unorm", "rgba16float", "rgba16float"]
 	);
-	const modelBindingIndices = firstDraw.modelBinding.desc.entries.map(
+	const modelBindingIndices = firstDraw.bindings[1].group.desc.entries.map(
 		(entry) => entry.binding
 	);
 	assert.ok(modelBindingIndices.includes(29));
@@ -390,6 +391,66 @@ async function testRenderResourcesUseCopyDstForUploads() {
 	}
 }
 
+async function testStaticBatchSplitDiagnosticsAccumulateAndResetPerFrame() {
+	const backend = new FakeBackend();
+	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
+	try {
+		const first = createPacket(createModel([new PBRMaterial()]));
+		const different = createPacket(createModel([new PBRMaterial()]));
+		const last = {
+			...first,
+			submission: { ...first.submission, id: `${first.submission.id}:copy` },
+		};
+		const packets = [first, different, last];
+		const frame = createFrame(first);
+		frame.opaquePackets = packets;
+		const context = createFrameContextWithFeatures(frame, {}, {});
+		resources.beginFrameResourceLifecycle();
+		const frameResources = resources.prepareFrame(context, createMainFrameOptions());
+		const request = {
+			encoder: backend.createCommandEncoder(),
+			resources,
+			frameResources,
+			packets,
+			resolveDrawOptions: () => ({ sampleCount: 1 }),
+		};
+		const firstResult = await submitWebGPUDraws(request);
+		assert.deepEqual(firstResult.staticBatching, {
+			nonAdjacentKeySplits: 1,
+			nonContiguousInstanceSplits: 0,
+		});
+		const anotherScope = resources.prepareFrame(
+			context, createMainFrameOptions({ scopeKey: "secondary" }),
+		);
+		const secondResult = await submitWebGPUDraws({
+			...request, frameResources: anotherScope, packets: [first, last],
+		});
+		assert.deepEqual(secondResult.staticBatching, {
+			nonAdjacentKeySplits: 0,
+			nonContiguousInstanceSplits: 1,
+		});
+		const snapshot = resources.getDebugStats().staticBatching;
+		assert.equal(snapshot.nonAdjacentKeySplits, 1);
+		assert.equal(snapshot.nonContiguousInstanceSplits, 1);
+		assert.equal(snapshot.instanceCount, 3);
+		const failedEncoder = backend.createCommandEncoder();
+		failedEncoder.drawIndexed = () => { throw new Error("Recording failed."); };
+		await assert.rejects(
+			submitWebGPUDraws({ ...request, encoder: failedEncoder }), /Recording failed/,
+		);
+		assert.equal(resources.getDebugStats().staticBatching.nonAdjacentKeySplits, 1);
+		assert.equal(resources.getDebugStats().staticBatching.nonContiguousInstanceSplits, 1);
+		resources.beginFrameResourceLifecycle();
+		assert.equal(resources.getDebugStats().staticBatching.nonAdjacentKeySplits, 0);
+		assert.equal(resources.getDebugStats().staticBatching.nonContiguousInstanceSplits, 0);
+		assert.equal(snapshot.nonAdjacentKeySplits, 1, "Prior diagnostic snapshots stay stable.");
+		assert.equal(snapshot.nonContiguousInstanceSplits, 1);
+		assert.equal(firstResult.staticBatching.nonContiguousInstanceSplits, 0);
+	} finally {
+		resources.destroy();
+	}
+}
+
 async function run() {
 	try {
 		await testRenderResourcesConsumeInjectedComputeFacade();
@@ -397,6 +458,7 @@ async function run() {
 		await testRenderResourcesLogPointLightLimitOnlyOnce();
 		await testFrameExecutorConsumesComputeFacadeFromHost();
 		await testRenderResourcesUseCopyDstForUploads();
+		await testStaticBatchSplitDiagnosticsAccumulateAndResetPerFrame();
 		console.log("WebGPU bridge render resources tests passed");
 	} finally {
 		ShaderSource.resetConfiguration();

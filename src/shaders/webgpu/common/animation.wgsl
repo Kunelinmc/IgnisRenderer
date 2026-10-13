@@ -136,12 +136,14 @@ fn applySkinning(
 		return SkinnedVertex(basePosition, baseNormal, baseTangent);
 	}
 
-#if IGNIS_WEBGPU_ANIMATION_POSITION_ONLY
-	return SkinnedVertex(skinnedPosition / weightSum, baseNormal, baseTangent);
-#else
+	// Depth and scene positions must share arithmetic to preserve Early-Z equality.
 	let invWeight = 1.0 / weightSum;
+	let normalizedPosition = skinnedPosition * invWeight;
+#if IGNIS_WEBGPU_ANIMATION_POSITION_ONLY
+	return SkinnedVertex(normalizedPosition, baseNormal, baseTangent);
+#else
 	return SkinnedVertex(
-		skinnedPosition * invWeight,
+		normalizedPosition,
 		safeNormalize(skinnedNormal, baseNormal),
 		safeNormalize(skinnedTangent, baseTangent)
 	);

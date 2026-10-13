@@ -210,6 +210,27 @@ export class WebGPUTextureRegistry {
 	}
 
 	/**
+	 * @internal WebGPU depth preparation validates existing base-map bindings after uploads.
+	 * Does not create resources or upload content; applications should use Texture instead.
+	 */
+	public isTextureBindingCurrent(
+		texture: Texture | null, resource: IRenderTexture, sampler: ISampler,
+	): boolean {
+		if (!texture) return resource === this._whiteTexture && sampler === this._whiteSampler;
+		const cached = this._textureCache.get(texture);
+		if (cached) {
+			if (cached.resource !== resource ||
+				this._uploadedVersionCache.get(texture) !== texture.version) return false;
+		} else {
+			const usesFallback = !this._isTextureDimensionValid(texture.width, texture.height) ||
+				(!texture.data && !resolveExternalTextureSource(texture));
+			if (!usesFallback || resource !== this._whiteTexture) return false;
+		}
+		const cachedSampler = this._samplerCache.get(texture);
+		return cachedSampler?.sampler === sampler && cachedSampler.key === this._getSamplerKey(texture);
+	}
+
+	/**
 	 * Registers a Texture -> IRenderTexture mapping without taking ownership of
 	 * the provided GPU resource. Intended for externally-produced GPU textures.
 	 */

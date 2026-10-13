@@ -39,13 +39,12 @@ import {
 	createWebGPUFrameFeatureRegistry,
 } from "./WebGPUFrameFeatureModules";
 import { createWebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
+import { WebGPUDrawResourceCache } from "./WebGPUDrawResourceCache";
+import { WebGPUDepthMaterialResources } from "./WebGPUDepthMaterialResources";
 import { WebGPUFrameBindingCache } from "./WebGPUFrameBindingCache";
 import { WebGPUClusteredLightingRuntime } from "./WebGPUClusteredLightingRuntime";
 import { WebGPUGeometryRegistry } from "./WebGPUGeometryRegistry";
 import { WebGPUAnimationPayloadPool } from "./WebGPUAnimationPayloadPool";
-import { WebGPUMaterialBindingCache } from "./WebGPUMaterialBindingCache";
-import { WebGPUMaterialBufferCache } from "./WebGPUMaterialBufferCache";
-import { WebGPUMaterialSnapshotCache } from "./WebGPUMaterialSnapshotCache";
 import { WebGPUStaticMeshBatcher } from "./WebGPUStaticMeshBatcher";
 import { WebGPUScenePipelineResources } from "./WebGPUScenePipelineResources";
 import { WebGPUDeferredResources } from "./WebGPUDeferredResources";
@@ -76,6 +75,7 @@ import type {
 	WebGPUParticleBillboardRenderer,
 	WebGPUPreparedFrameResources as WebGPUPreparedFrameResourcesContract,
 	WebGPUShadowRenderProvider,
+	WebGPUStaticBatchingStats,
 } from "./WebGPUResourceContracts";
 import { WebGPUParticleRenderResources } from "./WebGPUParticleRenderResources";
 import { materialSupportsWebGPUDeferredLighting } from "./material";
@@ -153,14 +153,17 @@ export class WebGPUFrameServiceOwner {
 	private _resourceManager: WebGPUResourceManager;
 	private _computeFacade: IWebGPUComputeFacade;
 	private _layouts: ReturnType<typeof createWebGPUPipelineLayouts>;
+	private readonly _drawResources: WebGPUDrawResourceCache;
+	private readonly _depthMaterials: WebGPUDepthMaterialResources;
 	private _geometryRegistry: WebGPUGeometryRegistry;
 	private _textureRegistry: WebGPUTextureRegistry;
 	private _scenePipelines: WebGPUScenePipelineResources;
 	private _animationPayloads: WebGPUAnimationPayloadPool;
-	private _materialBindings: WebGPUMaterialBindingCache;
-	private _materialBuffers: WebGPUMaterialBufferCache;
-	private _materialSnapshots: WebGPUMaterialSnapshotCache;
 	private _staticBatcher: WebGPUStaticMeshBatcher;
+	private readonly _staticBatchingStats: WebGPUStaticBatchingStats = {
+		nonAdjacentKeySplits: 0,
+		nonContiguousInstanceSplits: 0,
+	};
 	private _shadowRuntime: WebGPUShadowRuntime;
 	private _shadowRuntimeDestroyed = false;
 	private _frameFeatureRegistry = createWebGPUFrameFeatureRegistry();
@@ -189,7 +192,6 @@ export class WebGPUFrameServiceOwner {
 		this._layouts = createWebGPUPipelineLayouts(device);
 		this._geometryRegistry = new WebGPUGeometryRegistry(backend);
 		this._textureRegistry = new WebGPUTextureRegistry(backend, resourceManager);
-		this._materialSnapshots = new WebGPUMaterialSnapshotCache(this._textureRegistry);
 		this._scenePipelines = new WebGPUScenePipelineResources(
 			backend,
 			this._layouts,
@@ -205,28 +207,27 @@ export class WebGPUFrameServiceOwner {
 			this._layouts,
 		);
 		this._animationPayloads = new WebGPUAnimationPayloadPool(backend);
-		this._materialBuffers = new WebGPUMaterialBufferCache(backend);
+		this._drawResources = new WebGPUDrawResourceCache(
+			backend, this._layouts, this._animationPayloads, this._textureRegistry,
+		);
+		this._depthMaterials = new WebGPUDepthMaterialResources(
+			backend, this._layouts, this._textureRegistry,
+		);
 		this._staticBatcher = new WebGPUStaticMeshBatcher(
 			backend,
 			this._layouts,
 			this._animationPayloads,
-			this._materialBuffers,
-		);
-		this._materialBindings = new WebGPUMaterialBindingCache(
-			backend,
-			this._layouts,
-			this._animationPayloads,
-			this._materialBuffers,
+			this._drawResources,
 		);
 		this._materialPipelineResolver = new WebGPUMaterialPipelineResolver();
 		this._drawResourceAssembler = new WebGPUDrawResourceAssembler(
 			backend,
 			this._geometryRegistry,
 			this._animationPayloads,
-			this._materialSnapshots,
-			this._materialBindings,
+			this._drawResources,
 			this._staticBatcher,
 			this._materialPipelineResolver,
+			this._depthMaterials,
 		);
 		this._sceneDraws = new WebGPUSceneDrawResources(
 			this._drawResourceAssembler,
@@ -444,14 +445,17 @@ export class WebGPUFrameServiceOwner {
 	/**
 	 * Advances caches that are shared across prepared resource scopes.
 	 *
+	 * @internal WebGPU frame lifecycle; public rendering uses Renderer.renderFrame().
 	 * @sideEffects Increments material/particle cache frame counters and evicts
-	 * stale per-frame cache entries.
+	 * stale per-frame cache entries. Resets frame draw-split diagnostics.
 	 */
 	public beginFrameResourceLifecycle(): void {
+		this._staticBatchingStats.nonAdjacentKeySplits = 0;
+		this._staticBatchingStats.nonContiguousInstanceSplits = 0;
+		this._drawResources.beginFrame();
+		this._depthMaterials.beginFrame();
 		this._drawResourceAssembler.beginFrame();
 		this._animationPayloads.beginFrame();
-		this._materialBindings.beginFrame();
-		this._materialSnapshots.beginFrame();
 		this._particleRenderResources.beginFrame();
 		this._staticBatcher.beginFrame();
 	}
@@ -565,7 +569,9 @@ export class WebGPUFrameServiceOwner {
 		const frameResources: WebGPUFrameServicePreparedResources = {
 			scopeKey: resolvedOptions.scopeKey,
 			sceneTargetMode: resolvedOptions.sceneTargetMode,
+			staticBatchingStats: this._staticBatchingStats,
 			frameBinding: scope.frameBindings.getSceneBinding(),
+			depthFrameBinding: scope.frameBindings.getDepthFrameBinding(),
 			decalFrameBinding: scope.frameBindings.getDecalFrameBinding(),
 			environmentBinding: scope.frameBindings.getEnvironmentBinding(),
 			clusteredSceneBinding: scope.clusteredLighting.getSceneBinding(),
@@ -795,10 +801,9 @@ export class WebGPUFrameServiceOwner {
 			scope.clusteredLighting.destroy();
 		}
 		this._frameScopes.clear();
-		this._materialBindings.destroy();
-		this._materialSnapshots.clear();
+		this._depthMaterials.destroy();
 		this._staticBatcher.destroy();
-		this._materialBuffers.destroy();
+		this._drawResources.destroy();
 		this._animationPayloads.destroy();
 		this._sceneDraws.destroy();
 		this._textureRegistry.destroy();
@@ -809,12 +814,17 @@ export class WebGPUFrameServiceOwner {
 		return this._textureRegistry.getTextureForSlot(texture, slotIndex);
 	}
 
-	/** @internal Test and benchmark diagnostics for CPU-side draw preparation. */
+	/**
+	 * @internal WebGPU preparation and submission diagnostics for tests and benchmarks.
+	 * Public rendering uses Renderer.renderFrame().
+	 */
 	public getDebugStats() {
 		return {
-			materialSnapshots: this._materialSnapshots.getDebugStats(),
-			materialBuffers: this._materialBuffers.getDebugStats(),
-			staticBatching: this._staticBatcher.getDebugStats(),
+			...this._drawResources.getDebugStats(),
+			staticBatching: {
+				...this._staticBatcher.getDebugStats(),
+				...this._staticBatchingStats,
+			},
 			animationPayloads: this._animationPayloads.getDebugStats(),
 		};
 	}

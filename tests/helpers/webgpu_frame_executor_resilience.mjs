@@ -358,9 +358,11 @@ function createOITSequencingResourcesStub() {
 	};
 	const drawResource = {
 		pipeline: {},
-		frameBinding: {},
-		modelBinding: {},
-		clusteredBinding: {},
+		bindings: [
+			{ slot: 0, group: {} },
+			{ slot: 1, group: {} },
+			{ slot: 2, group: {} },
+		],
 		vertexBuffer: {},
 		indexBuffer: {},
 		indexCount: 3,
@@ -426,9 +428,11 @@ function createDeferredLightingResourcesStub() {
 	};
 	const drawResource = {
 		pipeline: { id: "gbuffer-pipeline" },
-		frameBinding: { id: "frame-binding" },
-		modelBinding: { id: "model-binding" },
-		clusteredBinding: { id: "clustered-binding" },
+		bindings: [
+			{ slot: 0, group: { id: "frame-binding" } },
+			{ slot: 1, group: { id: "model-binding" } },
+			{ slot: 2, group: { id: "clustered-binding" } },
+		],
 		vertexBuffer: { id: "vertex-buffer" },
 		indexBuffer: { id: "index-buffer" },
 		indexCount: 3,
@@ -477,9 +481,11 @@ function createPlanarReflectionResourcesStub() {
 	};
 	const drawResource = {
 		pipeline: { id: "draw-pipeline" },
-		frameBinding: { id: "frame-binding" },
-		modelBinding: { id: "model-binding" },
-		clusteredBinding: { id: "clustered-binding" },
+		bindings: [
+			{ slot: 0, group: { id: "frame-binding" } },
+			{ slot: 1, group: { id: "model-binding" } },
+			{ slot: 2, group: { id: "clustered-binding" } },
+		],
 		vertexBuffer: { id: "vertex-buffer" },
 		indexBuffer: { id: "index-buffer" },
 		indexCount: 3,

@@ -21,6 +21,7 @@ import type {
 	WebGPUFeatureState,
 	WebGPULightingState,
 	WebGPUMaterialUniformData,
+	WebGPUShadingFamily,
 } from "./types";
 import type { WebGPUVertexBufferBinding } from "./WebGPUGeometryRegistry";
 import type { WebGPUGeometryHandle } from "./WebGPUGeometryRegistry";
@@ -39,6 +40,34 @@ import type { FramePreparationRequirements } from "../../pipeline/FrameRequireme
 import type { ParticleBlendMode } from "../../particles";
 import type { WebGPUDeferredGBufferLayout } from "./constants";
 import type { WebGPUMaterialPipelineState } from "./WebGPUMaterialPipelineResolver";
+
+/** @internal WebGPU draw cache buffers for one snapshot; use Material for authoring. */
+export interface WebGPUMaterialBufferResources {
+	readonly shadingFamily: WebGPUShadingFamily;
+	readonly commonBuffer: IRenderBuffer;
+	readonly lightingBuffer: IRenderBuffer | null;
+	readonly shaderUniformBuffer: IRenderBuffer | null;
+}
+
+/**
+ * @internal WebGPU material record shared by draw bindings; use Material for authoring.
+ * Only its owning WebGPUDrawResourceCache may mutate buffers and reference counts.
+ */
+export interface WebGPUMaterialResource {
+	readonly revision: number;
+	readonly wireframe: boolean;
+	readonly data: WebGPUMaterialUniformData;
+	readonly textures: IRenderTexture[];
+	readonly samplers: ISampler[];
+	buffers: WebGPUMaterialBufferResources | null;
+	references: number;
+}
+
+/** @internal WebGPU depth preparation borrows batcher buffers; use Renderer for drawing. */
+export interface WebGPUDepthStaticBindingState {
+	readonly objectBuffer: IRenderBuffer;
+	readonly instanceBuffer: IRenderBuffer;
+}
 
 /** @internal Inputs retained with a resolved WebGPU scene draw. */
 export interface WebGPUResolvedDrawInputs {
@@ -62,12 +91,16 @@ export interface WebGPUResolvedDrawInputs {
 	};
 }
 
-/** @internal WebGPU scene draw resolution result. */
+/** @internal WebGPU prepared draw binding; public rendering uses Renderer. */
+export interface WebGPUDrawBinding {
+	readonly slot: number;
+	readonly group: IBindingGroup;
+}
+
+/** @internal WebGPU draw resolution result; public rendering uses Renderer. */
 export interface WebGPUDrawResources {
 	pipeline: IRenderPipeline;
-	frameBinding: IBindingGroup;
-	modelBinding: IBindingGroup;
-	clusteredBinding: IBindingGroup;
+	bindings: readonly WebGPUDrawBinding[];
 	vertexBindings: readonly WebGPUVertexBufferBinding[];
 	indexBuffer: IRenderBuffer;
 	indexFormat: IndexFormat;
@@ -76,7 +109,8 @@ export interface WebGPUDrawResources {
 	staticBatchKey?: string;
 	/** @internal Frame-arena instance record used by static batching. */
 	firstInstance?: number;
-	resolvedInputs: WebGPUResolvedDrawInputs;
+	/** @internal Retained scene inputs; depth draws do not require scene material resources. */
+	resolvedInputs?: WebGPUResolvedDrawInputs;
 }
 
 /** @internal Ready scene preparation is synchronous; unresolved work remains awaitable. */
@@ -152,10 +186,24 @@ export interface WebGPUFrameScopePrepareOptions {
 	readonly frameRequirements?: FramePreparationRequirements;
 }
 
+/**
+ * @internal WebGPU submission diagnostics; public rendering uses Renderer.renderFrame().
+ * Counts extra batches per key within each submission/rectangle, with one reason per split.
+ */
+export interface WebGPUStaticBatchingStats {
+	/** A previously emitted key returns after an intervening command. */
+	nonAdjacentKeySplits: number;
+	/** Adjacent same-key draws cannot extend the preceding instance range. */
+	nonContiguousInstanceSplits: number;
+}
+
 /** @internal Prepared data and bindings for one WebGPU frame scope. */
 export interface WebGPUPreparedFrameResources {
 	readonly sceneTargetMode: WebGPUSceneTargetMode;
+	/** @internal WebGPU frame-owner accumulator; use Renderer.renderFrame() for rendering. */
+	readonly staticBatchingStats?: WebGPUStaticBatchingStats;
 	frameBinding: IBindingGroup;
+	depthFrameBinding: IBindingGroup;
 	decalFrameBinding: IBindingGroup;
 	environmentBinding: IBindingGroup;
 	clusteredSceneBinding: IBindingGroup;

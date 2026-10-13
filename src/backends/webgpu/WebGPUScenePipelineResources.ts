@@ -111,6 +111,9 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 	private _layouts: WebGPUPipelineLayouts;
 	private _sceneShaderModule: IShaderModule | null = null;
 	private _sceneShaderDirectiveTag = "";
+	private _depthShaderModule: IShaderModule | null = null;
+	private _depthShaderDirectiveTag = "";
+	private _depthShaderModuleInFlight = new Map<string, Promise<IShaderModule | null>>();
 	private _customShaderModuleCache = new Map<string, IShaderModule>();
 	private _customShaderModuleInFlight = new Map<
 		string,
@@ -127,6 +130,7 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 		Promise<IRenderPipeline | null>
 	>();
 	private _shaderCacheGeneration = 0;
+	private _destroyed = false;
 
 	/** @internal Invalidates assembler preparation when scene pipelines are reset. */
 	public get preparationRevision(): number {
@@ -142,6 +146,8 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 	}
 
 	public destroy(): void {
+		if (this._destroyed) return;
+		this._destroyed = true;
 		this.invalidateShaderRuntimeCaches();
 	}
 
@@ -154,9 +160,13 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 		destroyUniqueWebGPUHandles([
 			...this._customShaderModuleCache.values(),
 			this._sceneShaderModule,
+			this._depthShaderModule,
 		], "shader module", "WebGPUScenePipelineResources");
 		this._sceneShaderModule = null;
 		this._sceneShaderDirectiveTag = "";
+		this._depthShaderModule = null;
+		this._depthShaderDirectiveTag = "";
+		this._depthShaderModuleInFlight.clear();
 		this._customShaderModuleCache.clear();
 		this._customShaderModuleInFlight.clear();
 		this._sceneShaderModuleInFlight.clear();
@@ -168,6 +178,7 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 	public resolvePipeline(
 		request: WebGPUDrawPipelineRequest,
 	): Promise<IRenderPipeline | null> {
+		if (this._destroyed) return Promise.resolve(null);
 		if (request.pass.drawMode === "planar-reflection-composite") {
 			throw new Error(
 				"WebGPU scene pipeline resources do not own planar reflection composite pipelines.",
@@ -181,7 +192,7 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 
 	private async _resolveScenePipeline(
 		request: WebGPUScenePipelineRequest,
-	): Promise<IRenderPipeline> {
+	): Promise<IRenderPipeline | null> {
 		const { materialState, pass, topology, geometryLayout } = request;
 		const sampleCount = this._resolveSampleCount(
 			pass.sceneTargetMode,
@@ -201,6 +212,10 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 			geometryLayout,
 			sampleCount,
 		);
+		if (this._destroyed) {
+			destroyUniqueWebGPUHandles([pipeline], "pipeline", "WebGPUScenePipelineResources");
+			return null;
+		}
 		const winner = this._pipelineCache.get(cacheKey);
 		if (winner) {
 			destroyUniqueWebGPUHandles(
@@ -290,6 +305,7 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 	private _resolveEarlyZPipeline(
 		request: WebGPUScenePipelineRequest,
 	): Promise<IRenderPipeline | null> {
+		if (this._destroyed) return Promise.resolve(null);
 		const { materialState, pass, topology, geometryLayout } = request;
 		if (materialState.transparent || !materialState.depthWrite) {
 			return Promise.resolve(null);
@@ -300,7 +316,19 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 			request.sampleCount,
 		);
 		const depthFormat = this._resolveSceneDepthFormat(pass.sceneTargetMode);
-		const cacheKey =
+		const effectiveTopology = materialState.wireframe ? "line-list" : topology;
+		const triangleTopology = effectiveTopology === DEFAULT_PRIMITIVE_DRAW_TOPOLOGY;
+		const effectiveCullMode = materialState.wireframe || !triangleTopology
+			? "none" : materialState.cullMode;
+		const builtin = materialState.program.kind === "builtin";
+		const cacheKey = builtin
+			? `earlyz|webgpu.scene.depth|vsMain|mask:${isMask ? 1 : 0}|` +
+				`runtime:${materialState.shaderRuntime.revision}|` +
+				`mode:${materialState.shaderRuntime.mode}|` +
+				`directive:${materialState.shaderRuntime.directiveCacheTag}|` +
+				`topology:${effectiveTopology}|cull:${effectiveCullMode}|front:${pass.frontFace}|` +
+				`layout:${geometryLayout.layoutKey}|depth:${depthFormat}|msaa:${sampleCount}`
+			:
 			`earlyz|${materialState.pipelineKey}|${pass.pipelineKeyPart}|` +
 			`mask:${isMask ? 1 : 0}|wire:${materialState.wireframe ? 1 : 0}|` +
 			`topology:${topology}|layout:${geometryLayout.layoutKey}|` +
@@ -315,16 +343,14 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 		const creationPromise = (async (): Promise<IRenderPipeline | null> => {
 			const cachedAfterDispatch = this._earlyZPrepassCache.get(cacheKey);
 			if (cachedAfterDispatch) return cachedAfterDispatch;
-			const effectiveTopology = materialState.wireframe ? "line-list" : topology;
-			const triangleTopology =
-				effectiveTopology === DEFAULT_PRIMITIVE_DRAW_TOPOLOGY;
 			const resolved = await this._resolveEarlyZPrepassProgram(
 				materialState,
 				isMask,
 			);
-			if (!resolved) return null;
+			if (!resolved || this._destroyed) return null;
 			const desc: any = {
-				layout: this._resolvePipelineLayout(pass, materialState.shadingFamily),
+				layout: builtin ? this._layouts.sceneDepthPrepassPipelineLayout
+					: this._layouts.scenePipelineLayouts[materialState.shadingFamily],
 				label:
 					`WebGPUSceneEarlyZPipeline_${materialState.pipelineKey}_` +
 					pass.sceneTargetMode,
@@ -335,10 +361,7 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 				},
 				primitive: {
 					topology: effectiveTopology as any,
-					cullMode:
-						materialState.wireframe || !triangleTopology
-							? "none"
-							: materialState.cullMode as any,
+					cullMode: effectiveCullMode as any,
 					frontFace: pass.frontFace,
 				},
 				depthStencil: {
@@ -356,6 +379,10 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 				};
 			}
 			const pipeline = await this._backend.createPipeline(desc);
+			if (this._destroyed) {
+				destroyUniqueWebGPUHandles([pipeline], "pipeline", "WebGPUScenePipelineResources");
+				return null;
+			}
 			if (generation !== this._shaderCacheGeneration) {
 				destroyUniqueWebGPUHandles(
 					[pipeline],
@@ -595,7 +622,8 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 		fragmentEntryPoint: string | null;
 	} | null> {
 		if (pipelineState.program.kind === "builtin") {
-			const shaderModule = await this._getSceneShaderModule();
+			const shaderModule = await this._getDepthShaderModule();
+			if (!shaderModule) return null;
 			return {
 				vertexModule: shaderModule,
 				vertexEntryPoint: "vsMain",
@@ -688,6 +716,7 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 		stage: "vertex" | "fragment",
 		entryPoint: string
 	): Promise<IShaderModule> {
+		if (this._destroyed) throw new Error("WebGPU scene pipeline resources are destroyed.");
 		const cached = this._customShaderModuleCache.get(key);
 		if (cached) return cached;
 		const pending = this._customShaderModuleInFlight.get(key);
@@ -757,7 +786,7 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 			case "scene-gbuffer":
 				return this._layouts.sceneGBufferPipelineLayouts?.[family];
 			case "scene-depth-prepass":
-				return this._layouts.sceneDepthPrepassPipelineLayouts?.[family];
+				return this._layouts.sceneDepthPrepassPipelineLayout;
 			case "planar-reflection":
 				return this._layouts.planarReflectionPipelineLayouts?.[family];
 			case "scene":
@@ -790,6 +819,7 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 	}
 
 	private async _getSceneShaderModule(): Promise<IShaderModule> {
+		if (this._destroyed) throw new Error("WebGPU scene pipeline resources are destroyed.");
 		const directiveTag = this._getDirectiveCacheTag();
 		if (
 			this._sceneShaderModule &&
@@ -857,6 +887,71 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 				this._sceneShaderModuleInFlight.get(directiveTag) === creationPromise
 			) {
 				this._sceneShaderModuleInFlight.delete(directiveTag);
+			}
+		}
+	}
+
+	private async _getDepthShaderModule(): Promise<IShaderModule | null> {
+		if (this._destroyed) return null;
+		const directiveTag = this._getDirectiveCacheTag();
+		if (this._depthShaderModule && this._depthShaderDirectiveTag === directiveTag) {
+			return this._depthShaderModule;
+		}
+		const pending = this._depthShaderModuleInFlight.get(directiveTag);
+		if (pending) return pending;
+		const generation = this._shaderCacheGeneration;
+		const creationPromise = (async (): Promise<IShaderModule | null> => {
+			if (this._depthShaderModule && this._depthShaderDirectiveTag === directiveTag) {
+				return this._depthShaderModule;
+			}
+			const shader = await ShaderSource.load("webgpu.scene.depth");
+			if (this._destroyed) return null;
+			if (
+				generation !== this._shaderCacheGeneration ||
+				directiveTag !== this._getDirectiveCacheTag()
+			) {
+				return this._getDepthShaderModule();
+			}
+			const module = await this._backend.createShaderModule({
+				code: shader.source.code,
+				sourceMap: shader.source.sourceMap,
+				label: "WebGPUSceneDepthShader",
+				language: "wgsl",
+				stage: "unknown",
+				sourceKind: "builtin-scene",
+			});
+			if (this._destroyed) {
+				destroyUniqueWebGPUHandles([module], "shader module", "WebGPUScenePipelineResources");
+				return null;
+			}
+			if (
+				generation !== this._shaderCacheGeneration ||
+				directiveTag !== this._getDirectiveCacheTag()
+			) {
+				destroyUniqueWebGPUHandles(
+					[module], "shader module", "WebGPUScenePipelineResources",
+				);
+				return this._getDepthShaderModule();
+			}
+			if (this._depthShaderModule && this._depthShaderDirectiveTag === directiveTag) {
+				destroyUniqueWebGPUHandles(
+					[module], "shader module", "WebGPUScenePipelineResources",
+				);
+				return this._depthShaderModule;
+			}
+			destroyUniqueWebGPUHandles(
+				[this._depthShaderModule], "shader module", "WebGPUScenePipelineResources",
+			);
+			this._depthShaderModule = module;
+			this._depthShaderDirectiveTag = directiveTag;
+			return module;
+		})();
+		this._depthShaderModuleInFlight.set(directiveTag, creationPromise);
+		try {
+			return await creationPromise;
+		} finally {
+			if (this._depthShaderModuleInFlight.get(directiveTag) === creationPromise) {
+				this._depthShaderModuleInFlight.delete(directiveTag);
 			}
 		}
 	}
