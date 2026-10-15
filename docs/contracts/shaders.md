@@ -40,6 +40,11 @@ This document defines shader source ownership, composition, diagnostics, and cus
   Renderer and material public APIs must not
   expose this descriptor; WebGL frame execution derives it from current
   frame, light, target, and built-in material state.
+- `webgpu.scene` and `webgpu.deferredLighting` must use one built-in source
+  artifact each. Frame shadow state must remain runtime uniform data and must
+  not specialize these sources or participate in artifact identity.
+  Manifest composition must preserve original asset paths and line numbers,
+  including those of the shared shadow visibility asset.
 - Light and device limits must be owned by the backend directive profile and
   must not participate in shader source artifact identity.
 - Optional WebGL scene shader blocks must be selected solely by the normalized

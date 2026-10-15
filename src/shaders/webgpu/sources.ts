@@ -1,5 +1,7 @@
 import type { ShaderSourceSegmentKind } from "../runtime";
-import type { ShaderBackendManifest, ShaderSourceNode } from "../ShaderManifest";
+import type {
+	ShaderBackendManifest, ShaderSourceNode,
+} from "../ShaderManifest";
 
 type ImportMetaGlobLoaderMap = Record<string, () => Promise<string>>;
 
@@ -290,11 +292,15 @@ for (const [part, descriptor] of Object.entries(WEBGPU_FIXED_SHADER_FILES)) {
 	assets[id] = { path: descriptor.path };
 }
 
+assets["scene.shadowVisibility"] = {
+	path: "./webgpu/common/shadowVisibility.wgsl",
+};
+
 sources["webgpu.scene"] = {
 	kind: "module",
 	sourceKind: "builtin-scene",
 	source: concat(
-		WEBGPU_SCENE_SHADER_PARTS.map((part) => `scene.${part}`),
+		[...WEBGPU_SCENE_SHADER_PARTS.map((part) => `scene.${part}`), "scene.shadowVisibility"],
 		"<webgpu-scene-part>",
 	),
 };
@@ -312,6 +318,7 @@ sources["webgpu.deferredLighting"] = {
 			"scene.constants",
 			"scene.definitions",
 			"scene.utils",
+			"scene.shadowVisibility",
 			"scene.deferredGBufferCodec",
 			"scene.surfaceLighting",
 			"fixed.deferredLighting",

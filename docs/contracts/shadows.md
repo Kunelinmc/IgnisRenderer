@@ -103,3 +103,20 @@ the same interpolation from four depth comparisons. PCSS must average
 individually linearized blocker depths before estimating penumbra width.
 Projection-depth reconstruction must use the selected slice projection rather
 than backend-specific approximations.
+
+WebGPU directional and spot visibility queries must return fully lit before
+cascade selection or projection-data reads when frame or light shadow sampling
+is disabled. Shared sampling helpers must read shadow fields by light and slice
+index rather than passing the complete `ShadowData` value, including its cascade
+arrays, through fragment-stage calls. This fast path must preserve enabled
+PCF/PCSS filtering, cascade blending, and particle-volume transmittance.
+
+WebGPU built-in Forward lighting and the Deferred lighting resolve must use
+runtime frame and light uniforms to control shadow sampling. Changing a shadow
+definition's `enabled` state must affect the next frame without creating another
+shader module or pipeline solely for that state change. Static draw preparation
+and warmup must reuse the same shadow-independent pipeline identities, including
+when a custom program falls back to built-in lighting. Shader-runtime invalidation
+and device teardown must retain explicit resource cleanup. This behavior must
+preserve the uniform and binding ABI and must not introduce a public renderer
+shadow switch.

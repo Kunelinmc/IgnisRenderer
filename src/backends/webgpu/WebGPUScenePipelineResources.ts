@@ -239,10 +239,7 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 		const mode = descriptor.sceneTargetMode;
 		const resolvedSampleCount = this._resolveSampleCount(mode, sampleCount);
 		const { pipelineKey } = pipelineState;
-		const sceneProgram = await this._resolveSceneProgram(
-			pipelineState,
-			descriptor
-		);
+		const sceneProgram = await this._resolveSceneProgram(pipelineState, descriptor);
 		const isTransparent = pipelineState.transparent;
 		const usesTransmission = pipelineState.usesTransmission;
 		const isTransmissionCapture =
@@ -527,21 +524,11 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 
 	private async _resolveSceneProgram(
 		pipelineState: WebGPUMaterialPipelineState,
-		descriptor: WebGPUScenePassDescriptor
+		descriptor: WebGPUScenePassDescriptor,
 	): Promise<WebGPUSceneProgram> {
 		if (pipelineState.program.kind === "builtin") {
 			this._warnMaterialPipelineFallback(pipelineState);
-			const shaderModule = await this._getSceneShaderModule();
-			return {
-				vertexModule: shaderModule,
-				fragmentModule: shaderModule,
-				vertexEntryPoint: "vsMain",
-				fragmentEntryPoint: resolveBuiltinFragmentEntryPoint(
-					descriptor,
-					pipelineState.shadingFamily,
-				),
-				fragmentTargetMode: null,
-			};
+			return this._resolveBuiltinSceneProgram(pipelineState, descriptor);
 		}
 
 		try {
@@ -585,18 +572,22 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 				`[${key}] ShaderMaterial ${pipelineState.diagnostic.materialName} custom WebGPU shader compile failed; using built-in scene shader. ${String(error)}`,
 				{ scope: "WebGPUScenePipelineResources", onceKey: key }
 			);
-			const shaderModule = await this._getSceneShaderModule();
-			return {
-				vertexModule: shaderModule,
-				fragmentModule: shaderModule,
-				vertexEntryPoint: "vsMain",
-				fragmentEntryPoint: resolveBuiltinFragmentEntryPoint(
-					descriptor,
-					pipelineState.shadingFamily,
-				),
-				fragmentTargetMode: null,
-			};
+			return this._resolveBuiltinSceneProgram(pipelineState, descriptor);
 		}
+	}
+
+	private async _resolveBuiltinSceneProgram(
+		pipelineState: WebGPUMaterialPipelineState,
+		descriptor: WebGPUScenePassDescriptor,
+	): Promise<WebGPUSceneProgram> {
+		const shaderModule = await this._getSceneShaderModule();
+		return {
+			vertexModule: shaderModule,
+			fragmentModule: shaderModule,
+			vertexEntryPoint: "vsMain",
+			fragmentEntryPoint: resolveBuiltinFragmentEntryPoint(descriptor, pipelineState.shadingFamily),
+			fragmentTargetMode: null,
+		};
 	}
 
 	private _warnMaterialPipelineFallback(
@@ -821,10 +812,7 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 	private async _getSceneShaderModule(): Promise<IShaderModule> {
 		if (this._destroyed) throw new Error("WebGPU scene pipeline resources are destroyed.");
 		const directiveTag = this._getDirectiveCacheTag();
-		if (
-			this._sceneShaderModule &&
-			this._sceneShaderDirectiveTag === directiveTag
-		) {
+		if (this._sceneShaderModule && this._sceneShaderDirectiveTag === directiveTag) {
 			return this._sceneShaderModule;
 		}
 		const pending = this._sceneShaderModuleInFlight.get(directiveTag);
@@ -832,12 +820,6 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 
 		const generation = this._shaderCacheGeneration;
 		const creationPromise = (async (): Promise<IShaderModule> => {
-			if (
-				this._sceneShaderModule &&
-				this._sceneShaderDirectiveTag === directiveTag
-			) {
-				return this._sceneShaderModule;
-			}
 			const shader = await ShaderSource.load("webgpu.scene");
 			if (
 				generation !== this._shaderCacheGeneration ||
@@ -864,17 +846,18 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 				);
 				return this._getSceneShaderModule();
 			}
-			if (
-				this._sceneShaderModule &&
-				this._sceneShaderDirectiveTag === directiveTag
-			) {
+			const winner = this._sceneShaderDirectiveTag === directiveTag ? this._sceneShaderModule : null;
+			if (winner) {
 				destroyUniqueWebGPUHandles(
 					[module],
 					"shader module",
 					"WebGPUScenePipelineResources",
 				);
-				return this._sceneShaderModule;
+				return winner;
 			}
+			destroyUniqueWebGPUHandles(
+				[this._sceneShaderModule], "shader module", "WebGPUScenePipelineResources",
+			);
 			this._sceneShaderModule = module;
 			this._sceneShaderDirectiveTag = directiveTag;
 			return module;

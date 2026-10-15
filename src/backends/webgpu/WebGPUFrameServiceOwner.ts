@@ -693,6 +693,7 @@ export class WebGPUFrameServiceOwner {
 	/**
 	 * Resolves the fullscreen deferred lighting render pipeline.
 	 *
+	 * @internal WebGPU frame orchestration; applications use `Renderer.renderFrame()`.
 	 * @returns A pipeline that reads the G-buffer and writes `sceneColorMain`.
 	 * @sideEffects May compile and cache the deferred lighting pipeline.
 	 */
@@ -792,7 +793,7 @@ export class WebGPUFrameServiceOwner {
 		this._drawResourceAssembler.clear();
 		this.destroyShadowRuntimeResources();
 		this._particleRenderResources.destroy();
-		this.invalidateDeferredRuntimeResources();
+		this._deferredResources.destroy();
 		this._environmentResources.destroy();
 		this._frameFeatureRegistry.destroy();
 		for (const scope of this._frameScopes.values()) {

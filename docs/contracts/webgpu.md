@@ -425,6 +425,12 @@ lighting, presentation configuration, reflections, and structured buffer packing
   shader target mode, wireframe state, and shader-runtime fingerprint. Shared
   scene pipeline resources must consume the resolved policy rather than inspect
   concrete material subclasses.
+- Frame shadow state must not participate in built-in scene or deferred shader,
+  pipeline, or static preparation cache identity. Draw resource assembly, warmup,
+  and deferred pass orchestration must not select a shadow compilation variant.
+  Built-in lighting and custom-program fallback must read the current runtime
+  shadow uniforms. Ready built-in static preparation must remain synchronous
+  across shadow-state changes.
 - WebGPU device resource hosts must expose shader-runtime revision, diagnostic
   mode, directive cache identity, and runtime-injection support through one
   read-only view. Pipeline resource owners must not recover those values by

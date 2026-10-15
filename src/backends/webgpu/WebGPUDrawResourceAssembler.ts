@@ -137,6 +137,7 @@ export class WebGPUDrawResourceAssembler {
 		}
 		const sceneTargetMode = options.sceneTargetMode ?? frameResources.sceneTargetMode;
 		const transparentMode = options.transparentPipelineMode ?? "default";
+		const material = packet.submission.material.effective;
 		const key = `${sceneTargetMode}|${transparentMode}|${drawMode}|` +
 			`${options.sampleCount}|${options.deferredGBufferLayout ?? "extended"}`;
 		let materials = scope.variants.get(key);
@@ -144,7 +145,6 @@ export class WebGPUDrawResourceAssembler {
 			materials = new WeakMap();
 			scope.variants.set(key, materials);
 		}
-		const material = packet.submission.material.effective;
 		let shared = materials.get(material);
 		const materialRevision = shared?.validatedEpoch === this._epoch
 			? material._getRevisionInternal() : this._resources.refreshMaterialRevision(material);

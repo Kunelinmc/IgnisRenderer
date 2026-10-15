@@ -19,8 +19,9 @@ import {
 	PBRMaterial
 } from "../../../src/materials/PBRMaterial.ts";
 import {
-	AlphaMode
+	Material, AlphaMode, ShadingModel
 } from "../../../src/materials/Material.ts";
+import { UnlitMaterial } from "../../../src/materials/UnlitMaterial.ts";
 import {
 	ShaderMaterial
 } from "../../../src/materials/ShaderMaterial.ts";
@@ -1223,6 +1224,9 @@ async function run() {
 		await testFeatureOwnedWarmupCompilesDeferredSceneVariants();
 		await testFeatureResourceWarmupReportsCompilationFailures();
 		await testSceneShaderModuleRequestsCoalesce();
+		await testShadowToggleReusesPipelinesAndPreparation();
+		await testCustomCompileFallbackReusesPipelineAcrossShadowToggle();
+		await testOwnerDestroyRejectsPendingDeferredPipeline();
 		await testCustomShaderModuleRequestsCoalesce();
 		await testEarlyZInvalidationDiscardsLatePipeline();
 		testScenePipelineResourcesExplicitlyDestroyInvalidatedHandles();
@@ -1567,15 +1571,15 @@ async function testSharedStaticPreparationGeometryReplacement() {
 	}
 }
 
-function createStaticPreparationFixture() {
+function createStaticPreparationFixture(material = new PBRMaterial()) {
 	const backend = new FakeBackend();
 	const owner = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
-	const packet = createPacket(createModel([new PBRMaterial()]));
+	const packet = createPacket(createModel([material]));
 	const frame = createFrame(packet);
 	const context = createFrameContext(frame, resolveFeatureState({}, {}, "webgpu"));
 	owner.beginFrameResourceLifecycle();
 	const prepared = owner.prepareFrame(context, createMainFrameOptions());
-	return { owner, packet, context, prepared };
+	return { backend, owner, packet, context, prepared };
 }
 
 async function testReleasedScopeDiscardsDrawPreparation() {
@@ -1691,8 +1695,109 @@ async function testSceneShaderModuleRequestsCoalesce() {
 	assert.equal(createCalls, 1);
 	assert.equal(firstModule, secondModule);
 	assert.equal(scenePipelines._sceneShaderModuleInFlight.size, 0);
+	assert.strictEqual(await scenePipelines._getSceneShaderModule(), firstModule);
+	assert.equal(createCalls, 1);
 	scenePipelines.invalidateShaderRuntimeCaches();
 	assert.equal(backend.shaderModuleDestroyCalls, 1);
+}
+
+function createCustomSceneMaterial() {
+	return new ShaderMaterial({
+		name: "CustomSceneMaterial",
+		shading: ShadingModel.PBR,
+		chunks: [{ backend: "webgpu", language: "wgsl", stage: "vertex", code:
+			"@vertex fn vsMain(@location(0) p: vec3f) -> @builtin(position) vec4f { return vec4f(p, 1.0); }",
+		}, { backend: "webgpu", language: "wgsl", stage: "fragment", mode: "single", code:
+			"@fragment fn fsMain() -> @location(0) vec4f { return vec4f(1.0); }",
+		}],
+	});
+}
+
+async function testShadowToggleReusesPipelinesAndPreparation() {
+	for (const [material, options] of [
+		[new PBRMaterial(), { sampleCount: 1 }],
+		[new Material({ shading: ShadingModel.Flat }), { sampleCount: 1 }],
+		[new Material({ shading: ShadingModel.Phong }), { sampleCount: 1 }],
+		[new PBRMaterial(), { sampleCount: 1, sceneTargetMode: "gbuffer" }],
+		[new PBRMaterial(), { sampleCount: 1, sceneTargetMode: "gbuffer", deferredGBufferLayout: "base" }],
+		[new UnlitMaterial(), { sampleCount: 1 }],
+		[createCustomSceneMaterial(), { sampleCount: 1 }],
+	]) {
+		const { owner, packet, prepared } = createStaticPreparationFixture(material);
+		try {
+			const pipelines = owner._sceneDraws._pipelines;
+			const resolve = pipelines.resolvePipeline.bind(pipelines);
+			let calls = 0;
+			pipelines.resolvePipeline = request => { calls++; return resolve(request); };
+			prepared.featureState.enableShadows = false;
+			const first = await owner.getDrawResources(packet, prepared, options);
+			prepared.featureState.enableShadows = true;
+			const reused = owner.getDrawResources(packet, prepared, options);
+			const second = await reused;
+			assert.ok(second[0].pipeline === first[0].pipeline,
+				"shadow toggles must reuse the same pipeline");
+			if (!(material instanceof ShaderMaterial)) {
+				assert.ok(!(reused instanceof Promise),
+					"irrelevant shadow toggles must keep ready preparation synchronous");
+				assert.equal(calls, 1, "irrelevant shadow toggles must reuse ready static preparation");
+				assert.strictEqual(second[0].bindings[1].group, first[0].bindings[1].group);
+			}
+			prepared.featureState.enableShadows = false;
+			const restored = await owner.getDrawResources(packet, prepared, options);
+			assert.strictEqual(restored[0].pipeline, first[0].pipeline);
+		} finally {
+			owner.destroy();
+		}
+	}
+}
+
+async function testCustomCompileFallbackReusesPipelineAcrossShadowToggle() {
+	const { backend, owner, packet, prepared } = createStaticPreparationFixture(
+		createCustomSceneMaterial(),
+	);
+	try {
+		backend.failCustomShaderModules = true;
+		backend.shaderRuntime = { revision: 0, getMode: () => "warn" };
+		prepared.featureState.enableShadows = false;
+		const disabled = await owner.getDrawResources(packet, prepared, { sampleCount: 1 });
+		prepared.featureState.enableShadows = true;
+		const enabled = await owner.getDrawResources(packet, prepared, { sampleCount: 1 });
+		assert.ok(enabled[0].pipeline === disabled[0].pipeline,
+			"built-in fallback must reuse its pipeline across shadow toggles");
+		assert.equal(enabled[0].pipeline.desc.fragment.module.label, "WebGPUSceneShader");
+		prepared.featureState.enableShadows = false;
+		const reused = await owner.getDrawResources(packet, prepared, { sampleCount: 1 });
+		assert.strictEqual(reused[0].pipeline, disabled[0].pipeline);
+	} finally {
+		owner.destroy();
+	}
+}
+
+async function testOwnerDestroyRejectsPendingDeferredPipeline() {
+	const backend = new FakeBackend();
+	const owner = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
+	const create = backend.createPipeline.bind(backend);
+	let release;
+	let entered;
+	let calls = 0;
+	const gate = new Promise(resolve => { release = resolve; });
+	const started = new Promise(resolve => { entered = resolve; });
+	backend.createPipeline = async descriptor => {
+		const pipeline = await create(descriptor);
+		if (descriptor.label === "WebGPUDeferredLightingPipeline") {
+			calls++;
+			entered();
+			await gate;
+		}
+		return pipeline;
+	};
+	const pending = owner.getDeferredLightingPipeline();
+	await started;
+	owner.destroy();
+	release();
+	await assert.rejects(pending, /destroyed/);
+	assert.equal(calls, 1, "owner teardown must not restart deferred compilation");
+	assert.equal(backend.shaderModules.at(-1).destroyed, true);
 }
 
 async function testCustomShaderModuleRequestsCoalesce() {

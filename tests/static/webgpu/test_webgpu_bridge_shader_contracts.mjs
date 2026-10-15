@@ -9,6 +9,7 @@ import {
 	ShaderBackendCompileStage,
 	ShaderRuntime
 } from "../../../src/shaders/runtime/index.ts";
+import { mapShaderGeneratedLocation } from "../../../src/shaders/runtime/sourceMap.ts";
 import { WEBGPU_TEST_PROFILE } from "../shaders/shaderDirectiveTestProfiles.mjs";
 import {
 	createWebGPUMaterialUniformData,
@@ -361,6 +362,29 @@ function testFeatureGate() {
 	assert.deepEqual(postProcess.getWarnings(), []);
 }
 
+async function testSceneSourcesPreserveSourceLocations() {
+	for (const [key, entryPoint, path] of [
+		["webgpu.scene", "fsMainGBufferPBR", "./webgpu/scene/fragmentGBuffer.wgsl"],
+		["webgpu.deferredLighting", "fsMainDeferredLighting", "./webgpu/lighting/deferredLighting.wgsl"],
+	]) {
+		const original = readFileSync(new URL(`../../../src/shaders/${path.slice(2)}`,
+			import.meta.url), "utf8").split(/\r?\n/);
+		const sourceLine = original.findIndex(line => line.includes(`fn ${entryPoint}(`)) + 1;
+		assert.ok(sourceLine > 0);
+		const { source } = await ShaderSource.load(key);
+		const lines = source.code.split(/\r?\n/);
+		const generatedLine = lines.findIndex(line => line.includes(`fn ${entryPoint}(`)) + 1;
+		const mapped = mapShaderGeneratedLocation(source.sourceMap, generatedLine, 1);
+		assert.equal(mapped.sourcePath, path, "composite sources must retain original asset paths");
+		assert.equal(mapped.sourceLine, sourceLine, "composite sources must retain asset line numbers");
+		const visibilityLine = lines.findIndex(line =>
+			line.includes("fn sampleDirectionalShadowVisibility(")) + 1;
+		const visibility = mapShaderGeneratedLocation(source.sourceMap, visibilityLine, 1);
+		assert.equal(visibility.sourcePath, "./webgpu/common/shadowVisibility.wgsl");
+		assert.equal(visibility.sourceLine, 1);
+	}
+}
+
 async function testSceneShaderCoverage() {
 	const WEBGPU_SCENE_SHADER = (await ShaderSource.load("webgpu.scene")).source.code;
 	for (const [name, layout] of [
@@ -418,6 +442,30 @@ async function testSceneShaderCoverage() {
 	);
 	assert.ok(WEBGPU_SCENE_SHADER.includes("AREA_LIGHT_SAMPLE_COUNT"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("sampleDirectionalShadowVisibility"));
+	for (const source of [WEBGPU_SCENE_SHADER, WEBGPU_DEFERRED_LIGHTING_SHADER]) {
+		assert.equal(
+			/\w+\s*:\s*ShadowData\b/.test(source),
+			false,
+			"fragment sampling must not pass cascade arrays through a ShadowData value",
+		);
+		assert.equal(
+			/let\s+\w+\s*=\s*frameShadows\.(directionalShadows|spotShadows)\[[^\]]+\]\s*;/.test(source),
+			false,
+			"fragment sampling must load shadow fields rather than a complete uniform record",
+		);
+		for (const [name, field] of [
+			["sampleDirectionalShadowVisibility", "directionalShadows"],
+			["sampleSpotShadowVisibility", "spotShadows"],
+		]) {
+			assert.ok(
+				new RegExp(`fn ${name}\\([^)]*\\) -> vec3<f32> \\{\\s*` +
+					`if \\(frame\\.options\\.z < 0\\.5\\) \\{\\s*return vec3<f32>\\(1\\.0\\);\\s*\\}\\s*` +
+					`if \\(frameShadows\\.${field}\\[index\\]\\.paramsA\\.x < 0\\.5\\) \\{\\s*` +
+					`return vec3<f32>\\(1\\.0\\);`).test(source),
+				"disabled shadows must exit before cascade or projection-data work",
+			);
+		}
+	}
 	assert.ok(WEBGPU_SCENE_SHADER.includes("sampler_comparison"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("textureSampleCompareLevel("));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("textureLoad(shadowTransmittanceAtlas"));
@@ -431,7 +479,7 @@ async function testSceneShaderCoverage() {
 	assert.ok(!WEBGPU_SCENE_SHADER.includes("decodePackedShadowDepth"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("let shadowNormal = normal;"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("let pbrShadowNormal = pbrNormal;"));
-	assert.ok(WEBGPU_SCENE_SHADER.includes("shadowData.paramsC.x"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("let slopeBias = max(paramsC.x, 0.0);"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("calculateIrradianceFromSH"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("localLightProbeCounts"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("selectTopTwoLocalLightProbes"));
@@ -1070,6 +1118,7 @@ async function run() {
 		await testTransformComposition();
 		await testMaterialAdaptation();
 		await testFeatureGate();
+		await testSceneSourcesPreserveSourceLocations();
 		await testSceneShaderCoverage();
 		await testGBufferSlotShaderABI();
 		await testScenePipelineLimitConstantsMatchLayout();
