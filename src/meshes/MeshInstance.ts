@@ -7,12 +7,18 @@ import type { Skeleton } from "../animation/Skeleton";
 export interface MeshInstanceParams extends NodeParams {
 	mesh: MeshAsset;
 	skeleton?: Skeleton | null;
+	/**
+	 * Initial weights by primitive and morph target, copied into instance-owned arrays.
+	 * When omitted, each primitive receives zero weights sized to its morph targets.
+	 * Supplied arrays retain their lengths, including explicit empty arrays.
+	 */
 	morphWeights?: ArrayLike<number>[];
 }
 
 export class MeshInstance extends Node {
 	private _mesh: MeshAsset;
 	public skeleton: Skeleton | null;
+	/** Mutable instance-owned weights indexed by primitive, then morph target. */
 	public morphWeights: Float32Array[];
 	private readonly _worldBoundingBox: BoundingBox = {
 		min: { x: 0, y: 0, z: 0 },
@@ -37,7 +43,9 @@ export class MeshInstance extends Node {
 		this.skeleton = params.skeleton ?? null;
 		this.morphWeights =
 			params.morphWeights?.map((weights) => new Float32Array(weights)) ??
-			this.mesh.defaultMorphWeights.map((weights) => new Float32Array(weights));
+			this.mesh.primitives.map(
+				(primitive) => new Float32Array(primitive.geometry.morphTargets?.length ?? 0)
+			);
 	}
 
 	public get mesh(): MeshAsset {

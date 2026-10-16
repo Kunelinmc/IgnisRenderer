@@ -5,6 +5,24 @@ IgnisRenderer consumers and contributors. Completed implementation history that
 does not require an action is retained in Git rather than in the documentation
 tree.
 
+## Mesh Morph Weights
+
+`MeshAsset.defaultMorphWeights` and the second `MeshAsset` constructor argument
+are removed. Pass initial weights to `MeshInstance` instead:
+
+```ts
+const mesh = new MeshAsset(primitives);
+const instance = new MeshInstance({ mesh, morphWeights: initialWeights });
+```
+
+Without `morphWeights`, a new instance allocates zero weights for every
+primitive's morph targets. `GLTFLoader` initializes loaded instances using
+mesh weights and node overrides. Reusing only a loaded instance's `mesh` does
+not preserve its pose; pass its `morphWeights` explicitly or clone the instance
+or prefab. Supplied and cloned weights are copied into independent arrays.
+See the [geometry contract](../contracts/geometry.md) and
+[loader contract](../contracts/loaders.md).
+
 ## WebGPU Frame Uniforms
 
 Custom WGSL using frame uniforms must adopt the new layout without legacy

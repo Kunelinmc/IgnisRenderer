@@ -1,6 +1,7 @@
 # Geometry Contract
 
-This document defines spatial indexing, level-of-detail mesh selection, and constructive solid geometry behavior.
+This document defines mesh state, spatial indexing, level-of-detail mesh
+selection, and constructive solid geometry behavior.
 
 ## Contract
 
@@ -11,6 +12,24 @@ This document defines spatial indexing, level-of-detail mesh selection, and cons
   are not supported.
 - Per-vertex `color` must remain a geometry attribute and must be preserved by
   `GeometryBuilder.buildPrimitivesFromFaces` and `MeshAsset.fromFaces`.
+
+### Mesh morph weights
+
+- `MeshAsset` must own shared primitive geometry, including morph target
+  deltas, without storing default or current morph weights.
+- `MeshInstance.morphWeights` must own the instance's current weights, indexed
+  first by primitive and then by morph target.
+- When `MeshInstanceParams.morphWeights` is omitted, the constructor must
+  allocate one zero-filled `Float32Array` per primitive, sized to that
+  primitive's `geometry.morphTargets.length`, or zero when it has no targets.
+- When `morphWeights` is supplied, the constructor must copy each supplied
+  array into instance-owned storage. Explicit empty arrays must remain empty.
+- Cloning a `MeshInstance`, including through `NodePrefab.instantiate`, must
+  preserve its current weights in independent arrays while sharing its mesh.
+- Loaders must resolve source-format initial weights before passing them to
+  `MeshInstance`. Creating a new instance from a loaded `MeshAsset` alone must
+  use zero weights; preserving the loaded pose requires explicit weights or
+  cloning the loaded instance.
 
 ### Mesh bounds
 
@@ -388,6 +407,8 @@ Output exceeds `maxOutputTriangles`.
 
 ```bash
 bun run test:winding
+bun tests/static/animation/test_animation_core.mjs
+bun tests/static/loaders/test_gltf_prefab_contract.mjs
 bun tests/static/csg/test_csg_core.mjs
 bunx tsc --noEmit
 ```
@@ -395,5 +416,6 @@ bunx tsc --noEmit
 ## Related Documents
 
 - [Engine architecture](../architecture/engine.md)
+- [Loader contract](loaders.md)
 - [Physics contract](physics.md)
 - [Renderer contract](renderer.md)

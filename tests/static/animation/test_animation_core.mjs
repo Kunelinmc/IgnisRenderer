@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+
 import { Node } from "../../../src/core/Node.ts";
 import { Scene } from "../../../src/core/Scene.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
@@ -223,6 +224,78 @@ function createMorphMesh() {
 	return mesh;
 }
 
+function testMorphWeightInitialization() {
+	const mesh = createMorphMesh();
+	const primitive = mesh.primitives[0];
+	mesh.addPrimitive({
+		...primitive,
+		id: "two-morph-targets",
+		geometry: {
+			...primitive.geometry,
+			morphTargets: [
+				primitive.geometry.morphTargets[0],
+				primitive.geometry.morphTargets[0],
+			],
+		},
+	});
+	mesh.addPrimitive({
+		...primitive,
+		id: "no-morph-targets",
+		geometry: { ...primitive.geometry, morphTargets: null },
+	});
+	const first = new MeshInstance({ mesh });
+	const second = new MeshInstance({ mesh });
+	assert.deepEqual(first.morphWeights, [
+		new Float32Array([0]),
+		new Float32Array([0, 0]),
+		new Float32Array(0),
+	]);
+	first.morphWeights[0][0] = 0.75;
+	assert.equal(first.morphWeights[1][0], 0);
+	assert.equal(second.morphWeights[0][0], 0);
+	assert.deepEqual(new MeshInstance({ mesh: new MeshAsset() }).morphWeights, []);
+}
+
+function testExplicitMorphWeightsAreCopied() {
+	const mesh = createMorphMesh();
+	const weights = [new Float32Array([0.25])];
+	const instance = new MeshInstance({ mesh, morphWeights: weights });
+	weights[0][0] = 1;
+	assert.equal(instance.morphWeights[0][0], 0.25);
+	instance.morphWeights[0][0] = 0.5;
+	assert.equal(weights[0][0], 1);
+	assert.deepEqual(new MeshInstance({ mesh, morphWeights: [] }).morphWeights, []);
+}
+
+function testMorphAnimationUsesZeroInitializedWeights() {
+	const mesh = createMorphMesh();
+	const instance = new MeshInstance({ mesh });
+	const system = new AnimationSystem();
+	const mixer = system.createMixer(instance);
+	mixer.bindMorph("/morph", instance);
+	mixer.addClip(new AnimationClip({
+		name: "morph",
+		duration: 1,
+		tracks: [new KeyframeTrack({
+			binding: {
+				targetType: "morph",
+				targetPath: "/morph",
+				property: "weights",
+			},
+			times: [0, 1],
+			values: [0, 1],
+			valueSize: 1,
+		})],
+	}));
+	mixer.clipAction("morph").play();
+	const transient = new Map();
+	new AnimationRuntime().update(system, 0.5, transient);
+	assertNearly(instance.morphWeights[0]?.[0], 0.5, "animated morph weight");
+	const packetId = `${instance.id}:${mesh.primitives[0].id}`;
+	const geometry = transient.get(ANIMATION_SOFTWARE_DEFORMED_GEOMETRY_KEY).get(packetId);
+	assertNearly(geometry.positions[0], 0.5, "animated morph position");
+}
+
 function testDeformationRevisionBoundsAndPacketIdentity() {
 	const mesh = createMorphMesh();
 	const firstInstance = new MeshInstance({
@@ -379,6 +452,9 @@ function run() {
 	testTrackSampling();
 	testRuntimeLayerMaskAndAdditive();
 	testRootMotionToggle();
+	testMorphWeightInitialization();
+	testExplicitMorphWeightsAreCopied();
+	testMorphAnimationUsesZeroInitializedWeights();
 	testDeformationRevisionBoundsAndPacketIdentity();
 	testSceneDeformationWithoutMixerBinding();
 	testStaticSkinningDeformationReuse();

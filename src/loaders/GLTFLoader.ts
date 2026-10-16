@@ -1052,15 +1052,17 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 					context
 				);
 				if (mesh) {
+					const meshDef = json.meshes[nodeDef.mesh];
 					const meshInstance = new MeshInstance({
 						mesh,
-						name: json.meshes[nodeDef.mesh]?.name ?? `mesh_${nodeDef.mesh}`,
-						morphWeights:
-							nodeDef.weights !== undefined ?
-								mesh.defaultMorphWeights.map((weights) =>
-									applyMorphWeightOverride(weights, nodeDef.weights)
-								)
-							:	undefined,
+						name: meshDef.name ?? `mesh_${nodeDef.mesh}`,
+						morphWeights: mesh.primitives.map((primitive) =>
+							resolveMorphWeights(
+								meshDef.weights,
+								nodeDef.weights,
+								primitive.geometry.morphTargets?.length ?? 0
+							)
+						),
 					});
 					container.addChild(meshInstance);
 					context.meshInstanceByNodeIndex.set(nodeIdx, meshInstance);
@@ -1124,7 +1126,6 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 			return null;
 		}
 		const primitives: IPrimitive[] = [];
-		const defaultMorphWeights: Float32Array[] = [];
 		for (const primitiveDef of meshDef.primitives) {
 			const primitive = this.parsePrimitive(
 				json,
@@ -1134,17 +1135,13 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 			);
 			if (!primitive) continue;
 			primitives.push(primitive);
-			const targetCount = primitive.geometry.morphTargets?.length ?? 0;
-			defaultMorphWeights.push(
-				resolveDefaultMorphWeights(meshDef.weights, targetCount)
-			);
 		}
 		if (primitives.length === 0) {
 			context.meshCache.set(meshIndex, null);
 			return null;
 		}
 
-		const mesh = new MeshAsset(primitives, defaultMorphWeights);
+		const mesh = new MeshAsset(primitives);
 		context.meshCache.set(meshIndex, mesh);
 		return mesh;
 	}
@@ -1911,25 +1908,14 @@ function sanitizePathSegment(value: string): string {
 	return value.replace(/[^\w\-]+/g, "_");
 }
 
-function resolveDefaultMorphWeights(
+function resolveMorphWeights(
 	meshWeights: ArrayLike<number> | undefined,
+	nodeWeights: ArrayLike<number> | undefined,
 	targetCount: number
 ): Float32Array {
 	const result = new Float32Array(targetCount);
 	for (let i = 0; i < targetCount; i++) {
-		result[i] = Number(meshWeights?.[i] ?? 0);
-	}
-	return result;
-}
-
-function applyMorphWeightOverride(
-	baseWeights: Float32Array,
-	overrideWeights: ArrayLike<number>
-): Float32Array {
-	const result = new Float32Array(baseWeights);
-	const count = Math.min(result.length, overrideWeights.length);
-	for (let i = 0; i < count; i++) {
-		result[i] = Number(overrideWeights[i] ?? result[i]);
+		result[i] = Number(nodeWeights?.[i] ?? meshWeights?.[i] ?? 0);
 	}
 	return result;
 }

@@ -27,7 +27,6 @@ const primitiveOwner = new WeakMap<IPrimitive, MeshAsset>();
 
 export class MeshAsset {
 	public readonly id: string;
-	public defaultMorphWeights: Float32Array[];
 
 	private _primitives: ReadonlyArray<IPrimitive>;
 	private readonly _boundingSphere: BoundingSphere = {
@@ -46,15 +45,9 @@ export class MeshAsset {
 		PrimitiveBoundsState
 	>();
 
-	constructor(
-		primitives: readonly IPrimitive[] = [],
-		defaultMorphWeights: Float32Array[] = []
-	) {
+	constructor(primitives: readonly IPrimitive[] = []) {
 		this.id = IdGenerator.nextId("mesh");
 		this._primitives = Object.freeze([]) as ReadonlyArray<IPrimitive>;
-		this.defaultMorphWeights = defaultMorphWeights.map(
-			(weights) => new Float32Array(weights)
-		);
 		this._replacePrimitiveSnapshot(primitives);
 		this._refreshBoundsIfNeeded();
 	}

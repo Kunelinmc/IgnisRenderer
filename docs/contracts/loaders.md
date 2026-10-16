@@ -20,6 +20,19 @@ This document defines model, image, and motion loading behavior for glTF, EXR, a
   Dense and sparse values must not be truncated by storage in an integer typed
   array after normalization.
 
+#### Morph weight initialization
+
+- `GLTFLoader` must initialize each `MeshInstance.morphWeights` directly from
+  the source mesh and node definitions, without storing weights on `MeshAsset`.
+- Each parsed primitive must receive a weight array sized to its actual morph
+  target count. Initial values must come from `mesh.weights`, with missing
+  entries filled with zero. Provided entries in `node.weights` must override
+  those values, including explicit zero; missing entries must retain the mesh
+  value. Entries beyond the primitive's target count must be ignored.
+- Nodes referencing the same glTF mesh must share a `MeshAsset` and own
+  independent weight arrays. Prefab instances must preserve the loaded weights
+  without sharing mutable weight arrays with their template or each other.
+
 #### Supported Features & Extensions
 
 The loader must support the following glTF 2.0 extensions:

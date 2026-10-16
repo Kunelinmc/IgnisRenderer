@@ -83,6 +83,13 @@ through typed extensions rather than native resource forwarding.
 
 ## Simulation and Workers
 
+`MeshAsset` holds shared primitive geometry and morph target deltas.
+`MeshInstance` holds the current morph weights for one use of that geometry.
+Loaders resolve source-format initial weights when constructing instances;
+cloning instances and prefabs preserves those weights independently of the
+shared asset. The [geometry contract](../contracts/geometry.md) defines the
+initialization and ownership rules.
+
 Animation, physics, and particles are scheduled as explicit simulation stages.
 Their runtime state remains owned by the corresponding subsystem rather than
 the backend facade. Worker infrastructure supports parallel tasks such as
