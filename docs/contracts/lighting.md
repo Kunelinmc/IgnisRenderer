@@ -422,6 +422,9 @@ When initializing a `ReflectionProbe` or passing options to its constructor `Ref
     render targets are unavailable.
 - **Capture Sampling**:
   - Cubemap faces must use the order `+X`, `-X`, `+Y`, `-Y`, `+Z`, `-Z`.
+  - Probe scene-view jobs must use a `Camera` configured with a 90-degree field
+    of view and aspect ratio `1`. The up directions must be `-Y` for the X and
+    Z faces, `+Z` for the `+Y` face, and `-Z` for the `-Y` face.
   - Cubemap-to-equirectangular conversion and final shader sampling must use
     `phi = u * 2 * PI - PI` and `theta = v * PI`.
   - Float-backed HDR capture input must preserve radiance values above `1`.

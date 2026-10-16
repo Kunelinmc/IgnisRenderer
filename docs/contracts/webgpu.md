@@ -952,11 +952,17 @@ flag in a 32-byte buffer. Background and IBL decoding must follow their own
 texture sources, preserving the linear probe-atlas path.
 
 Frame packers must return `ArrayBuffer` and accept optional reusable writers.
-Each view scope must own its writers and inverse-matrix caches. Matrix cache
-invalidation must compare matrix values, including in-place mutations.
-Non-finite or singular camera matrices must fail before temporal advancement
-or GPU writes. `TemporalFrameState` must remain the history owner; aborted
-frames and secondary captures must not advance main-view history.
+Each view scope's `WebGPUFrameBindingCache` must own its writers and validate
+camera matrices and the view and projection inverses for finite `f32`
+representation. It must consume the inverse matrices owned by `Camera` instead
+of retaining a separate inverse cache. Camera matrix ownership follows the
+rendering contract.
+View-projection validation must check finite `f32` values without computing an
+additional inverse solely for validation.
+Non-finite camera matrices and singular view or projection matrices must fail
+before temporal advancement or GPU writes. `TemporalFrameState` must remain
+the history owner; aborted frames and secondary captures must not advance
+main-view history.
 Post-process enablement must remain owned by the post-process runtime.
 
 Scene material packing must use these `group(1)` uniform bindings:

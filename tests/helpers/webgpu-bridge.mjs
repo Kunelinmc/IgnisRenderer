@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Camera } from "../../src/cameras/Camera.ts";
 import { Matrix4 } from "../../src/maths/Matrix4.ts";
 import { SH } from "../../src/maths/SH.ts";
 import { Texture } from "../../src/core/Texture.ts";
@@ -80,22 +81,14 @@ function createPacket(model) {
 }
 
 function createFrame(packet) {
-	const cameraPosition = { x: 0, y: 0, z: 5 };
+	const camera = new Camera({ position: { x: 0, y: 0, z: 5 }, aspectRatio: 1 });
+	camera.viewMatrix = Matrix4.identity();
+	camera.projectionMatrix = Matrix4.identity();
+	camera.viewProjectionMatrix = Matrix4.identity();
 	const frame = {
 		sceneBounds: packet.submission.worldBounds,
 		lights: [],
-		camera: {
-			viewProjectionMatrix: Matrix4.identity(),
-			viewMatrix: Matrix4.identity(),
-			projectionMatrix: Matrix4.identity(),
-			position: cameraPosition,
-			getWorldPosition() {
-				return this.position;
-			},
-			fov: 60,
-			aspectRatio: 1,
-			type: "perspective",
-		},
+		camera,
 		environment: createEnvironmentSnapshot(null, null),
 		meshInstances: [],
 		shadowMaps: new Map(),

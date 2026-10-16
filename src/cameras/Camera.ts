@@ -18,6 +18,28 @@ export interface CameraParams extends NodeParams {
 	far?: number;
 }
 
+function invertCameraMatrix(matrix: Matrix4, out: Matrix4, label: string): Matrix4 {
+	const elements = matrix?.elements;
+	for (let row = 0; row < 4; row++) {
+		for (let column = 0; column < 4; column++) {
+			if (!Number.isFinite(elements?.[row]?.[column])) {
+				throw new Error(`Camera ${label} matrix must contain finite values.`);
+			}
+		}
+	}
+	if (!Matrix4.inverse(matrix, out)) {
+		throw new Error(`Camera ${label} matrix is singular and cannot be inverted.`);
+	}
+	for (let row = 0; row < 4; row++) {
+		for (let column = 0; column < 4; column++) {
+			if (!Number.isFinite(out.elements[row][column])) {
+				throw new Error(`Camera ${label} inverse matrix must contain finite values.`);
+			}
+		}
+	}
+	return out;
+}
+
 export class Camera extends Node {
 	public type: CameraType;
 	public up: Vector3;
@@ -32,6 +54,8 @@ export class Camera extends Node {
 	private readonly _tmpWorldPosition: IVector3;
 	private readonly _tmpWorldForward: IVector3;
 	private readonly _tmpWorldUp: IVector3;
+	private readonly _inverseViewMatrix = Matrix4.identity();
+	private readonly _inverseProjectionMatrix = Matrix4.identity();
 
 	constructor(params: CameraParams = {}) {
 		super({
@@ -56,6 +80,24 @@ export class Camera extends Node {
 
 	public get frustum(): Frustum {
 		return this._frustum;
+	}
+
+	/**
+	 * Recomputes and returns the view-to-world matrix on every access.
+	 * The returned matrix is owned by this camera and must not be modified by callers.
+	 * @throws If the view matrix is singular or its input or inverse is non-finite.
+	 */
+	public get inverseViewMatrix(): Matrix4 {
+		return invertCameraMatrix(this.viewMatrix, this._inverseViewMatrix, "view");
+	}
+
+	/**
+	 * Recomputes the clip-to-view matrix on every access, including custom projections.
+	 * The returned matrix is owned by this camera and must not be modified by callers.
+	 * @throws If the projection matrix is singular or its input or inverse is non-finite.
+	 */
+	public get inverseProjectionMatrix(): Matrix4 {
+		return invertCameraMatrix(this.projectionMatrix, this._inverseProjectionMatrix, "projection");
 	}
 
 	public updateMatrices(): void {

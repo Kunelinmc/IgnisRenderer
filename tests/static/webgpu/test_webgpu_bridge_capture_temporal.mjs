@@ -652,7 +652,7 @@ function readLatestJitter(backend) {
 	];
 }
 
-function testIndependentEnvironmentFlagsAndWriterReuse() {
+function createFrameBindingFixture() {
 	const backend = new FakeBackend();
 	const token = {};
 	const registry = {
@@ -669,6 +669,63 @@ function testIndependentEnvironmentFlagsAndWriterReuse() {
 	const environment = { shAmbientCoeffs: null, localLightProbeCount: 0,
 		localLightProbes: [], irradianceProbeGrid: null, reflectionProbeCount: 0,
 		reflectionProbes: [], brdfLUTTexture: null, envSpecularMaxMipLevel: 0 };
+	return { backend, cache, frame, lighting, features, environment };
+}
+
+function testCameraUniformInversesAndFailureRecovery() {
+	const { backend, cache, frame, lighting, features, environment } = createFrameBindingFixture();
+	const secondary = createFrameBindingFixture();
+	const replacementCamera = secondary.frame.camera;
+	secondary.frame.camera = frame.camera;
+	const prepare = () => cache.prepare(frame, lighting, environment, features, 16, 8, "mrt",
+		{ temporalStateMode: "disabled" });
+	const inverse = Matrix4.inverse;
+	let calls = 0;
+	Matrix4.inverse = (...args) => { calls++; return inverse(...args); };
+	try {
+		prepare();
+		assert.equal(calls, 2, "frame preparation only inverts the view and projection matrices");
+		secondary.cache.prepare(secondary.frame, lighting, environment, features, 16, 8, "mrt",
+			{ temporalStateMode: "disabled" });
+		assert.equal(calls, 4, "each view scope reads freshly computed camera inverses");
+		frame.camera.viewMatrix = frame.camera.viewMatrix.clone();
+		frame.camera.projectionMatrix = frame.camera.projectionMatrix.clone();
+		frame.camera.viewProjectionMatrix = frame.camera.viewProjectionMatrix.clone();
+		prepare();
+		assert.equal(calls, 6, "unchanged numeric values are inverted on each prepare");
+		frame.camera.viewMatrix.elements[0][3] = 7;
+		prepare();
+		assert.equal(calls, 8);
+		assert.equal(readLatestFrameCameraUniformField(backend, "inverseView")[12], -7);
+		frame.camera.projectionMatrix.elements[0][0] = 2;
+		prepare();
+		assert.equal(calls, 10);
+		assert.equal(readLatestFrameCameraUniformField(backend, "inverseProjection")[0], 0.5);
+		const previousView = frame.camera.viewMatrix;
+		frame.camera.viewMatrix = new Matrix4([
+			[1, 1e38, 0, 0], [0, 1, 1e38, 0], [0, 0, 1, 1e38], [0, 0, 0, 1],
+		]);
+		const writesBeforeFailure = backend.writeBufferCalls;
+		assert.throws(prepare, /view inverse.*finite/i);
+		assert.equal(backend.writeBufferCalls, writesBeforeFailure);
+		frame.camera.viewMatrix = previousView;
+		prepare();
+		assertArrayNearlyEqual(readLatestFrameCameraUniformField(backend, "inverseView"),
+			Array.from(packMatrix4ForWGSL(inverse(previousView))));
+		replacementCamera.viewMatrix.elements[0][3] = 11;
+		frame.camera = replacementCamera;
+		prepare();
+		assert.equal(readLatestFrameCameraUniformField(backend, "inverseView")[12], -11,
+			"a view scope switching cameras reads the new camera's inverses");
+	} finally {
+		Matrix4.inverse = inverse;
+		cache.destroy();
+		secondary.cache.destroy();
+	}
+}
+
+function testIndependentEnvironmentFlagsAndWriterReuse() {
+	const { backend, cache, frame, lighting, features, environment } = createFrameBindingFixture();
 	const latestData = (label) => backend.writeCalls.findLast((call) => call[1]?.label === label)[2];
 	let firstCameraData;
 	for (const [backgroundSpace, iblSpace, probeCount, enableSH, hasSH] of [
@@ -719,7 +776,7 @@ function testInvalidCameraBeforeTemporalOrGPUWrites() {
 	frame.camera.projectionMatrix = Matrix4.identity();
 	frame.camera.projectionMatrix.elements[0][0] = 0;
 	assert.throws(() => cache.prepare(frame, null, null, null, 16, 8, "mrt"),
-		/WebGPU camera projection matrix.*singular/i);
+		/Camera projection matrix.*singular/i);
 	assert.equal(backend.writeBufferCalls, 0);
 	assert.equal(cache._currentTemporalSnapshot, null);
 	frame.camera.projectionMatrix.elements[0][0] = Infinity;
@@ -727,11 +784,18 @@ function testInvalidCameraBeforeTemporalOrGPUWrites() {
 		/WebGPU camera projection matrix.*finite/i);
 	assert.equal(backend.writeBufferCalls, 0);
 	assert.equal(cache._currentTemporalSnapshot, null);
+	frame.camera.projectionMatrix = Matrix4.identity();
+	frame.camera.viewProjectionMatrix.elements[0][0] = Infinity;
+	assert.throws(() => cache.prepare(frame, null, null, null, 16, 8, "mrt"),
+		/WebGPU camera view-projection matrix.*finite/i);
+	assert.equal(backend.writeBufferCalls, 0);
+	assert.equal(cache._currentTemporalSnapshot, null);
 }
 
 async function run() {
 	try {
 		testInvalidCameraBeforeTemporalOrGPUWrites();
+		testCameraUniformInversesAndFailureRecovery();
 		testIndependentEnvironmentFlagsAndWriterReuse();
 		await testWebGPUEnvironmentCombinationsRegression();
 		await testScopedSceneTargetModesUseDistinctBindings();

@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import { compileWGSLMath } from "../../helpers/wgsl-math.mjs";
-import { WebGPUFrameCameraState } from "../../../src/backends/webgpu/WebGPUFrameCameraState.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import {
 	WEBGPU_FRAME_CAMERA_UNIFORM_BYTE_SIZE,
@@ -272,48 +271,6 @@ function createFrameInput() {
 	};
 }
 
-function testCameraCacheAndInverseFailureRecovery() {
-	const state = new WebGPUFrameCameraState();
-	const view = Matrix4.identity();
-	const projection = Matrix4.identity();
-	const viewProjection = Matrix4.identity();
-	const inverse = Matrix4.inverse;
-	let calls = 0;
-	Matrix4.inverse = (...args) => { calls++; return inverse(...args); };
-	try {
-		state.prepare(view, projection, viewProjection);
-		assert.equal(calls, 3);
-		const inverseView = state.inverseViewMatrix;
-		const inverseProjection = state.inverseProjectionMatrix;
-		state.prepare(view.clone(), projection.clone(), viewProjection.clone());
-		assert.equal(calls, 3, "unchanged numeric values reuse inverse outputs");
-		view.elements[0][3] = 7;
-		state.prepare(view, projection, viewProjection);
-		assert.equal(calls, 4, "in-place view mutation recomputes only that inverse");
-		assert.equal(state.inverseViewMatrix, inverseView);
-		assert.equal(inverseView.elements[0][3], -7);
-		projection.elements[0][0] = 2;
-		state.prepare(view, projection, viewProjection);
-		assert.equal(calls, 5);
-		assert.equal(state.inverseProjectionMatrix, inverseProjection);
-		assert.equal(inverseProjection.elements[0][0], 0.5);
-		viewProjection.elements[1][1] = 0;
-		assert.throws(() => state.prepare(view, projection, viewProjection), /view-projection.*singular/i);
-	} finally {
-		Matrix4.inverse = inverse;
-	}
-	const recoverable = new WebGPUFrameCameraState();
-	const identity = Matrix4.identity();
-	recoverable.prepare(identity, identity, identity);
-	const overflowInverse = new Matrix4([
-		[1, 1e38, 0, 0], [0, 1, 1e38, 0], [0, 0, 1, 1e38], [0, 0, 0, 1],
-	]);
-	assert.throws(() => recoverable.prepare(overflowInverse, identity, identity), /view inverse.*finite/i);
-	recoverable.prepare(identity, identity, identity);
-	assert.deepEqual(recoverable.inverseViewMatrix.elements, identity.elements,
-		"a rejected inverse must not poison the previous value cache");
-}
-
 function testPackedCameraProjectionRoundTrip() {
 	const near = 0.3;
 	const far = 100;
@@ -333,14 +290,12 @@ function testPackedCameraProjectionRoundTrip() {
 	const transform = (packed, offset, point) => Array.from({ length: 4 }, (_, row) =>
 		point.reduce((sum, value, column) => sum + packed[offset + column * 4 + row] * value, 0));
 	for (const projection of projections) {
-		const state = new WebGPUFrameCameraState();
 		const view = new Matrix4([[1, 0, 0, -3], [0, 1, 0, 2], [0, 0, 1, -5], [0, 0, 0, 1]]);
-		state.prepare(view, projection, projection);
 		const jitter = [0.003, -0.004];
 		const packed = new Float32Array(packFrameCameraUniformData({
 			viewProjectionMatrix: projection, prevViewProjectionMatrix: projection,
-			inverseViewMatrix: state.inverseViewMatrix,
-			inverseProjectionMatrix: state.inverseProjectionMatrix,
+			inverseViewMatrix: Matrix4.inverse(view),
+			inverseProjectionMatrix: Matrix4.inverse(projection),
 			jitterNdc: jitter, prevJitterNdc: [0, 0],
 		}));
 		for (const point of [[1.2, -0.7, -2, 1], [-1, 1.1, -17, 1]]) {
@@ -575,7 +530,6 @@ function testFrameUniformPacking() {
 }
 
 testSeparatedMaterialUniformPacking();
-testCameraCacheAndInverseFailureRecovery();
 testPackedCameraProjectionRoundTrip();
 testCameraMathWithObliqueClipping();
 testFrameUniformPacking();

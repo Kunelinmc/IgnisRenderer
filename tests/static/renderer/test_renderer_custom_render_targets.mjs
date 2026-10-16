@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { Camera } from "../../../src/cameras/Camera.ts";
 import { Renderer } from "../../../src/rendering/Renderer.ts";
+import { FrameCoordinator } from "../../../src/rendering/FrameCoordinator.ts";
+import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { TextureFormat } from "../../../src/core/TextureFormat.ts";
 import { installNoopPostProcessAdapter } from "../../helpers/postprocess.mjs";
 import { TestRenderBackend } from "../../helpers/TestRenderBackend.mjs";
@@ -115,6 +117,63 @@ async function testCancellationAndSceneValidation() {
 	await assert.rejects(sceneTicket.done, /cancelled/);
 }
 
+async function testProbeFaceCameraMatrices() {
+	const coordinator = new FrameCoordinator(new TargetBackend());
+	const jobs = [];
+	const handle = {
+		enqueueJob(descriptor) {
+			jobs.push(descriptor);
+			return { done: Promise.resolve({ readback: null }) };
+		},
+	};
+	const delegate = { renderTargets: { createInternal: () => handle } };
+	const directions = [
+		{ x: 1, y: 0, z: 0 }, { x: -1, y: 0, z: 0 },
+		{ x: 0, y: 1, z: 0 }, { x: 0, y: -1, z: 0 },
+		{ x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: -1 },
+	];
+	const upVectors = [
+		{ x: 0, y: -1, z: 0 }, { x: 0, y: -1, z: 0 },
+		{ x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: -1 },
+		{ x: 0, y: -1, z: 0 }, { x: 0, y: -1, z: 0 },
+	];
+	const position = { x: 3, y: 4, z: 5 };
+	for (const faceIndex of [0, 1, 2, 3, 4, 5, 99, NaN]) {
+		await coordinator._enqueueProbeFace(delegate, {
+			faceIndex, faceSize: 4, captureWorldPosition: position, captureFar: 50,
+			includeEnvironment: true, includeMeshes: true, includeTransparent: true,
+			includeParticles: false, includeShadows: false, targetId: "probe-test",
+		});
+		const { camera } = jobs.at(-1);
+		const resolvedFace = Number.isNaN(faceIndex) ? 0 : Math.min(5, faceIndex);
+		const direction = directions[resolvedFace];
+		const up = upVectors[resolvedFace];
+		const pointInFront = {
+			x: position.x + direction.x,
+			y: position.y + direction.y,
+			z: position.z + direction.z,
+		};
+		const centered = Matrix4.transformPoint(camera.viewProjectionMatrix, pointInFront);
+		assert.ok(Math.abs(centered.x) < 1e-6 && Math.abs(centered.y) < 1e-6);
+		assert.ok(centered.z > -1 && centered.z < 1);
+		const above = Matrix4.transformPoint(camera.viewMatrix, {
+			x: pointInFront.x + up.x, y: pointInFront.y + up.y, z: pointInFront.z + up.z,
+		});
+		assert.ok(Math.abs(above.x) < 1e-6 && Math.abs(above.y - 1) < 1e-6);
+		assert.ok(Math.abs(above.z + 1) < 1e-6);
+		assert.equal(camera.fov, 90);
+		assert.equal(camera.aspectRatio, 1);
+		assert.equal(camera.near, 0.1);
+		assert.equal(camera.far, 50);
+		assert.ok(camera.isPointInFrustum(pointInFront));
+		const world = Matrix4.transformPoint(camera.inverseViewMatrix, { x: 0, y: 0, z: -1 });
+		for (const axis of ["x", "y", "z"]) {
+			assert.ok(Math.abs(world[axis] - pointInFront[axis]) < 1e-6);
+		}
+	}
+	assert.notEqual(jobs[0].camera.inverseViewMatrix, jobs[1].camera.inverseViewMatrix);
+}
+
 function testDescriptorValidation() {
 	const { renderer } = createRenderer();
 	const multisampled = renderer.renderTargets.create({
@@ -147,6 +206,7 @@ async function run() {
 		testDescriptorValidation();
 		await testCancellationAndSceneValidation();
 		await testHandleJobsAndCommittedReadback();
+		await testProbeFaceCameraMatrices();
 		console.log("Renderer render target handle tests passed");
 	} finally {
 		globalThis.window = originalWindow;

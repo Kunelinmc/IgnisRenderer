@@ -18,6 +18,22 @@ This document defines cross-backend rendering features, capability gating, pass 
   output shorter than sixteen elements before writing. Without `out`, each call
   must return an independent sixteen-element array.
 
+### Camera matrices
+
+- `Camera` must compute `inverseViewMatrix` and `inverseProjectionMatrix` from
+  the current source on every getter access, including after matrix replacement
+  and in-place element edits.
+- Getters must reuse their output matrices without retaining input snapshots
+  or skipping inversion when source values are unchanged.
+- Getters must reject non-finite inputs, singular matrices, and non-finite
+  inverse results. A failed calculation must remain retryable after correction.
+- Returned inverse matrices are borrowed camera-owned values; callers must not
+  modify them. Cloned cameras must own independent inverse output matrices.
+- Custom view and projection matrices, including oblique capture projections,
+  must be inverted as supplied without rebuilding them from camera parameters.
+- Backend buffer-format validation, packing, and temporal history must remain
+  outside `Camera`.
+
 ### Order-independent transparency
 
 - `BackendCapabilities.oit` must exist on all backends.

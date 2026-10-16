@@ -1,5 +1,4 @@
 import type { Texture } from "../../core/Texture";
-import { WebGPUFrameCameraState } from "./WebGPUFrameCameraState";
 import {
 	WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT,
 	WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT,
@@ -77,6 +76,18 @@ const PARTICLE_SHADOW_VOLUME_DENSITY_FLOATS = 64 * 64 * 32;
 const PARTICLE_SHADOW_VOLUME_FALLBACK_FLOATS =
 	PARTICLE_SHADOW_VOLUME_HEADER_FLOATS + 1;
 
+function validateCameraMatrix(matrix: Matrix4, label: string): void {
+	const elements = matrix?.elements;
+	for (let row = 0; row < 4; row++) {
+		for (let column = 0; column < 4; column++) {
+			const value = elements?.[row]?.[column];
+			if (!Number.isFinite(value) || !Number.isFinite(Math.fround(value))) {
+				throw new Error(`WebGPU camera ${label} matrix must contain finite f32 values.`);
+			}
+		}
+	}
+}
+
 interface PreparedSceneEnvironmentLike {
 	backgroundEnabled: boolean;
 	lightingEnabled: boolean;
@@ -111,18 +122,11 @@ export class WebGPUFrameBindingCache {
 	private readonly _environmentBackgroundParamsFlags = new Uint32Array(
 		this._environmentBackgroundParamsData.buffer,
 	);
-	private readonly _cameraState = new WebGPUFrameCameraState();
 	private readonly _cameraWriter = WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT.createWriter();
 	private readonly _lightWriter = WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT.createWriter();
 	private readonly _shadowWriter = WEBGPU_FRAME_SHADOW_UNIFORM_LAYOUT.createWriter();
 	private readonly _environmentWriter = WEBGPU_FRAME_ENVIRONMENT_UNIFORM_LAYOUT.createWriter();
-	private readonly _cameraInput: WebGPUFrameCameraUniformInput = {
-		viewProjectionMatrix: this._cameraState.inverseViewMatrix,
-		prevViewProjectionMatrix: this._cameraState.inverseViewMatrix,
-		inverseViewMatrix: this._cameraState.inverseViewMatrix,
-		inverseProjectionMatrix: this._cameraState.inverseProjectionMatrix,
-		jitterNdc: [0, 0], prevJitterNdc: [0, 0],
-	};
+	private _cameraInput: WebGPUFrameCameraUniformInput | null = null;
 	private readonly _lightInput: WebGPUFrameLightUniformInput = {
 		ambientColor: [0, 0, 0], directionalLights: [], pointLights: [], spotLights: [],
 		areaLights: [], enableLighting: false, enableClusteredLighting: false,
@@ -185,9 +189,14 @@ export class WebGPUFrameBindingCache {
 		options: WebGPUFrameBindingPrepareOptions = {},
 	): void {
 		// Validation must finish before temporal history begins or GPU data is written.
-		this._cameraState.prepare(
-			frame.camera.viewMatrix, frame.camera.projectionMatrix, frame.camera.viewProjectionMatrix,
-		);
+		const camera = frame.camera;
+		validateCameraMatrix(camera.viewMatrix, "view");
+		validateCameraMatrix(camera.projectionMatrix, "projection");
+		validateCameraMatrix(camera.viewProjectionMatrix, "view-projection");
+		const inverseViewMatrix = camera.inverseViewMatrix;
+		const inverseProjectionMatrix = camera.inverseProjectionMatrix;
+		validateCameraMatrix(inverseViewMatrix, "view inverse");
+		validateCameraMatrix(inverseProjectionMatrix, "projection inverse");
 		const temporalStateMode = options.temporalStateMode ?? "advance";
 		const temporal = this._resolveTemporalFrameUniforms(
 			frame,
@@ -197,9 +206,17 @@ export class WebGPUFrameBindingCache {
 			temporalStateMode,
 			options.temporalHistoryReset === true,
 		);
-		const cameraInput = this._cameraInput;
+		const cameraInput = this._cameraInput ??= {
+			viewProjectionMatrix: camera.viewProjectionMatrix,
+			prevViewProjectionMatrix: temporal.previousViewProjection,
+			inverseViewMatrix,
+			inverseProjectionMatrix,
+			jitterNdc: [0, 0], prevJitterNdc: [0, 0],
+		};
 		cameraInput.viewProjectionMatrix = frame.camera.viewProjectionMatrix;
 		cameraInput.prevViewProjectionMatrix = temporal.previousViewProjection;
+		cameraInput.inverseViewMatrix = inverseViewMatrix;
+		cameraInput.inverseProjectionMatrix = inverseProjectionMatrix;
 		const jitter = cameraInput.jitterNdc as [number, number];
 		const previousJitter = cameraInput.prevJitterNdc as [number, number];
 		jitter[0] = temporal.jitterCurrentPrev[0];

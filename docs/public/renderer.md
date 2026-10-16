@@ -64,6 +64,13 @@ Use `setScene(scene)` to switch scenes and `setCamera(camera)` to switch the
 active view. The active camera must belong to the active scene. When replacing
 both, add the camera to the new scene before binding the scene and camera.
 
+`Camera.inverseViewMatrix` and `inverseProjectionMatrix` compute inverses of
+the current camera matrices on every access, including after matrix replacement
+or direct element edits and for custom capture projections. The getters reuse
+their output matrices. Treat the returned matrices as read-only; clone them
+when an independent copy is needed. Access throws when
+the source matrix is non-finite or singular, or its inverse is non-finite.
+
 Changes to the active scene normally make a future frame eligible for
 rendering. Call `requestRender()` after application state changes that are not
 represented by the scene, camera, textures, or other renderer-managed objects.

@@ -47,6 +47,11 @@ Definition layers remain separate from logic layers. Interfaces and data
 contracts describe cross-layer communication; systems and runtime owners
 perform state transitions.
 
+`Camera` owns its view and projection matrices and computes their inverses on access.
+Backends consume these derived matrices and own buffer-format validation,
+packing, and temporal history. Probe capture configures ordinary cameras for
+the six cubemap views.
+
 ## Scene and Optional ECS Projection
 
 `Node` and related scene objects are application-facing and remain the

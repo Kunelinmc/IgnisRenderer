@@ -41,7 +41,6 @@ import type {
 	ProbeCaptureFaceRequest,
 	ProbeCaptureSource,
 } from "../lights/runtime/ProbeCaptureRuntime";
-import { CubeFaceCamera } from "../cameras/CubeFaceCamera";
 import { TextureFormat } from "../core/TextureFormat";
 import type { RendererStageDefinition } from "../pipeline/RendererStageGraph";
 import { isLocalizedLightProbe } from "../lights/runtime/lightProbeRuntime";
@@ -88,6 +87,16 @@ import {
 import { RendererOcclusionCullingController } from "./RendererOcclusionCullingController";
 
 const _tmpRendererCameraWorldPosition = { x: 0, y: 0, z: 0 };
+const PROBE_FACE_DIRECTIONS = [
+	{ x: 1, y: 0, z: 0 }, { x: -1, y: 0, z: 0 },
+	{ x: 0, y: 1, z: 0 }, { x: 0, y: -1, z: 0 },
+	{ x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: -1 },
+];
+const PROBE_FACE_UP_VECTORS = [
+	{ x: 0, y: -1, z: 0 }, { x: 0, y: -1, z: 0 },
+	{ x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: -1 },
+	{ x: 0, y: -1, z: 0 }, { x: 0, y: -1, z: 0 },
+];
 
 type RenderSceneFrame = ReturnType<typeof PreparedSceneBuilder.build>;
 type RenderSceneFeatureState = ReturnType<typeof resolveFeatureState>;
@@ -655,11 +664,28 @@ export class FrameCoordinator {
 				}),
 			};
 		}
-		const camera = new CubeFaceCamera(
-			request.captureWorldPosition,
-			request.captureFar,
-			request.faceIndex,
+		const faceIndex = Number.isFinite(request.faceIndex)
+			? Math.max(0, Math.min(5, Math.floor(request.faceIndex)))
+			: 0;
+		const position = request.captureWorldPosition;
+		const direction = PROBE_FACE_DIRECTIONS[faceIndex];
+		const camera = new Camera({
+			position,
+			fov: 90,
+			aspectRatio: 1,
+			near: 0.1,
+			far: Math.max(1, request.captureFar),
+		});
+		camera.up.copy(PROBE_FACE_UP_VECTORS[faceIndex]);
+		camera.viewMatrix = Matrix4.lookAt(position, {
+			x: position.x + direction.x,
+			y: position.y + direction.y,
+			z: position.z + direction.z,
+		}, camera.up);
+		camera.viewProjectionMatrix = Matrix4.multiply(
+			camera.projectionMatrix, camera.viewMatrix,
 		);
+		camera.frustum.setFromMatrix(camera.viewProjectionMatrix);
 		const ticket = this._probeRenderTarget.handle.enqueueJob({
 			kind: "scene-view",
 			camera,
