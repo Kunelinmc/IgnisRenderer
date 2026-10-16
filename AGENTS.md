@@ -214,6 +214,9 @@ required references. Read them before changing related behavior:
 7. Update `AGENTS.md` only when high-priority agent guidance changes.
 8. When architecture changes, audit stale descriptions in `AGENTS.md`, `docs/`,
    `README*.md`, and relevant code comments.
+9. Before every commit, review the staged files and diff to ensure that logs,
+   cache files, test results, and sensitive data (such as credentials, tokens,
+   or private information) are not included.
 
 ## Commit Message Guidelines
 
