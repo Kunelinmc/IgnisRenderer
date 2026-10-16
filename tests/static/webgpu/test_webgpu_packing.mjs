@@ -1,4 +1,8 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+
+import { compileWGSLMath } from "../../helpers/wgsl-math.mjs";
+import { WebGPUFrameCameraState } from "../../../src/backends/webgpu/WebGPUFrameCameraState.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import {
 	WEBGPU_FRAME_CAMERA_UNIFORM_BYTE_SIZE,
@@ -55,7 +59,8 @@ function matrix(base) {
 
 function readVec(layout, data, path, length) {
 	const offset = layout.byteOffsetOf(path) >> 2;
-	return Array.from(data.slice(offset, offset + length));
+	const floats = data instanceof ArrayBuffer ? new Float32Array(data) : data;
+	return Array.from(floats.slice(offset, offset + length));
 }
 
 function readU32Vec(layout, data, path, length) {
@@ -194,13 +199,10 @@ function createFrameInput() {
 	return {
 		viewProjectionMatrix: matrix(1),
 		prevViewProjectionMatrix: matrix(101),
-		cameraPosition: { x: 1, y: 2, z: 3 },
-		environmentRight: [4, 5, 6],
-		environmentUp: [8, 9, 10],
-		environmentBackward: [12, 13, 14],
-		environmentTanHalfFov: 7,
-		environmentAspect: 11,
-		environmentIsOrthographic: true,
+		inverseViewMatrix: matrix(201),
+		inverseProjectionMatrix: matrix(301),
+		jitterNdc: [43, 44],
+		prevJitterNdc: [45, 46],
 		ambientColor: [15, 16, 17],
 		shAmbientCoeffs: null,
 		localLightProbeCount: 0,
@@ -261,18 +263,180 @@ function createFrameInput() {
 		],
 		enableLighting: true,
 		enableShadows: true,
-		enableSH: true,
+		shAmbientEnabled: false,
 		enableClusteredLighting: true,
-		hasSHAmbient: false,
-		environmentIsLinear: false,
+		envSpecularIsLinear: false,
 		hasEnvSpecular: true,
 		hasBRDFLUT: true,
 		envSpecularMaxMipLevel: 5,
-		taaJitterCurrentPrev: [43, 44, 45, 46],
 	};
 }
 
+function testCameraCacheAndInverseFailureRecovery() {
+	const state = new WebGPUFrameCameraState();
+	const view = Matrix4.identity();
+	const projection = Matrix4.identity();
+	const viewProjection = Matrix4.identity();
+	const inverse = Matrix4.inverse;
+	let calls = 0;
+	Matrix4.inverse = (...args) => { calls++; return inverse(...args); };
+	try {
+		state.prepare(view, projection, viewProjection);
+		assert.equal(calls, 3);
+		const inverseView = state.inverseViewMatrix;
+		const inverseProjection = state.inverseProjectionMatrix;
+		state.prepare(view.clone(), projection.clone(), viewProjection.clone());
+		assert.equal(calls, 3, "unchanged numeric values reuse inverse outputs");
+		view.elements[0][3] = 7;
+		state.prepare(view, projection, viewProjection);
+		assert.equal(calls, 4, "in-place view mutation recomputes only that inverse");
+		assert.equal(state.inverseViewMatrix, inverseView);
+		assert.equal(inverseView.elements[0][3], -7);
+		projection.elements[0][0] = 2;
+		state.prepare(view, projection, viewProjection);
+		assert.equal(calls, 5);
+		assert.equal(state.inverseProjectionMatrix, inverseProjection);
+		assert.equal(inverseProjection.elements[0][0], 0.5);
+		viewProjection.elements[1][1] = 0;
+		assert.throws(() => state.prepare(view, projection, viewProjection), /view-projection.*singular/i);
+	} finally {
+		Matrix4.inverse = inverse;
+	}
+	const recoverable = new WebGPUFrameCameraState();
+	const identity = Matrix4.identity();
+	recoverable.prepare(identity, identity, identity);
+	const overflowInverse = new Matrix4([
+		[1, 1e38, 0, 0], [0, 1, 1e38, 0], [0, 0, 1, 1e38], [0, 0, 0, 1],
+	]);
+	assert.throws(() => recoverable.prepare(overflowInverse, identity, identity), /view inverse.*finite/i);
+	recoverable.prepare(identity, identity, identity);
+	assert.deepEqual(recoverable.inverseViewMatrix.elements, identity.elements,
+		"a rejected inverse must not poison the previous value cache");
+}
+
+function testPackedCameraProjectionRoundTrip() {
+	const near = 0.3;
+	const far = 100;
+	const left = -0.7, right = 1.3, bottom = -0.4, top = 0.8;
+	const projections = [
+		new Matrix4([
+			[2 * near / (right - left), 0, (right + left) / (right - left), 0],
+			[0, 2 * near / (top - bottom), (top + bottom) / (top - bottom), 0],
+			[0, 0, -(far + near) / (far - near), -2 * far * near / (far - near)],
+			[0, 0, -1, 0],
+		]),
+		new Matrix4([
+			[0.2, 0, 0, -0.4], [0, 0.25, 0, -0.5],
+			[0, 0, -2 / (far - near), -(far + near) / (far - near)], [0, 0, 0, 1],
+		]),
+	];
+	const transform = (packed, offset, point) => Array.from({ length: 4 }, (_, row) =>
+		point.reduce((sum, value, column) => sum + packed[offset + column * 4 + row] * value, 0));
+	for (const projection of projections) {
+		const state = new WebGPUFrameCameraState();
+		const view = new Matrix4([[1, 0, 0, -3], [0, 1, 0, 2], [0, 0, 1, -5], [0, 0, 0, 1]]);
+		state.prepare(view, projection, projection);
+		const jitter = [0.003, -0.004];
+		const packed = new Float32Array(packFrameCameraUniformData({
+			viewProjectionMatrix: projection, prevViewProjectionMatrix: projection,
+			inverseViewMatrix: state.inverseViewMatrix,
+			inverseProjectionMatrix: state.inverseProjectionMatrix,
+			jitterNdc: jitter, prevJitterNdc: [0, 0],
+		}));
+		for (const point of [[1.2, -0.7, -2, 1], [-1, 1.1, -17, 1]]) {
+			const clip = transform(packed, 0, point);
+			const uv = [(clip[0] / clip[3] + jitter[0]) * 0.5 + 0.5,
+				0.5 - (clip[1] / clip[3] + jitter[1]) * 0.5];
+			const hardwareDepth = clip[2] / clip[3] * 0.5 + 0.5;
+			const reconstructed = transform(packed, 48, [uv[0] * 2 - 1 - jitter[0],
+				1 - uv[1] * 2 - jitter[1], hardwareDepth * 2 - 1, 1]);
+			const viewPoint = reconstructed.map((value) => value / reconstructed[3]);
+			for (let component = 0; component < 3; component++) {
+				assert.ok(Math.abs(viewPoint[component] - point[component]) < 1e-4);
+			}
+			const worldPoint = transform(packed, 32, viewPoint);
+			assert.ok(Math.abs(worldPoint[0] - (point[0] + 3)) < 1e-4);
+			assert.ok(Math.abs(worldPoint[1] - (point[1] - 2)) < 1e-4);
+			assert.ok(Math.abs(worldPoint[2] - (point[2] + 5)) < 1e-4);
+		}
+	}
+}
+
+function testCameraMathWithObliqueClipping() {
+	const source = readFileSync(new URL(
+		"../../../src/shaders/webgpu/common/frameCamera.wgsl", import.meta.url,
+	), "utf8");
+	const cameraMath = compileWGSLMath(source, [
+		"cameraWorldRayDirection", "cameraWorldRayOrigin", "cameraReconstructViewPosition",
+	]);
+	const columns = (matrix) => [0, 1, 2, 3].map((column) =>
+		matrix.elements.map((row) => Math.fround(row[column])));
+	const assertVector = (actual, expected, label) => {
+		assert.ok(actual.every(Number.isFinite), `${label}: expected finite values, got ${actual}`);
+		for (let i = 0; i < expected.length; i++) {
+			const tolerance = Math.max(1, Math.abs(expected[i])) * 1e-5;
+			assert.ok(Math.abs(actual[i] - expected[i]) < tolerance,
+				`${label}[${i}]: expected ${expected[i]}, got ${actual[i]}`);
+		}
+	};
+	const identity = columns(Matrix4.identity());
+	const mirrorInverseView = columns(new Matrix4([
+		[1, 0, 0, 0], [0, -1, 0, -1], [0, 0, 1, 0], [0, 0, 0, 1],
+	]));
+	const samples = [
+		{ uv: [0.5, 0.6], point: [0, -0.4618802154, -4], ray: [0, -0.1147078669, -0.9933992678] },
+		{ uv: [0.5, 0.5], point: [0, 0, -4], ray: [0, 0, -1] },
+		{ uv: [0.5, 0.4], point: [0, 0.4618802154, -4], ray: [0, 0.1147078669, -0.9933992678] },
+	];
+	for (const oblique of [false, true]) {
+		const projection = Matrix4.perspective(60, 1, 0.1, 1000);
+		if (oblique) {
+			// A horizontal mirror one unit below a camera looking along -Z.
+			projection.applyObliqueClipping({ normal: { x: 0, y: -1, z: 0 }, constant: -1 });
+		}
+		const inverseProjection = columns(Matrix4.inverse(projection));
+		for (const jitter of [[0, 0], [0.02, -0.04]]) {
+			for (const { uv, point, ray } of samples) {
+				const rasterUv = [uv[0] + jitter[0] * 0.5, uv[1] - jitter[1] * 0.5];
+				const label = `oblique=${oblique}, uv=${uv}, jitter=${jitter}`;
+				assertVector(cameraMath.cameraWorldRayDirection(
+					identity, inverseProjection, jitter, rasterUv,
+				), ray, `${label}: forward ray`);
+				assertVector(cameraMath.cameraReconstructViewPosition(
+					inverseProjection, jitter, rasterUv, 4,
+				), point, `${label}: linear depth`);
+				assertVector(cameraMath.cameraWorldRayOrigin(
+					mirrorInverseView, inverseProjection, jitter, rasterUv,
+				), [0, -1, 0], `${label}: mirrored world origin`);
+				assertVector(cameraMath.cameraWorldRayDirection(
+					mirrorInverseView, inverseProjection, jitter, rasterUv,
+				), [ray[0], -ray[1], ray[2]], `${label}: mirrored world ray`);
+			}
+		}
+	}
+	const orthoInverse = columns(Matrix4.inverse(Matrix4.ortho(-2, 6, -3, 5, 0.1, 100)));
+	for (const [uv, origin] of [[[0.5, 0.5], [2, 1, 0]], [[0.25, 0.75], [0, -1, 0]]]) {
+		assertVector(cameraMath.cameraWorldRayOrigin(identity, orthoInverse, [0, 0], uv),
+			origin, `asymmetric orthographic origin at ${uv}`);
+		assertVector(cameraMath.cameraWorldRayDirection(identity, orthoInverse, [0, 0], uv),
+			[0, 0, -1], `orthographic ray at ${uv}`);
+		assertVector(cameraMath.cameraReconstructViewPosition(orthoInverse, [0, 0], uv, 4),
+			[origin[0], origin[1], -4], `orthographic linear depth at ${uv}`);
+	}
+	const distantInverse = columns(Matrix4.inverse(Matrix4.perspective(60, 1, 0.001, 5000)));
+	for (const [depth, expected] of [
+		[1000, [288.6751346, -115.4700538, -1000]],
+		[4000, [1154.7005384, -461.8802154, -4000]],
+		[5000, [1443.3756730, -577.3502692, -5000]],
+	]) {
+		assertVector(cameraMath.cameraReconstructViewPosition(
+			distantInverse, [0, 0], [0.75, 0.6], depth,
+		), expected, `distant linear depth ${depth} with a small near plane`);
+	}
+}
+
 function testFrameUniformPacking() {
+	assert.equal(WEBGPU_FRAME_CAMERA_UNIFORM_BYTE_SIZE, 272);
 	const input = createFrameInput();
 	input.directionalShadows = [{
 		enabled: true,
@@ -316,7 +480,7 @@ function testFrameUniformPacking() {
 	);
 	assert.equal(
 		cameraData.byteLength + lightData.byteLength + shadowData.byteLength + environmentData.byteLength,
-		12688
+		12768
 	);
 	assert.deepEqual(
 		readVec(
@@ -336,21 +500,32 @@ function testFrameUniformPacking() {
 		),
 		[-1, -2, -1, 0],
 	);
-	assert.deepEqual(
-		readVec(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT, cameraData, "cameraPosition", 4),
-		[1, 2, 3, 1]
-	);
-	assert.deepEqual(readVec(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT, cameraData, "environmentBasisRight", 4), [
-		4, 5, 6, 7,
-	]);
-	assert.deepEqual(readVec(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT, cameraData, "lightCounts", 4), [1, 1, 1, 1]);
-	assert.deepEqual(readVec(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT, cameraData, "options", 4), [1, 0, 1, 0]);
-	assert.deepEqual(readVec(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT, cameraData, "environmentOptionsA", 4), [
-		1, 0, 0, 1,
-	]);
-	assert.deepEqual(readVec(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT, cameraData, "environmentOptionsB", 4), [
-		1, 5, 0, 1,
-	]);
+	assert.ok(cameraData instanceof ArrayBuffer);
+	assert.equal(cameraData.byteLength, 272);
+	assert.equal(lightData.byteLength, 1712);
+	assert.equal(environmentData.byteLength, 4240);
+	for (const [field, offset] of Object.entries({
+		viewProjection: 0, prevViewProjection: 64, inverseView: 128,
+		inverseProjection: 192, jitterNdc: 256, prevJitterNdc: 264,
+	})) {
+		assert.equal(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT.byteOffsetOf(field), offset);
+	}
+	assert.deepEqual(readVec(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT, cameraData, "inverseView", 4), [201, 205, 209, 213]);
+	assert.deepEqual(readVec(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT, cameraData, "inverseProjection", 4), [301, 305, 309, 313]);
+	assert.deepEqual(readVec(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT, cameraData, "jitterNdc", 2), [43, 44]);
+	assert.deepEqual(readVec(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT, cameraData, "prevJitterNdc", 2), [45, 46]);
+	assert.deepEqual(Array.from(new Uint32Array(lightData, 16, 8)), [1, 1, 1, 1, 1, 1, 0, 0]);
+	assert.deepEqual(Array.from(new Uint32Array(shadowData, 0, 4)), [1, 0, 0, 0]);
+	assert.deepEqual(Array.from(new Uint32Array(environmentData, 0, 4)), [0, 1, 1, 0]);
+	assert.deepEqual(Array.from(new Uint32Array(environmentData, 20, 3)), [0, 0, 0]);
+	assert.equal(new DataView(environmentData).getFloat32(16, true), 5);
+	const writer = WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT.createWriter();
+	const reused = packFrameLightUniformData(input, writer);
+	input.pointLights = [];
+	input.enableLighting = false;
+	assert.equal(packFrameLightUniformData(input, writer), reused);
+	assert.deepEqual(Array.from(new Uint32Array(reused, 16, 8)), [1, 0, 1, 1, 0, 1, 0, 0]);
+	assert.deepEqual(readVec(WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT, reused, ["pointLights", 0, "positionRange"], 4), [0, 0, 0, 0]);
 	assert.deepEqual(readVec(WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT, lightData, ["directionalLights", 0, "direction"], 4), [
 		18, 19, 20, 0,
 	]);
@@ -400,5 +575,8 @@ function testFrameUniformPacking() {
 }
 
 testSeparatedMaterialUniformPacking();
+testCameraCacheAndInverseFailureRecovery();
+testPackedCameraProjectionRoundTrip();
+testCameraMathWithObliqueClipping();
 testFrameUniformPacking();
 console.log("WebGPU packing tests passed");

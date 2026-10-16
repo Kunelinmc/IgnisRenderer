@@ -153,7 +153,7 @@ if (isClusteredLightingEnabled()) {
 		}
 	}
 } else {
-	let pointCount = u32(frame.lightCounts.y + 0.5);
+	let pointCount = frameLights.lightCounts.y;
 	for (var i: u32 = 0u; i < pointCount; i = i + 1u) {
 		let toLight = frameLights.pointLights[i].positionRange.xyz - input.worldPosition;
 		let distanceSq = dot(toLight, toLight);

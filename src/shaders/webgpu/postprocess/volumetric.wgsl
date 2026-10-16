@@ -13,20 +13,7 @@ struct VolumetricLightBuffer {
 	lights: array<VolumetricLightData>,
 }
 
-struct FrameCameraUniforms {
-	viewProjection: mat4x4<f32>,
-	prevViewProjection: mat4x4<f32>,
-	cameraPosition: vec4<f32>,
-	environmentBasisRight: vec4<f32>,
-	environmentBasisUp: vec4<f32>,
-	environmentBasisBackward: vec4<f32>,
-	ambientColor: vec4<f32>,
-	lightCounts: vec4<f32>,
-	options: vec4<f32>,
-	environmentOptionsA: vec4<f32>,
-	environmentOptionsB: vec4<f32>,
-	taaJitterCurrentPrev: vec4<f32>,
-}
+#import <ignis/webgpu/frame-camera>
 
 struct VolumetricParams {
 	invSize: vec2<f32>,
@@ -55,15 +42,6 @@ struct Reservoir {
 	selectedWeight: f32,
 	weightSum: f32,
 	sampleCount: f32,
-}
-
-struct CameraBasis {
-	right: vec3<f32>,
-	up: vec3<f32>,
-	backward: vec3<f32>,
-	tanHalfFov: f32,
-	aspect: f32,
-	orthographic: f32,
 }
 
 @group(0) @binding(0) var sceneColor: texture_2d<f32>;
@@ -149,55 +127,19 @@ fn yCoCgToRgb(c: vec3<f32>) -> vec3<f32> {
 	return vec3<f32>(r, g, b);
 }
 
-fn getCameraBasis() -> CameraBasis {
-	return CameraBasis(
-		frame.environmentBasisRight.xyz,
-		frame.environmentBasisUp.xyz,
-		frame.environmentBasisBackward.xyz,
-		frame.environmentBasisRight.w,
-		frame.environmentBasisUp.w,
-		frame.environmentBasisBackward.w
-	);
-}
-
 fn getWorldRayDirection(uv: vec2<f32>) -> vec3<f32> {
-	let ndc = vec2<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
-	let basis = getCameraBasis();
-	if (basis.orthographic > 0.5) {
-		return -basis.backward;
-	}
-	let camRay = vec3<f32>(
-		ndc.x * basis.aspect * basis.tanHalfFov,
-		ndc.y * basis.tanHalfFov,
-		-1.0
-	);
-	return safeNormalize(
-		basis.right * camRay.x + basis.up * camRay.y + basis.backward * camRay.z,
-		-basis.backward
-	);
+	return cameraWorldRayDirection(frame.inverseView, frame.inverseProjection, frame.jitterNdc, uv);
 }
 
 fn worldToUv(worldPos: vec3<f32>) -> vec2<f32> {
-	let rel = worldPos - frame.cameraPosition.xyz;
-	let basis = getCameraBasis();
-	let depth = dot(rel, -basis.backward);
-	if (depth <= 1e-4) { return vec2<f32>(-1.0); }
-	if (basis.orthographic > 0.5) {
-		let cx = dot(rel, basis.right) / max(basis.tanHalfFov, 1e-6);
-		let cy = dot(rel, basis.up) / max(basis.aspect, 1e-6);
-		return vec2<f32>(cx * 0.5 + 0.5, 0.5 - cy * 0.5);
+	if (cameraLinearDepth(frame.inverseView, worldPos) <= 1e-4) {
+		return vec2<f32>(-1.0);
 	}
-	let cx =
-		dot(rel, basis.right) /
-		(depth * basis.aspect * basis.tanHalfFov);
-	let cy = dot(rel, basis.up) / (depth * basis.tanHalfFov);
-	return vec2<f32>(cx * 0.5 + 0.5, 0.5 - cy * 0.5);
+	return cameraWorldToRasterUv(frame.viewProjection, frame.jitterNdc, worldPos);
 }
 
 fn worldToLinearDepth(worldPos: vec3<f32>) -> f32 {
-	let rel = worldPos - frame.cameraPosition.xyz;
-	let basis = getCameraBasis();
-	return dot(rel, -basis.backward);
+	return cameraLinearDepth(frame.inverseView, worldPos);
 }
 
 fn uvToCoord(uv: vec2<f32>, size: vec2<u32>) -> vec2<i32> {
@@ -462,8 +404,14 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 	let hasSurface = depth > 0.0;
 
 	let rayDir = getWorldRayDirection(uv);
+	let rayOrigin = cameraWorldRayOrigin(
+		frame.inverseView, frame.inverseProjection, frame.jitterNdc, uv
+	);
 	let maxRayDistance = max(params.maxRayDistance, 0.1);
-	let maxDistance = select(maxRayDistance, min(depth, maxRayDistance), hasSurface);
+	// G-buffer depth measures view Z; marching distances measure length along the ray.
+	let viewRayDepth = -cameraWorldToViewDirection(frame.inverseView, rayDir).z;
+	let surfaceDistance = depth / max(viewRayDepth, 1e-6);
+	let maxDistance = select(maxRayDistance, min(surfaceDistance, maxRayDistance), hasSurface);
 	if (maxDistance <= 0.0) {
 		textureStore(outColor, coord, scene);
 		textureStore(outHistory, coord, vec4<f32>(0.0));
@@ -549,7 +497,7 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 	let candidateCount = i32(clamp(params.restirCandidates, 1.0, f32(MAX_RESTIR_CANDIDATES)));
 	let effectiveCandidateCount = min(candidateCount, max(totalLights, 1));
 	let referenceT = clamp(maxDistance * 0.45 + stepSize, stepSize, maxDistance);
-	let referencePos = frame.cameraPosition.xyz + rayDir * referenceT;
+	let referencePos = rayOrigin + rayDir * referenceT;
 	var reservoir = emptyReservoir();
 
 	if (totalLights > 0) {
@@ -770,7 +718,7 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 		let sampleT = clamp((f32(step) + 0.5 + jitter) * stepSize, 0.0, maxDistance);
 		if (sampleT >= maxDistance) { break; }
 
-		let samplePos = frame.cameraPosition.xyz + rayDir * sampleT;
+		let samplePos = rayOrigin + rayDir * sampleT;
 		let doShadowSample = (step % shadowInterval) == 0;
 		var inScatter = vec3<f32>(0.0);
 

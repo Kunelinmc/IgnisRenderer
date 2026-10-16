@@ -165,7 +165,7 @@ fn evaluateGBuffer(
 	let shadingMode = material.shadingMode;
 	let alphaModeMask = materialCommon.materialParams.z > 0.5;
 	let doubleSided = materialCommon.materialParams.w > 0.5;
-	let enableLighting = frame.options.x > 0.5;
+	let enableLighting = frameLights.lightingEnabled != 0u;
 
 	let materialRenderFlags = u32(materialCommon.renderParams.x + 0.5);
 	let isWireframe = (materialRenderFlags & 1u) != 0u;
@@ -220,10 +220,7 @@ fn evaluateGBuffer(
 	}
 	let emissive =
 		materialCommon.emissiveFactor.rgb * emissiveSample.rgb * materialCommon.emissiveFactor.a;
-	let linearDepth = dot(
-		frame.cameraPosition.xyz - input.worldPosition,
-		frame.environmentBasisBackward.xyz
-	);
+	let linearDepth = cameraLinearDepth(frame.inverseView, input.worldPosition);
 	let invCurrentW = 1.0 / max(abs(input.currentClip.w), EPSILON);
 	let invPrevW = 1.0 / max(abs(input.prevClip.w), EPSILON);
 	let currentNdc = input.currentClip.xy * invCurrentW;
@@ -617,10 +614,7 @@ fn evaluateGBufferBase(
 	}
 	let emissive =
 		materialCommon.emissiveFactor.rgb * emissiveSample.rgb * materialCommon.emissiveFactor.a;
-	let linearDepth = dot(
-		frame.cameraPosition.xyz - input.worldPosition,
-		frame.environmentBasisBackward.xyz
-	);
+	let linearDepth = cameraLinearDepth(frame.inverseView, input.worldPosition);
 	let currentNdc = input.currentClip.xy / max(abs(input.currentClip.w), EPSILON);
 	let prevNdc = input.prevClip.xy / max(abs(input.prevClip.w), EPSILON);
 	let motion = currentNdc - prevNdc;
@@ -628,7 +622,7 @@ fn evaluateGBufferBase(
 	var metalness = 0.0;
 	var occlusion = 1.0;
 	var materialWord = f32(SHADING_UNLIT);
-	if (shadingMode == SHADING_PBR && frame.options.x > 0.5) {
+	if (shadingMode == SHADING_PBR && frameLights.lightingEnabled != 0u) {
 		var mrSample = vec4<f32>(1.0);
 		if (hasPBRTexture(material, PBR_TEXTURE_METALLIC_ROUGHNESS_MAP)) {
 			mrSample = sampleLinearTexture(

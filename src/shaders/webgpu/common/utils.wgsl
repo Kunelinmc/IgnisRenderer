@@ -312,7 +312,7 @@ const AREA_LIGHT_SAMPLE_COUNT: u32 =
 
 fn areaLightCount() -> u32 {
 	return min(
-		u32(max(frame.lightCounts.w + 0.5, 0.0)),
+		frameLights.lightCounts.w,
 		u32(__WEBGPU_MAX_AREA_LIGHTS__)
 	);
 }
@@ -665,11 +665,7 @@ fn encodeOctahedralNormal(normal: vec3<f32>) -> vec2<f32> {
 }
 
 fn encodeNormalForGBuffer(normal: vec3<f32>) -> vec2<f32> {
-	let right = frame.environmentBasisRight.xyz;
-	let up = frame.environmentBasisUp.xyz;
-	let backward = frame.environmentBasisBackward.xyz;
-	let vn = vec3<f32>(dot(normal, right), dot(normal, up), dot(normal, backward));
-	return encodeOctahedralNormal(vn);
+	return encodeOctahedralNormal(cameraWorldToViewDirection(frame.inverseView, normal));
 }
 
 fn buildSceneOutput(
@@ -730,19 +726,19 @@ fn buildSceneOutput(
 }
 
 fn useSHAmbient() -> bool {
-	return frame.environmentOptionsA.x > 0.5 && frame.environmentOptionsA.y > 0.5;
+	return frameEnvironment.shAmbientEnabled != 0u;
 }
 
 fn hasEnvSpecular() -> bool {
-	return frame.environmentOptionsA.w > 0.5;
+	return frameEnvironment.hasEnvSpecular != 0u;
 }
 
 fn hasBRDFLUT() -> bool {
-	return frame.environmentOptionsB.x > 0.5;
+	return frameEnvironment.hasBRDFLUT != 0u;
 }
 
 fn envSpecularMaxMipLevel() -> f32 {
-	return max(frame.environmentOptionsB.y, 0.0);
+	return max(frameEnvironment.envSpecularMaxMipLevel, 0.0);
 }
 
 fn reflectionProbeCount() -> u32 {
@@ -1261,7 +1257,7 @@ fn sampleEnvironmentSpecularFromDirection(
 		uv,
 		level
 	).rgb;
-	if (layerCount <= 1u && frame.environmentOptionsB.z < 0.5) {
+	if (layerCount <= 1u && frameEnvironment.envSpecularIsLinear == 0u) {
 		sampled = srgbToLinear(sampled);
 	}
 	return sampled;
@@ -1797,7 +1793,7 @@ fn sampleShadowVisibilityForCascade(
 	lightDirection: vec3<f32>,
 	cascadeIndex: u32
 ) -> vec3<f32> {
-	if (frame.options.z < 0.5) {
+	if (frameShadows.shadowsEnabled == 0u) {
 		return vec3<f32>(1.0);
 	}
 	// Read fields in place so fragment calls do not pass cascade arrays by value.
@@ -2136,7 +2132,7 @@ struct ClusteredLightRef {
 }
 
 fn isClusteredLightingEnabled() -> bool {
-	return frame.environmentOptionsB.w > 0.5 &&
+	return frameLights.clusteredLightingEnabled != 0u &&
 		clusterGrid.zSlices > 0u &&
 		clusterGrid.clusterCount > 0u &&
 		clusterGrid.logScale > 0.0;

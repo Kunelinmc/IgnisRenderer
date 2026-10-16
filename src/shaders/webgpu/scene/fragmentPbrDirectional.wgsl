@@ -1,4 +1,4 @@
-let directionalCount = u32(frame.lightCounts.x + 0.5);
+let directionalCount = frameLights.lightCounts.x;
 for (var i: u32 = 0u; i < directionalCount; i = i + 1u) {
 	let lightDirection = safeNormalize(
 		frameLights.directionalLights[i].direction.xyz,

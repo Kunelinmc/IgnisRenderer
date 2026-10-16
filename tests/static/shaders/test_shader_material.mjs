@@ -1434,11 +1434,16 @@ async function testBuiltinDepthIsolation() {
 	assert.equal(customPipeline.desc.vertex.entryPoint, "customVs");
 
 	const shader = await ShaderSource.load("webgpu.scene.depth");
-	const definitions = readFileSync(new URL(
-		"../../../src/shaders/webgpu/common/definitions.wgsl", import.meta.url), "utf8");
+	const compileUniformContract = (source) => new ShaderBackendCompileStage({
+		runtime: new ShaderRuntime({ mode: "strict" }), profile: WEBGPU_TEST_PROFILE, mode: "strict",
+	}).compile({
+		code: source.code, language: "wgsl", stage: "unknown", sourceKind: "builtin-scene",
+	}).code;
+	const definitions = compileUniformContract((await ShaderSource.load("webgpu.scene")).source);
+	const depthDefinitions = compileUniformContract(shader.source);
 	for (const name of ["FrameCameraUniforms", "ObjectUniforms", "AnimationParams", "StaticInstance"]) {
 		const struct = new RegExp(`struct ${name} \\{[^}]*\\}`, "s");
-		assert.equal(shader.source.code.match(struct)?.[0].replace(/\s+/g, " "),
+		assert.equal(depthDefinitions.match(struct)?.[0].replace(/\s+/g, " "),
 			definitions.match(struct)?.[0].replace(/\s+/g, " "),
 			`${name} preserves scene buffer ABI`);
 	}
@@ -1448,7 +1453,7 @@ async function testBuiltinDepthIsolation() {
 	assert.ok(shader.source.code.includes("#define IGNIS_WEBGPU_ANIMATION_POSITION_ONLY 1"));
 	assert.ok(shader.source.code.includes("staticInstances[input.instanceIndex]"));
 	assert.ok(shader.source.code.includes("clipPosition.z * 0.5 + clipPosition.w * 0.5"));
-	assert.ok(shader.source.code.includes("taaJitterCurrentPrev.xy * clipPosition.w"));
+	assert.ok(shader.source.code.includes("jitterNdc * clipPosition.w"));
 	assert.ok(shader.source.code.includes("clamp(depthMaterial.params.x * baseAlpha, 0.0, 1.0)"));
 	const compiled = new ShaderBackendCompileStage({
 		runtime: new ShaderRuntime({ mode: "strict" }), profile: WEBGPU_TEST_PROFILE, mode: "strict",

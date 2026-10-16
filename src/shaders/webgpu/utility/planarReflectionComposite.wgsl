@@ -1,8 +1,6 @@
 #import <ignis/webgpu/animation>
 
-struct FrameCameraUniforms {
-	viewProjection: mat4x4<f32>,
-}
+#import <ignis/webgpu/frame-camera>
 
 struct ObjectUniforms {
 	modelMatrix: mat4x4<f32>,
@@ -186,8 +184,12 @@ fn vsMain(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Vertex
 	);
 	let worldPosition = object.modelMatrix * vec4<f32>(skinned.position, 1.0);
 	var clipPosition = frame.viewProjection * worldPosition;
-	let invW = 1.0 / max(abs(clipPosition.w), EPSILON);
+	// The reflection capture is unjittered; only the main-view raster position moves.
+	let invW = 1.0 / clipPosition.w;
 	let ndc = clipPosition.xy * invW;
+	clipPosition = vec4<f32>(
+		clipPosition.xy + frame.jitterNdc * clipPosition.w, clipPosition.zw
+	);
 	clipPosition.z = clipPosition.z * 0.5 + clipPosition.w * 0.5;
 
 	var output: VertexOutput;

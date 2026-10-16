@@ -1,49 +1,6 @@
+#import <ignis/webgpu/frame-uniforms>
 #import <ignis/webgpu/constants>
-struct FrameCameraUniforms {
-	viewProjection: mat4x4<f32>,
-	prevViewProjection: mat4x4<f32>,
-	cameraPosition: vec4<f32>,
-	environmentBasisRight: vec4<f32>,
-	environmentBasisUp: vec4<f32>,
-	environmentBasisBackward: vec4<f32>,
-	ambientColor: vec4<f32>,
-	lightCounts: vec4<f32>,
-	options: vec4<f32>,
-	environmentOptionsA: vec4<f32>,
-	environmentOptionsB: vec4<f32>,
-	taaJitterCurrentPrev: vec4<f32>,
-}
-
-struct FrameLightUniforms {
-	directionalLights: array<DirectionalLightData, __WEBGPU_MAX_DIRECTIONAL_LIGHTS__>,
-	pointLights: array<PointLightData, __WEBGPU_MAX_POINT_LIGHTS__>,
-	spotLights: array<SpotLightData, __WEBGPU_MAX_SPOT_LIGHTS__>,
-	areaLights: array<AreaLightData, __WEBGPU_MAX_AREA_LIGHTS__>,
-}
-
-struct FrameShadowUniforms {
-	directionalShadows: array<ShadowData, __WEBGPU_MAX_DIRECTIONAL_LIGHTS__>,
-	spotShadows: array<ShadowData, __WEBGPU_MAX_SPOT_LIGHTS__>,
-}
-
-struct FrameEnvironmentUniforms {
-	shAmbientCoeffs: array<vec4<f32>, __WEBGPU_SH_COEFFICIENT_COUNT__>,
-	reflectionProbes: array<ReflectionProbeData, __WEBGPU_MAX_REFLECTION_PROBES__>,
-	localLightProbeCounts: vec4<f32>,
-	localLightProbeWorldToProbeRow0: array<vec4<f32>, __WEBGPU_MAX_LOCAL_LIGHT_PROBES__>,
-	localLightProbeWorldToProbeRow1: array<vec4<f32>, __WEBGPU_MAX_LOCAL_LIGHT_PROBES__>,
-	localLightProbeWorldToProbeRow2: array<vec4<f32>, __WEBGPU_MAX_LOCAL_LIGHT_PROBES__>,
-	localLightProbeDataA: array<vec4<f32>, __WEBGPU_MAX_LOCAL_LIGHT_PROBES__>,
-	localLightProbeDataB: array<vec4<f32>, __WEBGPU_MAX_LOCAL_LIGHT_PROBES__>,
-	localLightProbeSHAmbientCoeffs:
-		array<vec4<f32>, __WEBGPU_LOCAL_LIGHT_PROBE_COEFFICIENT_COUNT__>,
-	irradianceProbeGridWorldToGridRow0: vec4<f32>,
-	irradianceProbeGridWorldToGridRow1: vec4<f32>,
-	irradianceProbeGridWorldToGridRow2: vec4<f32>,
-	irradianceProbeGridDataA: vec4<f32>,
-	irradianceProbeGridDataB: vec4<f32>,
-	irradianceProbeGridDataC: vec4<f32>,
-}
+#import <ignis/webgpu/frame-camera>
 
 struct ClusterGridParams {
 	screenWidth: u32,

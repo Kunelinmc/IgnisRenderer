@@ -2,20 +2,7 @@
 #import <ignis/webgpu/animation>
 
 // Shared scene buffer owners retain their full ABI even when depth uses fewer fields.
-struct FrameCameraUniforms {
-	viewProjection: mat4x4<f32>,
-	prevViewProjection: mat4x4<f32>,
-	cameraPosition: vec4<f32>,
-	environmentBasisRight: vec4<f32>,
-	environmentBasisUp: vec4<f32>,
-	environmentBasisBackward: vec4<f32>,
-	ambientColor: vec4<f32>,
-	lightCounts: vec4<f32>,
-	options: vec4<f32>,
-	environmentOptionsA: vec4<f32>,
-	environmentOptionsB: vec4<f32>,
-	taaJitterCurrentPrev: vec4<f32>,
-}
+#import <ignis/webgpu/frame-camera>
 
 struct ObjectUniforms {
 	modelMatrix: mat4x4<f32>,
@@ -105,7 +92,7 @@ fn vsMain(input: DepthVertexInput, @builtin(vertex_index) vertexIndex: u32) -> D
 	}
 	let worldPosition = resolvedModelMatrix * vec4<f32>(skinnedCurrent.position, 1.0);
 	var clipPosition = frame.viewProjection * worldPosition;
-	let currJitter = frame.taaJitterCurrentPrev.xy * clipPosition.w;
+	let currJitter = frame.jitterNdc * clipPosition.w;
 	clipPosition = vec4<f32>(
 		clipPosition.x + currJitter.x,
 		clipPosition.y + currJitter.y,

@@ -196,16 +196,10 @@ export const WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT = new StructuredBufferLayout(
 	structOf([
 		{ name: "viewProjection", type: MAT4X4_F32 },
 		{ name: "prevViewProjection", type: MAT4X4_F32 },
-		{ name: "cameraPosition", type: VEC4_F32 },
-		{ name: "environmentBasisRight", type: VEC4_F32 },
-		{ name: "environmentBasisUp", type: VEC4_F32 },
-		{ name: "environmentBasisBackward", type: VEC4_F32 },
-		{ name: "ambientColor", type: VEC4_F32 },
-		{ name: "lightCounts", type: VEC4_F32 },
-		{ name: "options", type: VEC4_F32 },
-		{ name: "environmentOptionsA", type: VEC4_F32 },
-		{ name: "environmentOptionsB", type: VEC4_F32 },
-		{ name: "taaJitterCurrentPrev", type: VEC4_F32 },
+		{ name: "inverseView", type: MAT4X4_F32 },
+		{ name: "inverseProjection", type: MAT4X4_F32 },
+		{ name: "jitterNdc", type: VEC2_F32 },
+		{ name: "prevJitterNdc", type: VEC2_F32 },
 	]),
 	"uniform"
 );
@@ -216,6 +210,12 @@ WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT.assertByteSize(
 
 export const WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT = new StructuredBufferLayout(
 	structOf([
+		{ name: "ambientColor", type: VEC4_F32 },
+		{ name: "lightCounts", type: VEC4_U32 },
+		{ name: "lightingEnabled", type: U32 },
+		{ name: "clusteredLightingEnabled", type: U32 },
+		{ name: "_pad0", type: U32 },
+		{ name: "_pad1", type: U32 },
 		{
 			name: "directionalLights",
 			type: arrayOf(DIRECTIONAL_LIGHT_SCHEMA, MAX_DIRECTIONAL_LIGHTS),
@@ -242,6 +242,10 @@ WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT.assertByteSize(
 
 export const WEBGPU_FRAME_SHADOW_UNIFORM_LAYOUT = new StructuredBufferLayout(
 	structOf([
+		{ name: "shadowsEnabled", type: U32 },
+		{ name: "_pad0", type: U32 },
+		{ name: "_pad1", type: U32 },
+		{ name: "_pad2", type: U32 },
 		{
 			name: "directionalShadows",
 			type: arrayOf(SHADOW_DATA_SCHEMA, MAX_DIRECTIONAL_LIGHTS),
@@ -260,6 +264,14 @@ WEBGPU_FRAME_SHADOW_UNIFORM_LAYOUT.assertByteSize(
 
 export const WEBGPU_FRAME_ENVIRONMENT_UNIFORM_LAYOUT = new StructuredBufferLayout(
 	structOf([
+		{ name: "shAmbientEnabled", type: U32 },
+		{ name: "hasEnvSpecular", type: U32 },
+		{ name: "hasBRDFLUT", type: U32 },
+		{ name: "envSpecularIsLinear", type: U32 },
+		{ name: "envSpecularMaxMipLevel", type: F32 },
+		{ name: "_pad0", type: U32 },
+		{ name: "_pad1", type: U32 },
+		{ name: "_pad2", type: U32 },
 		{
 			name: "shAmbientCoeffs",
 			type: arrayOf(VEC4_F32, WEBGPU_SH_COEFFICIENT_COUNT),

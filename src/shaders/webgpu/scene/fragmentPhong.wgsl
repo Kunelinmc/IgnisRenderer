@@ -2,7 +2,7 @@
 		let phongSpecular = material.specular.rgb;
 		let shininess = max(material.ambientShininess.a, 0.0);
 
-		var ambientBase = frame.ambientColor.rgb;
+		var ambientBase = frameLights.ambientColor.rgb;
 		if (useSHAmbient()) {
 			ambientBase =
 				sampleDiffuseProbeIrradiance(input.worldPosition, normal) / 255.0;
@@ -10,7 +10,7 @@
 		var ambient = ambientBase * phongAmbient / PI;
 		var direct = vec3<f32>(0.0);
 
-		let directionalCount = u32(frame.lightCounts.x + 0.5);
+		let directionalCount = frameLights.lightCounts.x;
 		for (var i: u32 = 0u; i < directionalCount; i = i + 1u) {
 			let lightDirection = safeNormalize(
 				frameLights.directionalLights[i].direction.xyz,
@@ -142,7 +142,7 @@
 				);
 			}
 		} else {
-			let pointCount = u32(frame.lightCounts.y + 0.5);
+			let pointCount = frameLights.lightCounts.y;
 			for (var i: u32 = 0u; i < pointCount; i = i + 1u) {
 				let toLight = frameLights.pointLights[i].positionRange.xyz - input.worldPosition;
 				let distanceSq = dot(toLight, toLight);
@@ -169,7 +169,7 @@
 				);
 			}
 
-			let spotCount = u32(frame.lightCounts.z + 0.5);
+			let spotCount = frameLights.lightCounts.z;
 			for (var i: u32 = 0u; i < spotCount; i = i + 1u) {
 				let toLight = frameLights.spotLights[i].positionRange.xyz - input.worldPosition;
 				let distanceSq = dot(toLight, toLight);

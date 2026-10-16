@@ -29,19 +29,28 @@ import {
 	WEBGPU_PBR_MATERIAL_UNIFORM_LAYOUT,
 	WEBGPU_PHONG_MATERIAL_UNIFORM_LAYOUT,
 } from "./bufferLayouts";
-import type { StructuredBufferLayout } from "./StructuredBufferLayout";
+import type {
+	StructuredBufferLayout,
+	StructuredBufferWriter,
+} from "./StructuredBufferLayout";
 import {
 	arrayStruct as packArrayStruct,
 	arrayVec4 as packArrayVec4,
 	createStructuredBufferPacker,
 	custom as packCustom,
 	mat4 as packMat4,
+	f32 as packF32,
+	u32 as packU32,
+	vec2 as packVec2,
 	vec4 as packVec4,
 } from "./StructuredBufferPacker";
 import type {
 	WebGPUAreaLightUniform,
 	WebGPUDirectionalLightUniform,
-	WebGPUFrameUniformInput,
+	WebGPUFrameCameraUniformInput,
+	WebGPUFrameLightUniformInput,
+	WebGPUFrameShadowUniformInput,
+	WebGPUFrameEnvironmentUniformInput,
 	WebGPUFlatMaterialUniformData,
 	WebGPUMaterialCommonUniformData,
 	WebGPUPBRMaterialUniformData,
@@ -73,82 +82,34 @@ interface WebGPUObjectUniformInput {
 }
 
 const FRAME_CAMERA_UNIFORM_PACKER = createStructuredBufferPacker<
-	WebGPUFrameUniformInput,
-	"float32Array"
+	WebGPUFrameCameraUniformInput
 >({
 	label: "FrameCameraUniforms",
 	layout: WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT,
-	output: "float32Array",
 	fields: [
 		packMat4("viewProjection", (input) => input.viewProjectionMatrix),
 		packMat4("prevViewProjection", (input) => input.prevViewProjectionMatrix),
-		packVec4("cameraPosition", (input) => [
-			input.cameraPosition.x,
-			input.cameraPosition.y,
-			input.cameraPosition.z,
-			1,
-		]),
-		packVec4("environmentBasisRight", (input) => [
-			input.environmentRight[0],
-			input.environmentRight[1],
-			input.environmentRight[2],
-			input.environmentTanHalfFov,
-		]),
-		packVec4("environmentBasisUp", (input) => [
-			input.environmentUp[0],
-			input.environmentUp[1],
-			input.environmentUp[2],
-			input.environmentAspect,
-		]),
-		packVec4("environmentBasisBackward", (input) => [
-			input.environmentBackward[0],
-			input.environmentBackward[1],
-			input.environmentBackward[2],
-			input.environmentIsOrthographic ? 1 : 0,
-		]),
-		packVec4("ambientColor", (input) => [
-			input.ambientColor[0],
-			input.ambientColor[1],
-			input.ambientColor[2],
-			1,
-		]),
-		packVec4("lightCounts", (input) => [
-			input.directionalLights.length,
-			input.pointLights.length,
-			input.spotLights.length,
-			input.areaLights.length,
-		]),
-		packVec4("options", (input) => [
-			input.enableLighting ? 1 : 0,
-			0, // Reserved to preserve the published frame uniform layout.
-			input.enableShadows ? 1 : 0,
-			0, // Reserved to keep post-process state out of scene uniforms.
-		]),
-		packVec4("environmentOptionsA", (input) => [
-			input.enableSH ? 1 : 0,
-			input.hasSHAmbient ? 1 : 0,
-			0, // Reserved to preserve the published frame uniform layout.
-			input.hasEnvSpecular ? 1 : 0,
-		]),
-		packVec4("environmentOptionsB", (input) => [
-			input.hasBRDFLUT ? 1 : 0,
-			Math.max(0, input.envSpecularMaxMipLevel),
-			input.environmentIsLinear ? 1 : 0,
-			input.enableClusteredLighting ? 1 : 0,
-		]),
-		packVec4("taaJitterCurrentPrev", (input) => input.taaJitterCurrentPrev),
+		packMat4("inverseView", (input) => input.inverseViewMatrix),
+		packMat4("inverseProjection", (input) => input.inverseProjectionMatrix),
+		packVec2("jitterNdc", (input) => input.jitterNdc),
+		packVec2("prevJitterNdc", (input) => input.prevJitterNdc),
 	],
 });
 
 const FRAME_LIGHT_UNIFORM_PACKER = createStructuredBufferPacker<
-	WebGPUFrameUniformInput,
-	"float32Array"
+	WebGPUFrameLightUniformInput
 >({
 	label: "FrameLightUniforms",
 	layout: WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT,
-	output: "float32Array",
 	fields: [
-		packArrayStruct<WebGPUFrameUniformInput, WebGPUDirectionalLightUniform>(
+		packVec4("ambientColor", (input) => [...input.ambientColor, 1]),
+		packVec4("lightCounts", (input) => [
+			input.directionalLights.length, input.pointLights.length,
+			input.spotLights.length, input.areaLights.length,
+		]),
+		packU32("lightingEnabled", (input) => input.enableLighting ? 1 : 0),
+		packU32("clusteredLightingEnabled", (input) => input.enableClusteredLighting ? 1 : 0),
+		packArrayStruct<WebGPUFrameLightUniformInput, WebGPUDirectionalLightUniform>(
 			"directionalLights",
 			MAX_DIRECTIONAL_LIGHTS,
 			(input, index) => input.directionalLights[index],
@@ -167,7 +128,7 @@ const FRAME_LIGHT_UNIFORM_PACKER = createStructuredBufferPacker<
 				]),
 			]
 		),
-		packArrayStruct<WebGPUFrameUniformInput, WebGPUPointLightUniform>(
+		packArrayStruct<WebGPUFrameLightUniformInput, WebGPUPointLightUniform>(
 			"pointLights",
 			MAX_POINT_LIGHTS,
 			(input, index) => input.pointLights[index],
@@ -186,7 +147,7 @@ const FRAME_LIGHT_UNIFORM_PACKER = createStructuredBufferPacker<
 				]),
 			]
 		),
-		packArrayStruct<WebGPUFrameUniformInput, WebGPUSpotLightUniform>(
+		packArrayStruct<WebGPUFrameLightUniformInput, WebGPUSpotLightUniform>(
 			"spotLights",
 			MAX_SPOT_LIGHTS,
 			(input, index) => input.spotLights[index],
@@ -211,7 +172,7 @@ const FRAME_LIGHT_UNIFORM_PACKER = createStructuredBufferPacker<
 				]),
 			]
 		),
-		packArrayStruct<WebGPUFrameUniformInput, WebGPUAreaLightUniform>(
+		packArrayStruct<WebGPUFrameLightUniformInput, WebGPUAreaLightUniform>(
 			"areaLights",
 			MAX_AREA_LIGHTS,
 			(input, index) => input.areaLights[index],
@@ -252,13 +213,12 @@ const FRAME_LIGHT_UNIFORM_PACKER = createStructuredBufferPacker<
 });
 
 const FRAME_SHADOW_UNIFORM_PACKER = createStructuredBufferPacker<
-	WebGPUFrameUniformInput,
-	"float32Array"
+	WebGPUFrameShadowUniformInput
 >({
 	label: "FrameShadowUniforms",
 	layout: WEBGPU_FRAME_SHADOW_UNIFORM_LAYOUT,
-	output: "float32Array",
 	fields: [
+		packU32("shadowsEnabled", (input) => input.enableShadows ? 1 : 0),
 		packCustom("directionalShadows", (writer, input) => {
 			for (let i = 0; i < MAX_DIRECTIONAL_LIGHTS; i++) {
 				writeShadowData(writer, "directionalShadows", i, input.directionalShadows[i]);
@@ -273,18 +233,21 @@ const FRAME_SHADOW_UNIFORM_PACKER = createStructuredBufferPacker<
 });
 
 const FRAME_ENVIRONMENT_UNIFORM_PACKER = createStructuredBufferPacker<
-	WebGPUFrameUniformInput,
-	"float32Array"
+	WebGPUFrameEnvironmentUniformInput
 >({
 	label: "FrameEnvironmentUniforms",
 	layout: WEBGPU_FRAME_ENVIRONMENT_UNIFORM_LAYOUT,
-	output: "float32Array",
 	fields: [
+		packU32("shAmbientEnabled", (input) => input.shAmbientEnabled ? 1 : 0),
+		packU32("hasEnvSpecular", (input) => input.hasEnvSpecular ? 1 : 0),
+		packU32("hasBRDFLUT", (input) => input.hasBRDFLUT ? 1 : 0),
+		packU32("envSpecularIsLinear", (input) => input.envSpecularIsLinear ? 1 : 0),
+		packF32("envSpecularMaxMipLevel", (input) => Math.max(0, input.envSpecularMaxMipLevel)),
 		packArrayVec4("shAmbientCoeffs", WEBGPU_SH_COEFFICIENT_COUNT, (input, i) => {
 			const coefficient = input.shAmbientCoeffs?.[i];
 			return coefficient ? [coefficient.r, coefficient.g, coefficient.b, 0] : null;
 		}),
-		packArrayStruct<WebGPUFrameUniformInput, WebGPUReflectionProbeUniform>(
+		packArrayStruct<WebGPUFrameEnvironmentUniformInput, WebGPUReflectionProbeUniform>(
 			"reflectionProbes",
 			MAX_REFLECTION_PROBES,
 			(input, index) => input.reflectionProbes[index],
@@ -544,28 +507,64 @@ export function packNormalMatrix4ForWGSL(
 	return packMatrix4ForWGSL(createNormalMatrixRows(normalMatrix));
 }
 
+/**
+ * @internal Packs WebGPU camera frame data; use Renderer for scene submission.
+ * @param input - Resolved camera data for the current view.
+ * @param writer - Optional writer for this uniform layout; its data is overwritten.
+ * @returns The packed buffer, owned by the supplied writer when one is provided.
+ */
 export function packFrameCameraUniformData(
-	input: WebGPUFrameUniformInput
-): Float32Array {
-	return FRAME_CAMERA_UNIFORM_PACKER.pack(input);
+	input: WebGPUFrameCameraUniformInput,
+	writer?: StructuredBufferWriter,
+): ArrayBuffer {
+	return writer
+		? FRAME_CAMERA_UNIFORM_PACKER.packInto(writer, input)
+		: FRAME_CAMERA_UNIFORM_PACKER.pack(input);
 }
 
+/**
+ * @internal Packs WebGPU light frame data; use Renderer for scene submission.
+ * @param input - Resolved light data for the current view.
+ * @param writer - Optional writer for this uniform layout; its data is overwritten.
+ * @returns The packed buffer, owned by the supplied writer when one is provided.
+ */
 export function packFrameLightUniformData(
-	input: WebGPUFrameUniformInput
-): Float32Array {
-	return FRAME_LIGHT_UNIFORM_PACKER.pack(input);
+	input: WebGPUFrameLightUniformInput,
+	writer?: StructuredBufferWriter,
+): ArrayBuffer {
+	return writer
+		? FRAME_LIGHT_UNIFORM_PACKER.packInto(writer, input)
+		: FRAME_LIGHT_UNIFORM_PACKER.pack(input);
 }
 
+/**
+ * @internal Packs WebGPU shadow frame data; use Renderer for scene submission.
+ * @param input - Resolved shadow data for the current view.
+ * @param writer - Optional writer for this uniform layout; its data is overwritten.
+ * @returns The packed buffer, owned by the supplied writer when one is provided.
+ */
 export function packFrameShadowUniformData(
-	input: WebGPUFrameUniformInput
-): Float32Array {
-	return FRAME_SHADOW_UNIFORM_PACKER.pack(input);
+	input: WebGPUFrameShadowUniformInput,
+	writer?: StructuredBufferWriter,
+): ArrayBuffer {
+	return writer
+		? FRAME_SHADOW_UNIFORM_PACKER.packInto(writer, input)
+		: FRAME_SHADOW_UNIFORM_PACKER.pack(input);
 }
 
+/**
+ * @internal Packs WebGPU environment frame data; use Renderer for scene submission.
+ * @param input - Resolved environment data for the current view.
+ * @param writer - Optional writer for this uniform layout; its data is overwritten.
+ * @returns The packed buffer, owned by the supplied writer when one is provided.
+ */
 export function packFrameEnvironmentUniformData(
-	input: WebGPUFrameUniformInput
-): Float32Array {
-	return FRAME_ENVIRONMENT_UNIFORM_PACKER.pack(input);
+	input: WebGPUFrameEnvironmentUniformInput,
+	writer?: StructuredBufferWriter,
+): ArrayBuffer {
+	return writer
+		? FRAME_ENVIRONMENT_UNIFORM_PACKER.packInto(writer, input)
+		: FRAME_ENVIRONMENT_UNIFORM_PACKER.pack(input);
 }
 
 export function remapClipSpaceDepth(clipZ: number, clipW: number): number {
@@ -694,7 +693,7 @@ function writeShadowData(
 	writer: ReturnType<StructuredBufferLayout["createWriter"]>,
 	arrayField: "directionalShadows" | "spotShadows",
 	index: number,
-	shadow: WebGPUFrameUniformInput["directionalShadows"][number] | undefined
+	shadow: WebGPUFrameShadowUniformInput["directionalShadows"][number] | undefined
 ): void {
 	if (shadow?.enabled && shadow.viewProjectionMatrix) {
 		writer.writeMat4([arrayField, index, "viewProjection"], shadow.viewProjectionMatrix);

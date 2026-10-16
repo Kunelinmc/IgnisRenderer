@@ -1,5 +1,5 @@
 let shAmbientEnabled = useSHAmbient();
-var ambientColor = frame.ambientColor.rgb;
+var ambientColor = frameLights.ambientColor.rgb;
 
 var diffuseAmbient = ambientColor / PI;
 var specularAmbientRadiance = vec3<f32>(0.0);

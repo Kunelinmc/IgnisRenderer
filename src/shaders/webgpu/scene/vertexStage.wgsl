@@ -89,7 +89,7 @@ fn vsMain(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Vertex
 	let worldTangent =
 		(resolvedNormalMatrix * vec4<f32>(skinnedCurrent.tangent, 0.0)).xyz;
 	var clipPosition = frame.viewProjection * worldPosition;
-	let currJitter = frame.taaJitterCurrentPrev.xy * clipPosition.w;
+	let currJitter = frame.jitterNdc * clipPosition.w;
 	clipPosition = vec4<f32>(
 		clipPosition.x + currJitter.x,
 		clipPosition.y + currJitter.y,
@@ -100,7 +100,7 @@ fn vsMain(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Vertex
 	let prevWorldPosition =
 		resolvedPrevModelMatrix * vec4<f32>(skinnedPrev.position, 1.0);
 	var prevClipPosition = frame.prevViewProjection * prevWorldPosition;
-	let prevJitter = frame.taaJitterCurrentPrev.zw * prevClipPosition.w;
+	let prevJitter = frame.prevJitterNdc * prevClipPosition.w;
 	prevClipPosition = vec4<f32>(
 		prevClipPosition.x + prevJitter.x,
 		prevClipPosition.y + prevJitter.y,

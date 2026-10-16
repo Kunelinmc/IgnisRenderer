@@ -67,10 +67,6 @@ fn vsMainDeferredLighting(
 	return output;
 }
 
-fn isOrthographicDeferredCamera() -> bool {
-	return frame.environmentBasisBackward.w > 0.5;
-}
-
 fn decodeOctahedralNormal(encoded: vec2<f32>) -> vec3<f32> {
 	let oct = encoded * 2.0 - vec2<f32>(1.0);
 	var n = vec3<f32>(oct.x, oct.y, 1.0 - abs(oct.x) - abs(oct.y));
@@ -81,29 +77,17 @@ fn decodeOctahedralNormal(encoded: vec2<f32>) -> vec3<f32> {
 }
 
 fn decodeDeferredNormal(encoded: vec2<f32>) -> vec3<f32> {
-	let vn = decodeOctahedralNormal(encoded);
+	let viewNormal = decodeOctahedralNormal(encoded);
 	return safeNormalize(
-		frame.environmentBasisRight.xyz * vn.x +
-			frame.environmentBasisUp.xyz * vn.y +
-			frame.environmentBasisBackward.xyz * vn.z,
-		frame.environmentBasisBackward.xyz
+		cameraViewToWorldDirection(frame.inverseView, viewNormal),
+		cameraBackward(frame.inverseView)
 	);
 }
 
 fn reconstructDeferredWorldPosition(uv: vec2<f32>, depth: f32) -> vec3<f32> {
-	let ndc = vec2<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
-	let right = frame.environmentBasisRight.xyz;
-	let up = frame.environmentBasisUp.xyz;
-	let backward = frame.environmentBasisBackward.xyz;
-	if (isOrthographicDeferredCamera()) {
-		return frame.cameraPosition.xyz +
-			right * ndc.x * frame.environmentBasisRight.w +
-			up * ndc.y * frame.environmentBasisUp.w -
-			backward * depth;
-	}
-	let cx = ndc.x * frame.environmentBasisUp.w * frame.environmentBasisRight.w * depth;
-	let cy = ndc.y * frame.environmentBasisRight.w * depth;
-	return frame.cameraPosition.xyz + right * cx + up * cy - backward * depth;
+	return cameraReconstructWorldPosition(
+		frame.inverseView, frame.inverseProjection, frame.jitterNdc, uv, depth
+	);
 }
 
 fn applyDeferredFog(color: vec3<f32>, linearDepth: f32) -> vec3<f32> {
@@ -189,8 +173,8 @@ fn loadDeferredSurface(input: DeferredVSOut) -> DeferredSurface {
 	);
 	let worldPosition = reconstructDeferredWorldPosition(input.uv, motionDepth.z);
 	let viewDir = safeNormalize(
-		frame.cameraPosition.xyz - worldPosition,
-		-frame.environmentBasisBackward.xyz
+		cameraPosition(frame.inverseView) - worldPosition,
+		-cameraBackward(frame.inverseView)
 	);
 	return DeferredSurface(
 		worldPosition,
@@ -311,7 +295,7 @@ fn evaluateDeferredPBRLight(
 fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 	var directLight = vec3<f32>(0.0);
 	let pbr = buildDeferredPBRContext(surface);
-	let directionalCount = u32(frame.lightCounts.x + 0.5);
+	let directionalCount = frameLights.lightCounts.x;
 	for (var i: u32 = 0u; i < directionalCount; i = i + 1u) {
 		let lightDirection = safeNormalize(
 			frameLights.directionalLights[i].direction.xyz,
@@ -417,7 +401,7 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 			);
 		}
 	} else {
-		let pointCount = u32(frame.lightCounts.y + 0.5);
+		let pointCount = frameLights.lightCounts.y;
 		for (var i: u32 = 0u; i < pointCount; i = i + 1u) {
 			let toLight = frameLights.pointLights[i].positionRange.xyz - surface.worldPosition;
 			let distanceSq = dot(toLight, toLight);
@@ -439,7 +423,7 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 			);
 		}
 
-		let spotCount = u32(frame.lightCounts.z + 0.5);
+		let spotCount = frameLights.lightCounts.z;
 		for (var i: u32 = 0u; i < spotCount; i = i + 1u) {
 			let toLight = frameLights.spotLights[i].positionRange.xyz - surface.worldPosition;
 			let distanceSq = dot(toLight, toLight);
@@ -504,7 +488,7 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 	}
 
 	let shAmbientEnabled = useSHAmbient();
-	var ambientColor = frame.ambientColor.rgb;
+	var ambientColor = frameLights.ambientColor.rgb;
 
 	var diffuseAmbient = ambientColor / PI;
 	var specularAmbientRadiance = vec3<f32>(0.0);
@@ -653,7 +637,7 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 }
 
 fn evaluateDeferredPhong(surface: DeferredSurface) -> vec3<f32> {
-	var ambientBase = frame.ambientColor.rgb;
+	var ambientBase = frameLights.ambientColor.rgb;
 	if (useSHAmbient()) {
 		ambientBase =
 			sampleDiffuseProbeIrradiance(surface.worldPosition, surface.normal) / 255.0;
@@ -661,7 +645,7 @@ fn evaluateDeferredPhong(surface: DeferredSurface) -> vec3<f32> {
 	var direct = vec3<f32>(0.0);
 	let shininess = max(surface.specularFactor, 0.0);
 
-	let directionalCount = u32(frame.lightCounts.x + 0.5);
+	let directionalCount = frameLights.lightCounts.x;
 	for (var i: u32 = 0u; i < directionalCount; i = i + 1u) {
 		let lightDirection = safeNormalize(
 			frameLights.directionalLights[i].direction.xyz,
@@ -771,7 +755,7 @@ fn evaluateDeferredPhong(surface: DeferredSurface) -> vec3<f32> {
 			);
 		}
 	} else {
-		let pointCount = u32(frame.lightCounts.y + 0.5);
+		let pointCount = frameLights.lightCounts.y;
 		for (var i: u32 = 0u; i < pointCount; i = i + 1u) {
 			let toLight = frameLights.pointLights[i].positionRange.xyz - surface.worldPosition;
 			let distanceSq = dot(toLight, toLight);
@@ -794,7 +778,7 @@ fn evaluateDeferredPhong(surface: DeferredSurface) -> vec3<f32> {
 			);
 		}
 
-		let spotCount = u32(frame.lightCounts.z + 0.5);
+		let spotCount = frameLights.lightCounts.z;
 		for (var i: u32 = 0u; i < spotCount; i = i + 1u) {
 			let toLight = frameLights.spotLights[i].positionRange.xyz - surface.worldPosition;
 			let distanceSq = dot(toLight, toLight);
@@ -875,10 +859,10 @@ fn fsMainDeferredLighting(input: DeferredVSOut) -> @location(0) vec4<f32> {
 	}
 
 	var linearColor = surface.albedo;
-	if (frame.options.x > 0.5 && surface.shadingModel == SHADING_PBR) {
+	if (frameLights.lightingEnabled != 0u && surface.shadingModel == SHADING_PBR) {
 		linearColor = evaluateDeferredPBR(surface);
 	} else if (
-		frame.options.x > 0.5 &&
+		frameLights.lightingEnabled != 0u &&
 		(surface.shadingModel == SHADING_PHONG ||
 			surface.shadingModel == SHADING_FLAT)
 	) {

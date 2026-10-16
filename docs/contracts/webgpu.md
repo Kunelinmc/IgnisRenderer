@@ -908,24 +908,56 @@ lighting, presentation configuration, reflections, and structured buffer packing
   identify a path. Runtime type and length validation must remain owned by
   `StructuredBufferWriter`.
 
-The frame packers share `WebGPUFrameUniformInput` and target these
-`sceneFrameBindGroupLayout` resources:
+The frame packers must accept separate camera, light, shadow, and environment
+inputs and target these `sceneFrameBindGroupLayout` resources:
 
 | Packer | Binding | Layout | Size |
 | --- | --- | --- | --- |
-| `packFrameCameraUniformData` | `0` | `FrameCameraUniforms` | 288 bytes |
-| `packFrameLightUniformData` | `10` | `FrameLightUniforms` | 1,664 bytes |
-| `packFrameShadowUniformData` | `11` | `FrameShadowUniforms` | 5,760 bytes |
-| `packFrameEnvironmentUniformData` | `12` | `FrameEnvironmentUniforms` | 4,208 bytes |
+| `packFrameCameraUniformData` | `0` | `FrameCameraUniforms` | 272 bytes |
+| `packFrameLightUniformData` | `10` | `FrameLightUniforms` | 1,712 bytes |
+| `packFrameShadowUniformData` | `11` | `FrameShadowUniforms` | 6,544 bytes |
+| `packFrameEnvironmentUniformData` | `12` | `FrameEnvironmentUniforms` | 4,240 bytes |
 
-`FrameCameraUniforms.options` must preserve its four-lane layout. The lanes
-must contain lighting enablement in `x`, zero in the reserved `y` lane, shadow
-enablement in `z`, and zero in the reserved `w` lane.
-`WebGPUFrameUniformInput` must not contain a gamma pass enablement field;
-backend post-process runtime state owns that decision.
-`WebGPUFrameUniformInput` must only expose values written by at least one frame
-packer. Backend resource-presence state that is not represented in a frame
-uniform layout must remain outside this input contract.
+`FrameCameraUniforms` must contain unjittered `viewProjection`,
+`prevViewProjection`, `inverseView`, and `inverseProjection` matrices at byte
+offsets `0`, `64`, `128`, and `192`, followed by `jitterNdc` and `prevJitterNdc`
+as `vec2<f32>` at offsets `256` and `264`. Camera position and axes must be
+read from `inverseView`. Shader consumers must import the shared declaration.
+
+Screen UVs must use a top-left origin. Reconstruction must subtract current
+NDC jitter; projection into the current rasterized view must add it. Hardware
+depth must be mapped from `[0, 1]` to `[-1, 1]` before inverse projection.
+Linear-depth reconstruction must intersect the inverse-projected view ray
+with `viewZ = -depth`, preserving asymmetric orthographic bounds. Camera
+helpers must distinguish hardware depth from linear view depth. Motion vectors
+must retain the difference between current and previous jittered NDC positions.
+Oblique clipping must not reverse camera rays or make linear-depth
+reconstruction non-finite at the clip-plane horizon. Ray construction must
+preserve homogeneous coordinates until the required view-depth intersection.
+Shared helpers must accept only their required matrices and jitter, rather than
+copying the entire camera uniform value. Planar-reflection composite sampling
+must use unjittered capture UVs while its main-view raster position uses jitter.
+Clustered lighting must retain its perspective-only fallback policy.
+
+`FrameLightUniforms` must prepend a 48-byte header containing `ambientColor`,
+`lightCounts: vec4<u32>`, `lightingEnabled`, and `clusteredLightingEnabled`.
+`FrameShadowUniforms` must prepend a 16-byte `shadowsEnabled` header.
+`FrameEnvironmentUniforms` must prepend a 32-byte header containing
+`shAmbientEnabled`, `hasEnvSpecular`, `hasBRDFLUT`, `envSpecularIsLinear`, and
+`envSpecularMaxMipLevel`. Flags must use `u32` values `0` or `1`; maximum mip
+must use non-negative `f32`. Headers must use explicit zero scalar padding.
+SH enablement must combine configured enablement and available SH data.
+Background parameters must contain tint/exposure and a separate `inputIsLinear`
+flag in a 32-byte buffer. Background and IBL decoding must follow their own
+texture sources, preserving the linear probe-atlas path.
+
+Frame packers must return `ArrayBuffer` and accept optional reusable writers.
+Each view scope must own its writers and inverse-matrix caches. Matrix cache
+invalidation must compare matrix values, including in-place mutations.
+Non-finite or singular camera matrices must fail before temporal advancement
+or GPU writes. `TemporalFrameState` must remain the history owner; aborted
+frames and secondary captures must not advance main-view history.
+Post-process enablement must remain owned by the post-process runtime.
 
 Scene material packing must use these `group(1)` uniform bindings:
 

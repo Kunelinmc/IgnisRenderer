@@ -87,6 +87,7 @@ function createFrame(packet) {
 		camera: {
 			viewProjectionMatrix: Matrix4.identity(),
 			viewMatrix: Matrix4.identity(),
+			projectionMatrix: Matrix4.identity(),
 			position: cameraPosition,
 			getWorldPosition() {
 				return this.position;
@@ -272,7 +273,8 @@ function readLatestFrameCameraUniformField(backend, field) {
 			call[1]?.label === "WebGPUFrameCameraUniforms"
 	);
 	assert.ok(frameWrites.length > 0);
-	const data = frameWrites[frameWrites.length - 1][2];
+	const payload = frameWrites[frameWrites.length - 1][2];
+	const data = payload instanceof ArrayBuffer ? new Float32Array(payload) : payload;
 	const offset = WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT.byteOffsetOf(field) / 4;
 	const length = WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT.byteSizeOf(field) / 4;
 	return Array.from(data.slice(offset, offset + length));

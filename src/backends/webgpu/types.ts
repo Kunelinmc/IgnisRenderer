@@ -1,7 +1,7 @@
 import type { Vec3Tuple } from "../../maths/Vector3";
 import type { Vec4Tuple } from "../../maths/Vector4";
 import type { Matrix4 } from "../../maths/Matrix4";
-import type { IVector3, SHCoefficients } from "../../maths/types";
+import type { SHCoefficients } from "../../maths/types";
 import type { ResolvedShadowStrategy } from "../../lights/runtime/lightingRuntime";
 import type { ClusteredLightingOptions } from "../../pipeline/types";
 import { defineTransientKey } from "../../foundation/TransientStore";
@@ -339,39 +339,47 @@ export type WebGPUMaterialUniformData =
 			lighting: null;
 	  });
 
-export interface WebGPUFrameUniformInput {
+/** @internal WebGPU camera packing input; use the Renderer camera facade. */
+export interface WebGPUFrameCameraUniformInput {
 	viewProjectionMatrix: Matrix4 | number[][];
 	prevViewProjectionMatrix: Matrix4 | number[][];
-	cameraPosition: IVector3;
-	environmentRight: Vec3Tuple;
-	environmentUp: Vec3Tuple;
-	environmentBackward: Vec3Tuple;
-	environmentTanHalfFov: number;
-	environmentAspect: number;
-	environmentIsOrthographic: boolean;
+	inverseViewMatrix: Matrix4 | number[][];
+	inverseProjectionMatrix: Matrix4 | number[][];
+	jitterNdc: readonly [number, number];
+	prevJitterNdc: readonly [number, number];
+}
+
+/** @internal WebGPU lighting packing input; use scene lights. */
+export interface WebGPUFrameLightUniformInput {
 	ambientColor: WebGPULightingState["ambientColor"];
+	directionalLights: WebGPULightingState["directionalLights"];
+	pointLights: WebGPULightingState["pointLights"];
+	spotLights: WebGPULightingState["spotLights"];
+	areaLights: WebGPULightingState["areaLights"];
+	enableLighting: boolean;
+	enableClusteredLighting: boolean;
+}
+
+/** @internal WebGPU shadow packing input; use scene shadow configuration. */
+export interface WebGPUFrameShadowUniformInput {
+	directionalShadows: WebGPULightingState["directionalShadows"];
+	spotShadows: WebGPULightingState["spotShadows"];
+	enableShadows: boolean;
+}
+
+/** @internal WebGPU environment packing input; use scene environment configuration. */
+export interface WebGPUFrameEnvironmentUniformInput {
 	shAmbientCoeffs: SHCoefficients | null;
 	localLightProbeCount: number;
 	localLightProbes: WebGPULocalLightProbeUniform[];
 	irradianceProbeGrid: WebGPUIrradianceProbeGridUniform | null;
-	directionalLights: WebGPULightingState["directionalLights"];
-	directionalShadows: WebGPULightingState["directionalShadows"];
-	pointLights: WebGPULightingState["pointLights"];
-	spotLights: WebGPULightingState["spotLights"];
-	spotShadows: WebGPULightingState["spotShadows"];
-	areaLights: WebGPULightingState["areaLights"];
 	reflectionProbeCount: number;
 	reflectionProbes: WebGPUReflectionProbeUniform[];
-	enableLighting: boolean;
-	enableShadows: boolean;
-	enableSH: boolean;
-	enableClusteredLighting: boolean;
-	hasSHAmbient: boolean;
-	environmentIsLinear: boolean;
+	shAmbientEnabled: boolean;
+	envSpecularIsLinear: boolean;
 	hasEnvSpecular: boolean;
 	hasBRDFLUT: boolean;
 	envSpecularMaxMipLevel: number;
-	taaJitterCurrentPrev: Vec4Tuple;
 }
 
 export interface WebGPUParticleDrawBatch {

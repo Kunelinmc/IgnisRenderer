@@ -1,24 +1,7 @@
+#import <ignis/webgpu/frame-uniforms>
 #import <ignis/webgpu/constants>
 #import <ignis/postprocess/fog>
-struct FrameCameraUniforms {
-	viewProjection: mat4x4<f32>,
-	prevViewProjection: mat4x4<f32>,
-	cameraPosition: vec4<f32>,
-	environmentBasisRight: vec4<f32>,
-	environmentBasisUp: vec4<f32>,
-	environmentBasisBackward: vec4<f32>,
-	ambientColor: vec4<f32>,
-	lightCounts: vec4<f32>,
-	options: vec4<f32>,
-	environmentOptionsA: vec4<f32>,
-	environmentOptionsB: vec4<f32>,
-	taaJitterCurrentPrev: vec4<f32>,
-}
-
-struct FrameShadowUniforms {
-	directionalShadows: array<ShadowData, __WEBGPU_MAX_DIRECTIONAL_LIGHTS__>,
-	spotShadows: array<ShadowData, __WEBGPU_MAX_SPOT_LIGHTS__>,
-}
+#import <ignis/webgpu/frame-camera>
 
 struct ParticleVertexInput {
 	@location(0) quadPosition: vec2<f32>,
@@ -67,6 +50,7 @@ struct ParticleShadowVolumeBuffer {
 	ParticleShadowVolumeBuffer;
 @group(0) @binding(6) var shadowTransmittanceAtlas: texture_2d<f32>;
 @group(0) @binding(9) var shadowComparisonSampler: sampler_comparison;
+@group(0) @binding(10) var<uniform> frameLights: FrameLightUniforms;
 @group(0) @binding(11) var<uniform> frameShadows: FrameShadowUniforms;
 
 @group(1) @binding(0) var particleTexture: texture_2d<f32>;
@@ -85,8 +69,8 @@ fn resolveParticleOITWeight(alpha: f32, viewDepth: f32) -> f32 {
 @vertex
 fn vsMain(input: ParticleVertexInput) -> ParticleVertexOutput {
 	var output: ParticleVertexOutput;
-	let right = frame.environmentBasisRight.xyz;
-	let up = frame.environmentBasisUp.xyz;
+	let right = cameraRight(frame.inverseView);
+	let up = cameraUp(frame.inverseView);
 	let c = cos(input.instanceRotation);
 	let s = sin(input.instanceRotation);
 	let rotated = vec2<f32>(
@@ -97,7 +81,7 @@ fn vsMain(input: ParticleVertexInput) -> ParticleVertexOutput {
 		(right * rotated.x + up * rotated.y) * input.instancePositionSize.w;
 
 	var clipPosition = frame.viewProjection * vec4<f32>(worldPosition, 1.0);
-	let currJitter = frame.taaJitterCurrentPrev.xy * clipPosition.w;
+	let currJitter = frame.jitterNdc * clipPosition.w;
 	clipPosition = vec4<f32>(
 		clipPosition.x + currJitter.x,
 		clipPosition.y + currJitter.y,
@@ -375,18 +359,15 @@ fn sampleParticleDirectionalCascade(
 }
 
 fn sampleDirectionalShadowVisibility(worldPosition: vec3<f32>) -> vec3<f32> {
-	if (frame.options.z < 0.5) {
+	if (frameShadows.shadowsEnabled == 0u) {
 		return vec3<f32>(1.0);
 	}
 
 	let directionalCount = min(
-		u32(max(frame.lightCounts.x + 0.5, 0.0)),
+		frameLights.lightCounts.x,
 		u32(__WEBGPU_MAX_DIRECTIONAL_LIGHTS__)
 	);
-	let linearDepth = dot(
-		frame.cameraPosition.xyz - worldPosition,
-		frame.environmentBasisBackward.xyz
-	);
+	let linearDepth = cameraLinearDepth(frame.inverseView, worldPosition);
 	var visibility = vec3<f32>(1.0);
 	for (var index = 0u; index < directionalCount; index = index + 1u) {
 		let shadow = frameShadows.directionalShadows[index];
@@ -533,7 +514,7 @@ fn shadeParticle(input: ParticleVertexOutput) -> vec4<f32> {
 		color = vec4<f32>(color.rgb * visibility, color.a);
 	}
 
-	let viewDepth = length(frame.cameraPosition.xyz - input.worldPosition);
+	let viewDepth = length(cameraPosition(frame.inverseView) - input.worldPosition);
 	let fogMode = i32(floor(fog.fogParams0.x + 0.5));
 	let fogFactor = ignisComputeFogFactor(
 		fogMode,
@@ -559,7 +540,7 @@ fn fsMain(input: ParticleVertexOutput) -> @location(0) vec4<f32> {
 fn fsMainOIT(input: ParticleVertexOutput) -> ParticleOITOutput {
 	let color = shadeParticle(input);
 	let alpha = clamp(color.a, 0.0, 1.0);
-	let viewDepth = length(frame.cameraPosition.xyz - input.worldPosition);
+	let viewDepth = length(cameraPosition(frame.inverseView) - input.worldPosition);
 	let weight = resolveParticleOITWeight(alpha, viewDepth);
 	var output: ParticleOITOutput;
 	output.accum = vec4<f32>(color.rgb * alpha, alpha) * weight;

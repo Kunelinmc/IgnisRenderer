@@ -1,5 +1,5 @@
 if (!isClusteredLightingEnabled()) {
-	let spotCount = u32(frame.lightCounts.z + 0.5);
+	let spotCount = frameLights.lightCounts.z;
 	for (var i: u32 = 0u; i < spotCount; i = i + 1u) {
 		let toLight = frameLights.spotLights[i].positionRange.xyz - input.worldPosition;
 		let distanceSq = dot(toLight, toLight);

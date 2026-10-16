@@ -5,6 +5,41 @@ IgnisRenderer consumers and contributors. Completed implementation history that
 does not require an action is retained in Git rather than in the documentation
 tree.
 
+## WebGPU Frame Uniforms
+
+Custom WGSL using frame uniforms must adopt the new layout without legacy
+field aliases. `FrameCameraUniforms` now contains four unjittered matrices:
+`viewProjection`, `prevViewProjection`, `inverseView`, and `inverseProjection`,
+followed by `jitterNdc` and `prevJitterNdc`. Replace `cameraPosition` and
+`environmentBasis*` with the inverse-view columns and shared camera helpers.
+
+Move ambient color, light counts, lighting enablement, and clustered enablement
+reads to `frameLights`; shadow enablement to `frameShadows`; and SH/IBL state
+to `frameEnvironment`. Counts and flags use `u32`. Background decoding uses
+`environmentBackground.inputIsLinear`. Existing binding numbers remain stable,
+but buffer sizes and offsets change. Import the shared frame declarations
+instead of copying their layouts into custom shaders.
+
+The camera declaration and math helpers use the `ignis/webgpu/frame-camera`
+import. Helpers take only the matrices and jitter required by the operation:
+
+```wgsl
+#import <ignis/webgpu/frame-camera>
+
+let worldPosition = cameraReconstructWorldPosition(
+	frame.inverseView, frame.inverseProjection, frame.jitterNdc, uv, linearDepth
+);
+```
+
+Use `ignis/webgpu/frame-uniforms` for the light, shadow, and environment
+declarations in shader compositions that provide the shared light-data types.
+
+Backend frame packers accept separate camera/light/shadow/environment inputs
+and return `ArrayBuffer`, with an optional reusable writer. The old combined
+`WebGPUFrameUniformInput` and packed option vectors have been removed.
+See the [WebGPU contract](../contracts/webgpu.md) and
+[binding reference](../reference/webgpu-bindings.md) for the complete ABI.
+
 ## Shadow Sampling Quality
 
 `ShadowSamplingSettings` now contains only `quality`, with supported values

@@ -48,14 +48,7 @@ const MODE_MULTIPLY: u32 = 3u;
 const MODE_ADD: u32 = 4u;
 const MODE_NORMAL: u32 = 5u;
 
-struct FrameCameraUniforms {
-	viewProjection: mat4x4<f32>,
-	prevViewProjection: mat4x4<f32>,
-	cameraPosition: vec4<f32>,
-	environmentBasisRight: vec4<f32>,
-	environmentBasisUp: vec4<f32>,
-	environmentBasisBackward: vec4<f32>,
-}
+#import <ignis/webgpu/frame-camera>
 
 struct DecalUniforms {
 	worldToLocal: mat4x4<f32>,
@@ -252,41 +245,21 @@ fn decodeOctahedralNormal(encoded: vec2<f32>) -> vec3<f32> {
 }
 
 fn encodeNormalForGBuffer(normal: vec3<f32>) -> vec2<f32> {
-	let right = frame.environmentBasisRight.xyz;
-	let up = frame.environmentBasisUp.xyz;
-	let backward = frame.environmentBasisBackward.xyz;
-	let viewNormal = vec3<f32>(
-		dot(normal, right),
-		dot(normal, up),
-		dot(normal, backward)
-	);
-	return encodeOctahedralNormal(viewNormal);
+	return encodeOctahedralNormal(cameraWorldToViewDirection(frame.inverseView, normal));
 }
 
 fn decodeDeferredNormal(encoded: vec2<f32>) -> vec3<f32> {
 	let viewNormal = decodeOctahedralNormal(encoded);
 	return safeNormalize(
-		frame.environmentBasisRight.xyz * viewNormal.x +
-			frame.environmentBasisUp.xyz * viewNormal.y +
-			frame.environmentBasisBackward.xyz * viewNormal.z,
-		frame.environmentBasisBackward.xyz
+		cameraViewToWorldDirection(frame.inverseView, viewNormal),
+		cameraBackward(frame.inverseView)
 	);
 }
 
 fn reconstructDeferredWorldPosition(uv: vec2<f32>, depth: f32) -> vec3<f32> {
-	let ndc = vec2<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
-	let right = frame.environmentBasisRight.xyz;
-	let up = frame.environmentBasisUp.xyz;
-	let backward = frame.environmentBasisBackward.xyz;
-	if (frame.environmentBasisBackward.w > 0.5) {
-		return frame.cameraPosition.xyz +
-			right * ndc.x * frame.environmentBasisRight.w +
-			up * ndc.y * frame.environmentBasisUp.w -
-			backward * depth;
-	}
-	let cx = ndc.x * frame.environmentBasisUp.w * frame.environmentBasisRight.w * depth;
-	let cy = ndc.y * frame.environmentBasisRight.w * depth;
-	return frame.cameraPosition.xyz + right * cx + up * cy - backward * depth;
+	return cameraReconstructWorldPosition(
+		frame.inverseView, frame.inverseProjection, frame.jitterNdc, uv, depth
+	);
 }
 
 fn transformUV(slotIndex: u32, uv: vec2<f32>) -> vec2<f32> {

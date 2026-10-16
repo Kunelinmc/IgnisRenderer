@@ -5,7 +5,7 @@ fn sampleDirectionalShadowVisibility(
 	lightDirection: vec3<f32>,
 	linearDepth: f32
 ) -> vec3<f32> {
-	if (frame.options.z < 0.5) {
+	if (frameShadows.shadowsEnabled == 0u) {
 		return vec3<f32>(1.0);
 	}
 	if (frameShadows.directionalShadows[index].paramsA.x < 0.5) {
@@ -60,7 +60,7 @@ fn sampleSpotShadowVisibility(
 	normal: vec3<f32>,
 	lightDirection: vec3<f32>
 ) -> vec3<f32> {
-	if (frame.options.z < 0.5) {
+	if (frameShadows.shadowsEnabled == 0u) {
 		return vec3<f32>(1.0);
 	}
 	if (frameShadows.spotShadows[index].paramsA.x < 0.5) {

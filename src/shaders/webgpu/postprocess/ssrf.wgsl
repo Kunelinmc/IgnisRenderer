@@ -1,19 +1,6 @@
 #import <ignis/webgpu/constants>
 
-struct FrameCameraUniforms {
-	viewProjection: mat4x4<f32>,
-	prevViewProjection: mat4x4<f32>,
-	cameraPosition: vec4<f32>,
-	environmentBasisRight: vec4<f32>,
-	environmentBasisUp: vec4<f32>,
-	environmentBasisBackward: vec4<f32>,
-	ambientColor: vec4<f32>,
-	lightCounts: vec4<f32>,
-	options: vec4<f32>,
-	environmentOptionsA: vec4<f32>,
-	environmentOptionsB: vec4<f32>,
-	taaJitterCurrentPrev: vec4<f32>,
-}
+#import <ignis/webgpu/frame-camera>
 
 struct TraceParams {
 	invTraceSize: vec2<f32>,
@@ -56,15 +43,6 @@ struct ComposeParams {
 @group(0) @binding(4) var<uniform> composeParams: ComposeParams;
 @group(0) @binding(5) var composeOut: texture_storage_2d<rgba16float, write>;
 
-struct CameraBasis {
-	right: vec3<f32>,
-	up: vec3<f32>,
-	backward: vec3<f32>,
-	tanHalfFov: f32,
-	aspect: f32,
-	orthographic: f32,
-}
-
 struct RefractionResult {
 	direction: vec3<f32>,
 	valid: bool,
@@ -87,17 +65,6 @@ const ROUGH_TRANSMISSION_OFFSETS = array<vec2<f32>, 8>(
 	vec2<f32>(-0.7071, -0.7071)
 );
 
-fn getCameraBasis() -> CameraBasis {
-	return CameraBasis(
-		frame.environmentBasisRight.xyz,
-		frame.environmentBasisUp.xyz,
-		frame.environmentBasisBackward.xyz,
-		frame.environmentBasisRight.w,
-		frame.environmentBasisUp.w,
-		frame.environmentBasisBackward.w
-	);
-}
-
 fn signNotZero2(value: vec2<f32>) -> vec2<f32> {
 	return vec2<f32>(
 		select(-1.0, 1.0, value.x >= 0.0),
@@ -116,51 +83,24 @@ fn decodeNormal(encoded: vec2<f32>) -> vec3<f32> {
 		vn = vec3<f32>(octahedralWrap(vn.xy), vn.z);
 	}
 	vn = normalize(vn);
-	let basis = getCameraBasis();
-	return normalize(
-		basis.right * vn.x + basis.up * vn.y + basis.backward * vn.z
-	);
+	return normalize(cameraViewToWorldDirection(frame.inverseView, vn));
 }
 
 fn getPosition(uv: vec2<f32>, depth: f32) -> vec3<f32> {
-	let ndc = vec2<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
-	let basis = getCameraBasis();
-	if (basis.orthographic > 0.5) {
-		return frame.cameraPosition.xyz
-			+ basis.right * ndc.x * basis.tanHalfFov
-			+ basis.up * ndc.y * basis.aspect
-			- basis.backward * depth;
-	}
-	let cx = ndc.x * basis.aspect * basis.tanHalfFov * depth;
-	let cy = ndc.y * basis.tanHalfFov * depth;
-	return frame.cameraPosition.xyz
-		+ basis.right * cx
-		+ basis.up * cy
-		- basis.backward * depth;
+	return cameraReconstructWorldPosition(
+		frame.inverseView, frame.inverseProjection, frame.jitterNdc, uv, depth
+	);
 }
 
 fn worldToUv(worldPos: vec3<f32>) -> vec2<f32> {
-	let rel = worldPos - frame.cameraPosition.xyz;
-	let basis = getCameraBasis();
-	let depth = dot(rel, -basis.backward);
-	if (depth <= 1e-4) {
+	if (cameraLinearDepth(frame.inverseView, worldPos) <= 1e-4) {
 		return vec2<f32>(-1.0);
 	}
-	if (basis.orthographic > 0.5) {
-		let cx = dot(rel, basis.right) / max(basis.tanHalfFov, 1e-6);
-		let cy = dot(rel, basis.up) / max(basis.aspect, 1e-6);
-		return vec2<f32>(cx * 0.5 + 0.5, 0.5 - cy * 0.5);
-	}
-	let cx =
-		dot(rel, basis.right) /
-		(depth * basis.aspect * basis.tanHalfFov);
-	let cy = dot(rel, basis.up) / (depth * basis.tanHalfFov);
-	return vec2<f32>(cx * 0.5 + 0.5, 0.5 - cy * 0.5);
+	return cameraWorldToRasterUv(frame.viewProjection, frame.jitterNdc, worldPos);
 }
 
 fn worldToLinearDepth(worldPos: vec3<f32>) -> f32 {
-	let rel = worldPos - frame.cameraPosition.xyz;
-	return dot(rel, -frame.environmentBasisBackward.xyz);
+	return cameraLinearDepth(frame.inverseView, worldPos);
 }
 
 fn isInsideScreen(uv: vec2<f32>) -> bool {
@@ -374,7 +314,7 @@ fn csTrace(@builtin(global_invocation_id) gid: vec3<u32>) {
 
 	let worldPos = getPosition(uv, depth);
 	let normal = decodeNormal(surface0.xy);
-	let viewDir = normalize(frame.cameraPosition.xyz - worldPos);
+	let viewDir = normalize(cameraPosition(frame.inverseView) - worldPos);
 	let ior = max(surface1.x, 1.0);
 	let materialThickness = max(surface1.y, 0.0);
 	let roughness = clamp(surface1.z, 0.0, 1.0);

@@ -1,18 +1,5 @@
 #import <ignis/webgpu/constants>
-struct FrameCameraUniforms {
-	viewProjection: mat4x4<f32>,
-	prevViewProjection: mat4x4<f32>,
-	cameraPosition: vec4<f32>,
-	environmentBasisRight: vec4<f32>,
-	environmentBasisUp: vec4<f32>,
-	environmentBasisBackward: vec4<f32>,
-	ambientColor: vec4<f32>,
-	lightCounts: vec4<f32>,
-	options: vec4<f32>,
-	environmentOptionsA: vec4<f32>,
-	environmentOptionsB: vec4<f32>,
-	taaJitterCurrentPrev: vec4<f32>,
-}
+#import <ignis/webgpu/frame-camera>
 
 struct TraceParams {
 	invTraceSize: vec2<f32>,
@@ -70,28 +57,10 @@ const MAX_TRACE_STEPS = 64;
 const MAX_BINARY_SEARCH_STEPS = 8;
 const LUMINANCE = vec3<f32>(0.2126, 0.7152, 0.0722);
 
-struct CameraBasis {
-	right: vec3<f32>,
-	up: vec3<f32>,
-	backward: vec3<f32>,
-	tanHalfFov: f32,
-	aspect: f32,
-}
-
 struct HiZTraceResult {
 	hitUv: vec2<f32>,
 	t: f32,
 	hit: bool,
-}
-
-fn getCameraBasis() -> CameraBasis {
-	return CameraBasis(
-		frame.environmentBasisRight.xyz,
-		frame.environmentBasisUp.xyz,
-		frame.environmentBasisBackward.xyz,
-		frame.environmentBasisRight.w,
-		frame.environmentBasisUp.w
-	);
 }
 
 fn signNotZero2(value: vec2<f32>) -> vec2<f32> {
@@ -120,12 +89,7 @@ fn decodeViewNormal(encoded: vec2<f32>) -> vec3<f32> {
 
 fn decodeWorldNormal(encoded: vec2<f32>) -> vec3<f32> {
 	let viewNormal = decodeViewNormal(encoded);
-	let basis = getCameraBasis();
-	return normalize(
-		basis.right * viewNormal.x +
-		basis.up * viewNormal.y +
-		basis.backward * viewNormal.z
-	);
+	return normalize(cameraViewToWorldDirection(frame.inverseView, viewNormal));
 }
 
 fn isFrontFacingTraceHit(uv: vec2<f32>, direction: vec3<f32>) -> bool {
@@ -146,37 +110,20 @@ fn isInsideScreen(uv: vec2<f32>) -> bool {
 }
 
 fn reconstructWorldPosition(uv: vec2<f32>, depth: f32) -> vec3<f32> {
-	let ndc = vec2<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
-	let basis = getCameraBasis();
-	let cameraX = ndc.x * basis.aspect * basis.tanHalfFov * depth;
-	let cameraY = ndc.y * basis.tanHalfFov * depth;
-	return frame.cameraPosition.xyz +
-		basis.right * cameraX +
-		basis.up * cameraY -
-		basis.backward * depth;
+	return cameraReconstructWorldPosition(
+		frame.inverseView, frame.inverseProjection, frame.jitterNdc, uv, depth
+	);
 }
 
 fn worldToUv(worldPosition: vec3<f32>) -> vec2<f32> {
-	let relative = worldPosition - frame.cameraPosition.xyz;
-	let basis = getCameraBasis();
-	let depth = dot(relative, -basis.backward);
-	if (depth <= 1e-4) {
+	if (cameraLinearDepth(frame.inverseView, worldPosition) <= 1e-4) {
 		return vec2<f32>(-1.0);
 	}
-	let cameraX =
-		dot(relative, basis.right) /
-		max(depth * basis.aspect * basis.tanHalfFov, 1e-6);
-	let cameraY =
-		dot(relative, basis.up) /
-		max(depth * basis.tanHalfFov, 1e-6);
-	return vec2<f32>(cameraX * 0.5 + 0.5, 0.5 - cameraY * 0.5);
+	return cameraWorldToRasterUv(frame.viewProjection, frame.jitterNdc, worldPosition);
 }
 
 fn worldToLinearDepth(worldPosition: vec3<f32>) -> f32 {
-	return dot(
-		worldPosition - frame.cameraPosition.xyz,
-		-frame.environmentBasisBackward.xyz
-	);
+	return cameraLinearDepth(frame.inverseView, worldPosition);
 }
 
 fn interleavedGradientNoise(pixel: vec2<f32>, frameIndex: f32) -> f32 {

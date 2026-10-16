@@ -1,3 +1,11 @@
+import type { Texture } from "../../core/Texture";
+import { WebGPUFrameCameraState } from "./WebGPUFrameCameraState";
+import {
+	WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT,
+	WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT,
+	WEBGPU_FRAME_SHADOW_UNIFORM_LAYOUT,
+	WEBGPU_FRAME_ENVIRONMENT_UNIFORM_LAYOUT,
+} from "./bufferLayouts";
 import type { Vec4Tuple } from "../../maths/Vector4";
 import type {
 	IBindingGroup,
@@ -26,7 +34,10 @@ import {
 	packFrameShadowUniformData,
 	type WebGPUEnvironmentState,
 	type WebGPUFeatureState,
-	type WebGPUFrameUniformInput,
+	type WebGPUFrameCameraUniformInput,
+	type WebGPUFrameLightUniformInput,
+	type WebGPUFrameShadowUniformInput,
+	type WebGPUFrameEnvironmentUniformInput,
 	type WebGPULightingState,
 } from "./";
 import type {
@@ -41,7 +52,6 @@ import {
 	type FogOptions,
 } from "../../postprocess";
 import type { FramePreparationRequirements } from "../../pipeline/FrameRequirements";
-import { CameraType } from "../../cameras/Camera";
 import { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
 import type { WebGPUShadowRuntime } from "./WebGPUShadowRuntime";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
@@ -97,7 +107,35 @@ export class WebGPUFrameBindingCache {
 	private _frameEnvironmentUniformBuffer: IRenderBuffer | null = null;
 	private _fogUniformBuffer: IRenderBuffer | null = null;
 	private _environmentBackgroundParamsBuffer: IRenderBuffer | null = null;
-	private _environmentBackgroundParamsData: Float32Array<ArrayBuffer> = new Float32Array(4);
+	private readonly _environmentBackgroundParamsData = new Float32Array(8);
+	private readonly _environmentBackgroundParamsFlags = new Uint32Array(
+		this._environmentBackgroundParamsData.buffer,
+	);
+	private readonly _cameraState = new WebGPUFrameCameraState();
+	private readonly _cameraWriter = WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT.createWriter();
+	private readonly _lightWriter = WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT.createWriter();
+	private readonly _shadowWriter = WEBGPU_FRAME_SHADOW_UNIFORM_LAYOUT.createWriter();
+	private readonly _environmentWriter = WEBGPU_FRAME_ENVIRONMENT_UNIFORM_LAYOUT.createWriter();
+	private readonly _cameraInput: WebGPUFrameCameraUniformInput = {
+		viewProjectionMatrix: this._cameraState.inverseViewMatrix,
+		prevViewProjectionMatrix: this._cameraState.inverseViewMatrix,
+		inverseViewMatrix: this._cameraState.inverseViewMatrix,
+		inverseProjectionMatrix: this._cameraState.inverseProjectionMatrix,
+		jitterNdc: [0, 0], prevJitterNdc: [0, 0],
+	};
+	private readonly _lightInput: WebGPUFrameLightUniformInput = {
+		ambientColor: [0, 0, 0], directionalLights: [], pointLights: [], spotLights: [],
+		areaLights: [], enableLighting: false, enableClusteredLighting: false,
+	};
+	private readonly _shadowInput: WebGPUFrameShadowUniformInput = {
+		directionalShadows: [], spotShadows: [], enableShadows: false,
+	};
+	private readonly _environmentInput: WebGPUFrameEnvironmentUniformInput = {
+		shAmbientCoeffs: null, localLightProbeCount: 0, localLightProbes: [],
+		irradianceProbeGrid: null, reflectionProbeCount: 0, reflectionProbes: [],
+		shAmbientEnabled: false, envSpecularIsLinear: true, hasEnvSpecular: false,
+		hasBRDFLUT: false, envSpecularMaxMipLevel: 0,
+	};
 	private _particleShadowVolumeBuffer: IRenderBuffer | null = null;
 	private _particleShadowVolumeBufferSize = 0;
 	private _fogUniformData: Float32Array<ArrayBuffer> = new Float32Array(8);
@@ -146,34 +184,10 @@ export class WebGPUFrameBindingCache {
 		sceneTargetMode: WebGPUSceneTargetMode,
 		options: WebGPUFrameBindingPrepareOptions = {},
 	): void {
-		const viewElements = frame.camera.viewMatrix.elements;
-		const isOrthographic = frame.camera.type === CameraType.Orthographic;
-		const fovRad = (frame.camera.fov * Math.PI) / 180;
-		let environmentProjectionX = isOrthographic ? 0 : Math.tan(fovRad * 0.5);
-		const aspect = frame.camera.aspectRatio || 1;
-		let environmentProjectionY = aspect;
-		if (isOrthographic) {
-			const orthographicCamera = frame.camera as unknown as {
-				getBounds?: () => {
-					left: number;
-					right: number;
-					bottom: number;
-					top: number;
-				};
-				size?: number;
-			};
-			const bounds =
-				typeof orthographicCamera.getBounds === "function"
-					? orthographicCamera.getBounds()
-					: {
-							left: -((orthographicCamera.size ?? 100) * aspect) * 0.5,
-							right: (orthographicCamera.size ?? 100) * aspect * 0.5,
-							bottom: -((orthographicCamera.size ?? 100) * 0.5),
-							top: (orthographicCamera.size ?? 100) * 0.5,
-						};
-			environmentProjectionX = Math.max(1e-6, Math.abs(bounds.right - bounds.left) * 0.5);
-			environmentProjectionY = Math.max(1e-6, Math.abs(bounds.top - bounds.bottom) * 0.5);
-		}
+		// Validation must finish before temporal history begins or GPU data is written.
+		this._cameraState.prepare(
+			frame.camera.viewMatrix, frame.camera.projectionMatrix, frame.camera.viewProjectionMatrix,
+		);
 		const temporalStateMode = options.temporalStateMode ?? "advance";
 		const temporal = this._resolveTemporalFrameUniforms(
 			frame,
@@ -183,63 +197,55 @@ export class WebGPUFrameBindingCache {
 			temporalStateMode,
 			options.temporalHistoryReset === true,
 		);
-		const frameUniformInput: WebGPUFrameUniformInput = {
-			viewProjectionMatrix: frame.camera.viewProjectionMatrix,
-			prevViewProjectionMatrix: temporal.previousViewProjection,
-			cameraPosition: frame.camera.getWorldPosition(),
-			environmentRight: [viewElements[0][0], viewElements[0][1], viewElements[0][2]],
-			environmentUp: [viewElements[1][0], viewElements[1][1], viewElements[1][2]],
-			environmentBackward: [viewElements[2][0], viewElements[2][1], viewElements[2][2]],
-			environmentTanHalfFov: environmentProjectionX,
-			environmentAspect: environmentProjectionY,
-			environmentIsOrthographic: isOrthographic,
-			ambientColor: lightingState.ambientColor,
-			shAmbientCoeffs: environmentState.shAmbientCoeffs,
-			localLightProbeCount: environmentState.localLightProbeCount,
-			localLightProbes: environmentState.localLightProbes,
-			irradianceProbeGrid: environmentState.irradianceProbeGrid,
-			directionalLights: lightingState.directionalLights,
-			directionalShadows: lightingState.directionalShadows,
-			pointLights: lightingState.pointLights,
-			spotLights: lightingState.spotLights,
-			spotShadows: lightingState.spotShadows,
-			areaLights: lightingState.areaLights,
-			reflectionProbeCount: environmentState.reflectionProbeCount,
-			reflectionProbes: environmentState.reflectionProbes,
-			enableLighting: features.enableLighting,
-			enableShadows: features.enableShadows,
-			enableClusteredLighting: features.enableClusteredLighting,
-			enableSH: environmentState.enableSH,
-			hasSHAmbient: environmentState.hasSHAmbient,
-			environmentIsLinear:
-				!environmentState.environmentTexture ||
-				environmentState.environmentTexture.colorSpace !== "sRGB",
-			hasEnvSpecular: !!environmentState.envSpecularTexture,
-			hasBRDFLUT: !!environmentState.brdfLUTTexture,
-			envSpecularMaxMipLevel: environmentState.envSpecularMaxMipLevel,
-			taaJitterCurrentPrev: temporal.jitterCurrentPrev,
-		};
+		const cameraInput = this._cameraInput;
+		cameraInput.viewProjectionMatrix = frame.camera.viewProjectionMatrix;
+		cameraInput.prevViewProjectionMatrix = temporal.previousViewProjection;
+		const jitter = cameraInput.jitterNdc as [number, number];
+		const previousJitter = cameraInput.prevJitterNdc as [number, number];
+		jitter[0] = temporal.jitterCurrentPrev[0];
+		jitter[1] = temporal.jitterCurrentPrev[1];
+		previousJitter[0] = temporal.jitterCurrentPrev[2];
+		previousJitter[1] = temporal.jitterCurrentPrev[3];
+		const lightInput = this._lightInput;
+		lightInput.ambientColor = lightingState.ambientColor;
+		lightInput.directionalLights = lightingState.directionalLights;
+		lightInput.pointLights = lightingState.pointLights;
+		lightInput.spotLights = lightingState.spotLights;
+		lightInput.areaLights = lightingState.areaLights;
+		lightInput.enableLighting = features.enableLighting;
+		lightInput.enableClusteredLighting = features.enableClusteredLighting;
+		const shadowInput = this._shadowInput;
+		shadowInput.directionalShadows = lightingState.directionalShadows;
+		shadowInput.spotShadows = lightingState.spotShadows;
+		shadowInput.enableShadows = features.enableShadows;
+		const environmentInput = this._environmentInput;
+		environmentInput.shAmbientCoeffs = environmentState.shAmbientCoeffs;
+		environmentInput.localLightProbeCount = environmentState.localLightProbeCount;
+		environmentInput.localLightProbes = environmentState.localLightProbes;
+		environmentInput.irradianceProbeGrid = environmentState.irradianceProbeGrid;
+		environmentInput.reflectionProbeCount = environmentState.reflectionProbeCount;
+		environmentInput.reflectionProbes = environmentState.reflectionProbes;
+		environmentInput.shAmbientEnabled = environmentState.enableSH && environmentState.hasSHAmbient;
+		environmentInput.envSpecularIsLinear = environmentState.reflectionProbeCount > 0 ||
+			!environmentState.envSpecularTexture ||
+			environmentState.envSpecularTexture.colorSpace !== "sRGB";
+		environmentInput.hasEnvSpecular = !!environmentState.envSpecularTexture;
+		environmentInput.hasBRDFLUT = !!environmentState.brdfLUTTexture;
+		environmentInput.envSpecularMaxMipLevel = environmentState.envSpecularMaxMipLevel;
 
-		this._backend.writeBuffer(
-			this._getFrameCameraUniformBuffer(),
-			packFrameCameraUniformData(frameUniformInput) as Float32Array<ArrayBuffer>,
-		);
-		this._backend.writeBuffer(
-			this._getFrameLightUniformBuffer(),
-			packFrameLightUniformData(frameUniformInput) as Float32Array<ArrayBuffer>,
-		);
-		this._backend.writeBuffer(
-			this._getFrameShadowUniformBuffer(),
-			packFrameShadowUniformData(frameUniformInput) as Float32Array<ArrayBuffer>,
-		);
-		this._backend.writeBuffer(
-			this._getFrameEnvironmentUniformBuffer(),
-			packFrameEnvironmentUniformData(frameUniformInput) as Float32Array<ArrayBuffer>,
-		);
+		// Pack all CPU data before issuing writes; each view scope owns its writers.
+		const cameraData = packFrameCameraUniformData(cameraInput, this._cameraWriter);
+		const lightData = packFrameLightUniformData(lightInput, this._lightWriter);
+		const shadowData = packFrameShadowUniformData(shadowInput, this._shadowWriter);
+		const environmentData = packFrameEnvironmentUniformData(environmentInput, this._environmentWriter);
+		this._backend.writeBuffer(this._getFrameCameraUniformBuffer(), cameraData);
+		this._backend.writeBuffer(this._getFrameLightUniformBuffer(), lightData);
+		this._backend.writeBuffer(this._getFrameShadowUniformBuffer(), shadowData);
+		this._backend.writeBuffer(this._getFrameEnvironmentUniformBuffer(), environmentData);
 		this._backend.writeBuffer(this._getFogUniformBuffer(), this._packFogUniformData(features));
 		this._backend.writeBuffer(
 			this._getEnvironmentBackgroundParamsBuffer(),
-			this._packEnvironmentBackgroundParams(frame),
+			this._packEnvironmentBackgroundParams(frame, environmentState.environmentTexture),
 		);
 		this._writeParticleShadowVolumeData(
 			new Float32Array(PARTICLE_SHADOW_VOLUME_FALLBACK_FLOATS),
@@ -622,7 +628,7 @@ export class WebGPUFrameBindingCache {
 	private _getEnvironmentBackgroundParamsBuffer(): IRenderBuffer {
 		if (!this._environmentBackgroundParamsBuffer) {
 			this._environmentBackgroundParamsBuffer = this._backend.createBuffer({
-				size: 4 * 4,
+				size: 8 * 4,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
 				label: "WebGPUEnvironmentBackgroundParams",
 			});
@@ -749,7 +755,10 @@ export class WebGPUFrameBindingCache {
 		return data;
 	}
 
-	private _packEnvironmentBackgroundParams(frame: PreparedScene): Float32Array<ArrayBuffer> {
+	private _packEnvironmentBackgroundParams(
+		frame: PreparedScene,
+		texture: Texture | null,
+	): Float32Array<ArrayBuffer> {
 		const environment = resolvePreparedSceneEnvironment(frame);
 		const data = this._environmentBackgroundParamsData;
 		data[0] = clamp(environment.backgroundTintLinear.r, 0, 1);
@@ -758,6 +767,7 @@ export class WebGPUFrameBindingCache {
 		data[3] =
 			Math.max(1e-6, environment.backgroundExposure) *
 			Math.max(0, environment.backgroundStrength);
+		this._environmentBackgroundParamsFlags[4] = !texture || texture.colorSpace !== "sRGB" ? 1 : 0;
 		return data;
 	}
 

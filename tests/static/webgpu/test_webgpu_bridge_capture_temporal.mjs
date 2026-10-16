@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { WebGPUFrameBindingCache } from "../../../src/backends/webgpu/WebGPUFrameBindingCache.ts";
 import {
 	WebGPUFrameServiceOwner as WebGPURenderResources
 } from "../../../src/backends/webgpu/WebGPUFrameServiceOwner.ts";
@@ -503,7 +504,7 @@ async function testWebGPUPrepareFrameTemporalStateModes() {
 	}));
 	const firstJitter = computeHaltonJitterNDC(0, width, height, 1);
 	assertArrayNearlyEqual(
-		readLatestFrameCameraUniformField(backend, "taaJitterCurrentPrev"),
+		readLatestJitter(backend),
 		[firstJitter[0], firstJitter[1], 0, 0]
 	);
 	resources.commitTemporalFrame();
@@ -524,7 +525,7 @@ async function testWebGPUPrepareFrameTemporalStateModes() {
 		Array.from(packMatrix4ForWGSL(previousViewProjection))
 	);
 	assertArrayNearlyEqual(
-		readLatestFrameCameraUniformField(backend, "taaJitterCurrentPrev"),
+		readLatestJitter(backend),
 		[secondJitter[0], secondJitter[1], firstJitter[0], firstJitter[1]]
 	);
 
@@ -549,7 +550,7 @@ async function testWebGPUPrepareFrameTemporalStateModes() {
 		Array.from(packMatrix4ForWGSL(captureViewProjection))
 	);
 	assertArrayNearlyEqual(
-		readLatestFrameCameraUniformField(backend, "taaJitterCurrentPrev"),
+		readLatestJitter(backend),
 		[0, 0, 0, 0]
 	);
 
@@ -565,7 +566,7 @@ async function testWebGPUPrepareFrameTemporalStateModes() {
 		Array.from(packMatrix4ForWGSL(previousViewProjection))
 	);
 	assertArrayNearlyEqual(
-		readLatestFrameCameraUniformField(backend, "taaJitterCurrentPrev"),
+		readLatestJitter(backend),
 		[secondJitter[0], secondJitter[1], firstJitter[0], firstJitter[1]]
 	);
 	resources.commitTemporalFrame();
@@ -575,7 +576,7 @@ async function testWebGPUPrepareFrameTemporalStateModes() {
 	}));
 	const thirdJitter = computeHaltonJitterNDC(2, width, height, 1);
 	assertArrayNearlyEqual(
-		readLatestFrameCameraUniformField(backend, "taaJitterCurrentPrev"),
+		readLatestJitter(backend),
 		[thirdJitter[0], thirdJitter[1], secondJitter[0], secondJitter[1]]
 	);
 	resources.commitTemporalFrame();
@@ -596,7 +597,7 @@ async function testWebGPUPrepareFrameTemporalStateModes() {
 		Array.from(packMatrix4ForWGSL(currentViewProjection))
 	);
 	assertArrayNearlyEqual(
-		readLatestFrameCameraUniformField(backend, "taaJitterCurrentPrev"),
+		readLatestJitter(backend),
 		[firstJitter[0], firstJitter[1], 0, 0]
 	);
 
@@ -605,17 +606,14 @@ async function testWebGPUPrepareFrameTemporalStateModes() {
 	resources.prepareFrame(currentContext, createMainFrameOptions({
 		frameRequirements: temporalFrameRequirements,
 	}));
-	const abortedJitter = readLatestFrameCameraUniformField(
-		backend,
-		"taaJitterCurrentPrev",
-	);
+	const abortedJitter = readLatestJitter(backend);
 	resources.abortTemporalFrame();
 	resources.beginFrameResourceLifecycle();
 	resources.prepareFrame(currentContext, createMainFrameOptions({
 		frameRequirements: temporalFrameRequirements,
 	}));
 	assertArrayNearlyEqual(
-		readLatestFrameCameraUniformField(backend, "taaJitterCurrentPrev"),
+		readLatestJitter(backend),
 		abortedJitter,
 	);
 	resources.abortTemporalFrame();
@@ -647,8 +645,94 @@ async function testSceneFrameBindingLayoutMatchesShaderContract() {
 	resources.destroy();
 }
 
+function readLatestJitter(backend) {
+	return [
+		...readLatestFrameCameraUniformField(backend, "jitterNdc"),
+		...readLatestFrameCameraUniformField(backend, "prevJitterNdc"),
+	];
+}
+
+function testIndependentEnvironmentFlagsAndWriterReuse() {
+	const backend = new FakeBackend();
+	const token = {};
+	const registry = {
+		getWhiteTexture: () => token, getWhiteSampler: () => token,
+		getTextureForSlot: () => token, getSamplerForTexture: () => token,
+	};
+	const shadow = { atlas: null, transmittanceAtlas: null };
+	const cache = new WebGPUFrameBindingCache(backend, null, null, registry, shadow);
+	const frame = createFrame(createPacket(createModel([new PBRMaterial()])));
+	const lighting = { ambientColor: [0.1, 0.2, 0.3], directionalLights: [],
+		pointLights: [], spotLights: [], areaLights: [], directionalShadows: [], spotShadows: [] };
+	const features = { enableLighting: true, enableShadows: false,
+		enableClusteredLighting: false, postProcess: createResolvedPostProcess() };
+	const environment = { shAmbientCoeffs: null, localLightProbeCount: 0,
+		localLightProbes: [], irradianceProbeGrid: null, reflectionProbeCount: 0,
+		reflectionProbes: [], brdfLUTTexture: null, envSpecularMaxMipLevel: 0 };
+	const latestData = (label) => backend.writeCalls.findLast((call) => call[1]?.label === label)[2];
+	let firstCameraData;
+	for (const [backgroundSpace, iblSpace, probeCount, enableSH, hasSH] of [
+		["sRGB", "linear", 0, true, false],
+		["linear", "sRGB", 0, true, true],
+		["sRGB", "sRGB", 1, false, true],
+		[null, null, 0, false, false],
+	]) {
+		environment.environmentTexture = backgroundSpace ? { colorSpace: backgroundSpace } : null;
+		environment.envSpecularTexture = iblSpace ? { colorSpace: iblSpace } : null;
+		environment.reflectionProbeCount = probeCount;
+		environment.enableSH = enableSH;
+		environment.hasSHAmbient = hasSH;
+		cache.prepare(frame, lighting, environment, features, 16, 8, "mrt", { temporalStateMode: "disabled" });
+		const cameraData = latestData("WebGPUFrameCameraUniforms");
+		if (firstCameraData) assert.equal(cameraData, firstCameraData, "scope reuses camera buffer storage");
+		firstCameraData = cameraData;
+		const flags = new Uint32Array(latestData("WebGPUFrameEnvironmentUniforms"));
+		assert.equal(flags[0], enableSH && hasSH ? 1 : 0);
+		assert.equal(flags[1], iblSpace ? 1 : 0);
+		assert.equal(flags[3], probeCount > 0 || iblSpace !== "sRGB" ? 1 : 0);
+		const background = latestData("WebGPUEnvironmentBackgroundParams");
+		assert.equal(background.byteLength, 32);
+		assert.deepEqual(Array.from(new Uint32Array(background.buffer).slice(4)),
+			[backgroundSpace !== "sRGB" ? 1 : 0, 0, 0, 0]);
+	}
+	// An invalid next camera must not change a committed history or start a transaction.
+	cache.prepare(frame, lighting, environment, features, 16, 8, "mrt");
+	cache.commitTemporalFrame();
+	const writes = backend.writeBufferCalls;
+	frame.camera.viewMatrix.elements[3][3] = 0;
+	assert.throws(() => cache.prepare(frame, lighting, environment, features, 16, 8, "mrt"), /view.*singular/i);
+	assert.equal(backend.writeBufferCalls, writes);
+	assert.equal(cache._currentTemporalSnapshot, null);
+	frame.camera.viewMatrix.elements[3][3] = 1;
+	frame.camera.viewProjectionMatrix.elements[0][3] = 9;
+	cache.prepare(frame, lighting, environment, features, 16, 8, "mrt");
+	assertArrayNearlyEqual(readLatestFrameCameraUniformField(backend, "prevViewProjection"),
+		Array.from(packMatrix4ForWGSL(Matrix4.identity())));
+	cache.abortTemporalFrame();
+	cache.destroy();
+}
+
+function testInvalidCameraBeforeTemporalOrGPUWrites() {
+	const backend = new FakeBackend();
+	const cache = new WebGPUFrameBindingCache(backend, null, null, null, null);
+	const frame = createFrame(createPacket(createModel([new PBRMaterial()])));
+	frame.camera.projectionMatrix = Matrix4.identity();
+	frame.camera.projectionMatrix.elements[0][0] = 0;
+	assert.throws(() => cache.prepare(frame, null, null, null, 16, 8, "mrt"),
+		/WebGPU camera projection matrix.*singular/i);
+	assert.equal(backend.writeBufferCalls, 0);
+	assert.equal(cache._currentTemporalSnapshot, null);
+	frame.camera.projectionMatrix.elements[0][0] = Infinity;
+	assert.throws(() => cache.prepare(frame, null, null, null, 16, 8, "mrt"),
+		/WebGPU camera projection matrix.*finite/i);
+	assert.equal(backend.writeBufferCalls, 0);
+	assert.equal(cache._currentTemporalSnapshot, null);
+}
+
 async function run() {
 	try {
+		testInvalidCameraBeforeTemporalOrGPUWrites();
+		testIndependentEnvironmentFlagsAndWriterReuse();
 		await testWebGPUEnvironmentCombinationsRegression();
 		await testScopedSceneTargetModesUseDistinctBindings();
 		await testSampleCountOverrideUsesSingleSampleCapturePipelines();

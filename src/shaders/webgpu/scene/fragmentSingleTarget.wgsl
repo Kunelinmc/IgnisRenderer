@@ -55,7 +55,7 @@ fn shadeTransmissionCapture(
 	}
 
 	let viewDir = safeNormalize(
-		frame.cameraPosition.xyz - input.worldPosition,
+		cameraPosition(frame.inverseView) - input.worldPosition,
 		vec3<f32>(0.0, 0.0, 1.0)
 	);
 	var normal = safeNormalize(input.worldNormal, vec3<f32>(0.0, 0.0, 1.0));

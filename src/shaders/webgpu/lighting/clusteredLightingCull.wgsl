@@ -1,18 +1,6 @@
+#import <ignis/webgpu/frame-uniforms>
 #import <ignis/webgpu/constants>
-struct FrameCameraUniforms {
-	viewProjection: mat4x4<f32>,
-	prevViewProjection: mat4x4<f32>,
-	cameraPosition: vec4<f32>,
-	environmentBasisRight: vec4<f32>,
-	environmentBasisUp: vec4<f32>,
-	environmentBasisBackward: vec4<f32>,
-	ambientColor: vec4<f32>,
-	lightCounts: vec4<f32>,
-	options: vec4<f32>,
-	environmentOptionsA: vec4<f32>,
-	environmentOptionsB: vec4<f32>,
-	taaJitterCurrentPrev: vec4<f32>,
-}
+#import <ignis/webgpu/frame-camera>
 
 struct ClusterGridParams {
 	screenWidth: u32,
@@ -125,6 +113,7 @@ const CLUSTERED_LIGHT_MAX_LIGHTS: u32 = 1024u;
 @group(0) @binding(7) var<storage, read> clusterSliceDepths: ClusterSliceDepthBuffer;
 
 @group(1) @binding(0) var<uniform> frame: FrameCameraUniforms;
+@group(1) @binding(10) var<uniform> frameLights: FrameLightUniforms;
 
 var<workgroup> sharedAABB: ClusterAABB;
 var<workgroup> gatherScanA: array<u32, 128>;
@@ -138,7 +127,7 @@ var<workgroup> overflowSelectedFlags: atomic<u32>;
 var<workgroup> isOverflow: bool;
 
 fn clusteredEnabled() -> bool {
-	return frame.environmentOptionsB.w > 0.5 &&
+	return frameLights.clusteredLightingEnabled != 0u &&
 		clusterParams.logScale > 0.0 &&
 		clusterParams.clusterCount > 0u &&
 		clusterParams.zSlices > 0u;
@@ -158,19 +147,13 @@ fn clusterMaxLightsPerCluster() -> u32 {
 }
 
 fn worldToView(worldPos: vec3<f32>) -> vec3<f32> {
-	let rel = worldPos - frame.cameraPosition.xyz;
-	let viewX = dot(rel, frame.environmentBasisRight.xyz);
-	let viewY = dot(rel, frame.environmentBasisUp.xyz);
-	let depth = dot(frame.cameraPosition.xyz - worldPos, frame.environmentBasisBackward.xyz);
-	return vec3<f32>(viewX, viewY, depth);
+	let position = cameraWorldToView(frame.inverseView, worldPos);
+	return vec3<f32>(position.xy, -position.z);
 }
 
 fn dirToView(dir: vec3<f32>) -> vec3<f32> {
-	return vec3<f32>(
-		dot(dir, frame.environmentBasisRight.xyz),
-		dot(dir, frame.environmentBasisUp.xyz),
-		-dot(dir, frame.environmentBasisBackward.xyz)
-	);
+	let direction = cameraWorldToViewDirection(frame.inverseView, dir);
+	return vec3<f32>(direction.xy, -direction.z);
 }
 
 fn sliceDepthBoundary(slice: u32) -> f32 {
@@ -203,15 +186,20 @@ fn resolveLightClusterRange(viewPos: vec3<f32>, range: f32) -> LightClusterRange
 	let tilesX = max(clusterParams.tilesX, 1u);
 	let tilesY = max(clusterParams.tilesY, 1u);
 	let projectedDepth = max(viewDepth, clusterParams.near);
-	let tanHalfFov = max(frame.environmentBasisRight.w, 1e-6);
-	let aspect = max(frame.environmentBasisUp.w, 1e-6);
+	// Perspective-only culling derives scale and asymmetric center from inverse projection.
+	let tanHalfFov = max(abs(frame.inverseProjection[1].y), 1e-6);
+	let aspect = max(abs(frame.inverseProjection[0].x) / tanHalfFov, 1e-6);
+	let center = cameraReconstructViewPosition(
+		frame.inverseProjection, frame.jitterNdc, vec2<f32>(0.5), 1.0
+	);
+	let projectionOffset = -center.xy / vec2<f32>(tanHalfFov * aspect, tanHalfFov);
 	let ndcX = clamp(
-		viewPos.x / max(projectedDepth * tanHalfFov * aspect, 1e-6),
+		viewPos.x / max(projectedDepth * tanHalfFov * aspect, 1e-6) + projectionOffset.x,
 		-1.5,
 		1.5
 	);
 	let ndcY = clamp(
-		viewPos.y / max(projectedDepth * tanHalfFov, 1e-6),
+		viewPos.y / max(projectedDepth * tanHalfFov, 1e-6) + projectionOffset.y,
 		-1.5,
 		1.5
 	);
@@ -250,38 +238,27 @@ fn resolveLightClusterRange(viewPos: vec3<f32>, range: f32) -> LightClusterRange
 }
 
 fn buildClusterAABB(clusterX: u32, clusterY: u32, clusterZ: u32) -> ClusterAABB {
-	let safeTilesX = max(clusterParams.tilesX, 1u);
-	let safeTilesY = max(clusterParams.tilesY, 1u);
-	let invTilesX = 1.0 / f32(safeTilesX);
-	let invTilesY = 1.0 / f32(safeTilesY);
-	let ndcLeftX = f32(clusterX) * invTilesX * 2.0 - 1.0;
-	let ndcRightX = f32(clusterX + 1u) * invTilesX * 2.0 - 1.0;
-	let ndcTopY = 1.0 - f32(clusterY) * invTilesY * 2.0;
-	let ndcBottomY = 1.0 - f32(clusterY + 1u) * invTilesY * 2.0;
+	let tiles = vec2<f32>(
+		f32(max(clusterParams.tilesX, 1u)), f32(max(clusterParams.tilesY, 1u))
+	);
+	let uvMin = vec2<f32>(f32(clusterX), f32(clusterY)) / tiles;
+	let uvMax = vec2<f32>(f32(clusterX + 1u), f32(clusterY + 1u)) / tiles;
 	let zNear = sliceDepthBoundary(clusterZ);
 	let zFar = sliceDepthBoundary(clusterZ + 1u);
-	let tanHalfFov = max(frame.environmentBasisRight.w, 1e-6);
-	let aspect = max(frame.environmentBasisUp.w, 1e-6);
-	let nearScaleX = zNear * tanHalfFov * aspect;
-	let nearScaleY = zNear * tanHalfFov;
-	let farScaleX = zFar * tanHalfFov * aspect;
-	let farScaleY = zFar * tanHalfFov;
-	let x0n = min(ndcLeftX, ndcRightX) * nearScaleX;
-	let x1n = max(ndcLeftX, ndcRightX) * nearScaleX;
-	let x0f = min(ndcLeftX, ndcRightX) * farScaleX;
-	let x1f = max(ndcLeftX, ndcRightX) * farScaleX;
-	let y0n = min(ndcBottomY, ndcTopY) * nearScaleY;
-	let y1n = max(ndcBottomY, ndcTopY) * nearScaleY;
-	let y0f = min(ndcBottomY, ndcTopY) * farScaleY;
-	let y1f = max(ndcBottomY, ndcTopY) * farScaleY;
-	return ClusterAABB(
-		min(x0n, x0f),
-		max(x1n, x1f),
-		min(y0n, y0f),
-		max(y1n, y1f),
-		zNear,
-		zFar
-	);
+	var minimum = vec2<f32>(1e30);
+	var maximum = vec2<f32>(-1e30);
+	// Reconstruct every corner so off-center projections and raster jitter agree.
+	for (var corner = 0u; corner < 8u; corner = corner + 1u) {
+		let uv = vec2<f32>(
+			select(uvMin.x, uvMax.x, (corner & 1u) != 0u),
+			select(uvMin.y, uvMax.y, (corner & 2u) != 0u)
+		);
+		let depth = select(zNear, zFar, (corner & 4u) != 0u);
+		let position = cameraReconstructViewPosition(frame.inverseProjection, frame.jitterNdc, uv, depth);
+		minimum = min(minimum, position.xy);
+		maximum = max(maximum, position.xy);
+	}
+	return ClusterAABB(minimum.x, maximum.x, minimum.y, maximum.y, zNear, zFar);
 }
 
 fn clusterAABBCenter(aabb: ClusterAABB) -> vec3<f32> {

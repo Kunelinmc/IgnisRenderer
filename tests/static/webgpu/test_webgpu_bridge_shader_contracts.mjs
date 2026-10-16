@@ -24,6 +24,10 @@ import {
 	createWebGPUPipelineLayouts
 } from "../../../src/backends/webgpu/WebGPUPipelineLayouts.ts";
 import {
+	WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT,
+	WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT,
+	WEBGPU_FRAME_SHADOW_UNIFORM_LAYOUT,
+	WEBGPU_FRAME_ENVIRONMENT_UNIFORM_LAYOUT,
 	WEBGPU_FLAT_MATERIAL_UNIFORM_LAYOUT,
 	WEBGPU_MATERIAL_COMMON_UNIFORM_LAYOUT,
 	WEBGPU_OBJECT_UNIFORM_LAYOUT,
@@ -114,6 +118,62 @@ function readWGSLStructFieldNames(source, structName) {
 function readLayoutFieldNames(layout) {
 	assert.equal(layout.rootSchema.kind, "struct");
 	return layout.rootSchema.fields.map((field) => field.name);
+}
+
+async function loadCompiledWebGPUShader(key) {
+	const { source } = await ShaderSource.load(key);
+	return new ShaderBackendCompileStage({
+		runtime: new ShaderRuntime({ mode: "strict" }),
+		profile: WEBGPU_TEST_PROFILE,
+		mode: "strict",
+	}).compile({
+		code: source.code,
+		language: "wgsl",
+		stage: "unknown",
+		sourceKind: "builtin-scene",
+	}).code;
+}
+
+async function testSharedFrameUniformABI() {
+	const frameLayouts = [
+		["FrameCameraUniforms", WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT],
+		["FrameLightUniforms", WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT],
+		["FrameShadowUniforms", WEBGPU_FRAME_SHADOW_UNIFORM_LAYOUT],
+		["FrameEnvironmentUniforms", WEBGPU_FRAME_ENVIRONMENT_UNIFORM_LAYOUT],
+	];
+	const cameraMembers = [
+		["viewProjection", "mat4x4<f32>", 0],
+		["prevViewProjection", "mat4x4<f32>", 64],
+		["inverseView", "mat4x4<f32>", 128],
+		["inverseProjection", "mat4x4<f32>", 192],
+		["jitterNdc", "vec2<f32>", 256],
+		["prevJitterNdc", "vec2<f32>", 264],
+	];
+	for (const key of [
+		"webgpu.scene", "webgpu.scene.depth", "webgpu.deferredLighting",
+		"webgpu.environment", "webgpu.particle", "webgpu.clusteredLightingCull",
+		"webgpu.utility.decal", "webgpu.utility.planarReflectionComposite",
+		"webgpu.postprocess.ssr", "webgpu.postprocess.ssgi",
+		"webgpu.postprocess.screenSpaceRefractions", "webgpu.postprocess.volumetric",
+	]) {
+		const code = await loadCompiledWebGPUShader(key);
+		const camera = code.match(/struct FrameCameraUniforms\s*\{([^}]+)\}/)?.[1];
+		assert.ok(camera, `${key} must resolve the camera uniform import`);
+		for (const [name, type, offset] of cameraMembers) {
+			assert.ok(camera.includes(`${name}: ${type}`), `${key}: ${name} GPU type`);
+			assert.equal(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT.byteOffsetOf(name), offset);
+		}
+		assert.equal(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT.byteSize, 272);
+		for (const [name, layout] of frameLayouts) {
+			if (!code.includes(`struct ${name}`)) continue;
+			assert.deepEqual(readWGSLStructFieldNames(code, name), readLayoutFieldNames(layout),
+				`${key}: ${name} CPU/GPU ABI must agree`);
+		}
+		const declarations = [...code.matchAll(/^(?:struct|fn)\s+(\w+)/gm)].map((m) => m[1]);
+		assert.equal(new Set(declarations).size, declarations.length,
+			`${key}: shared imports must not duplicate WGSL declarations`);
+		assert.equal(/__WEBGPU_|#import/.test(code), false, `${key}: unresolved shader imports`);
+	}
 }
 ShaderSource.resetConfiguration();
 Logger.reset();
@@ -386,8 +446,18 @@ async function testSceneSourcesPreserveSourceLocations() {
 }
 
 async function testSceneShaderCoverage() {
-	const WEBGPU_SCENE_SHADER = (await ShaderSource.load("webgpu.scene")).source.code;
+	const WEBGPU_SCENE_SHADER = await loadCompiledWebGPUShader("webgpu.scene");
+	// These numeric types are part of the GPU buffer ABI: float flags/counts
+	// would reinterpret integer payload bytes rather than decode their values.
+	assert.match(WEBGPU_SCENE_SHADER, /lightCounts:\s*vec4<u32>/);
+	assert.match(WEBGPU_SCENE_SHADER, /lightingEnabled:\s*u32/);
+	assert.match(WEBGPU_SCENE_SHADER, /shadowsEnabled:\s*u32/);
+	assert.match(WEBGPU_SCENE_SHADER, /shAmbientEnabled:\s*u32/);
 	for (const [name, layout] of [
+		["FrameCameraUniforms", WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT],
+		["FrameLightUniforms", WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT],
+		["FrameShadowUniforms", WEBGPU_FRAME_SHADOW_UNIFORM_LAYOUT],
+		["FrameEnvironmentUniforms", WEBGPU_FRAME_ENVIRONMENT_UNIFORM_LAYOUT],
 		["ObjectUniforms", WEBGPU_OBJECT_UNIFORM_LAYOUT],
 		["MaterialCommonUniforms", WEBGPU_MATERIAL_COMMON_UNIFORM_LAYOUT],
 		["PBRMaterialUniforms", WEBGPU_PBR_MATERIAL_UNIFORM_LAYOUT],
@@ -400,12 +470,12 @@ async function testSceneShaderCoverage() {
 			`${name} CPU and WGSL member order must match`,
 		);
 	}
-	const WEBGPU_DEFERRED_LIGHTING_SHADER = (await ShaderSource.load(
+	const WEBGPU_DEFERRED_LIGHTING_SHADER = await loadCompiledWebGPUShader(
 		"webgpu.deferredLighting"
-	)).source.code;
-	const WEBGPU_ENVIRONMENT_SHADER = (await ShaderSource.load(
+	);
+	const WEBGPU_ENVIRONMENT_SHADER = await loadCompiledWebGPUShader(
 		"webgpu.environment"
-	)).source.code;
+	);
 	const WEBGPU_SSAO_SHADER = (await ShaderSource.load(
 		"webgpu.postprocess.ssao"
 	)).source.code;
@@ -418,7 +488,7 @@ async function testSceneShaderCoverage() {
 
 	assert.ok(
 		WEBGPU_SCENE_SHADER.includes(
-			"let pointCount = u32(frame.lightCounts.y + 0.5);"
+			"let pointCount = frameLights.lightCounts.y;"
 		)
 	);
 	assert.ok(
@@ -459,7 +529,7 @@ async function testSceneShaderCoverage() {
 		]) {
 			assert.ok(
 				new RegExp(`fn ${name}\\([^)]*\\) -> vec3<f32> \\{\\s*` +
-					`if \\(frame\\.options\\.z < 0\\.5\\) \\{\\s*return vec3<f32>\\(1\\.0\\);\\s*\\}\\s*` +
+					`if \\(frameShadows\\.shadowsEnabled == 0u\\) \\{\\s*return vec3<f32>\\(1\\.0\\);\\s*\\}\\s*` +
 					`if \\(frameShadows\\.${field}\\[index\\]\\.paramsA\\.x < 0\\.5\\) \\{\\s*` +
 					`return vec3<f32>\\(1\\.0\\);`).test(source),
 				"disabled shadows must exit before cascade or projection-data work",
@@ -514,10 +584,10 @@ async function testSceneShaderCoverage() {
 		WEBGPU_DEFERRED_LIGHTING_SHADER.includes("pbr.energyCompensation")
 	);
 	assert.ok(WEBGPU_SCENE_SHADER.includes("fn encodeOctahedralNormal("));
-	assert.ok(WEBGPU_SCENE_SHADER.includes("return encodeOctahedralNormal(vn);"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("return encodeOctahedralNormal(cameraWorldToViewDirection("));
 	assert.ok(
 		WEBGPU_DEFERRED_LIGHTING_SHADER.includes(
-			"let vn = decodeOctahedralNormal(encoded);"
+			"decodeOctahedralNormal(encoded)"
 		)
 	);
 	assert.ok(!WEBGPU_DEFERRED_LIGHTING_SHADER.includes("sqrt(z2)"));
@@ -604,9 +674,9 @@ async function testSceneShaderCoverage() {
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@location(8) weights1"));
 	assert.ok(WEBGPU_ENVIRONMENT_SHADER.includes("@group(0) @binding(1)"));
 	assert.ok(WEBGPU_ENVIRONMENT_SHADER.includes("prevViewProjection"));
-	assert.ok(WEBGPU_ENVIRONMENT_SHADER.includes("taaJitterCurrentPrev"));
+	assert.ok(WEBGPU_ENVIRONMENT_SHADER.includes("jitterNdc"));
 	assert.ok(WEBGPU_ENVIRONMENT_SHADER.includes("atan2(direction.x, direction.z)"));
-	assert.ok(WEBGPU_ENVIRONMENT_SHADER.includes("frame.environmentOptionsB.z < 0.5"));
+	assert.ok(WEBGPU_ENVIRONMENT_SHADER.includes("environmentBackground.inputIsLinear == 0u"));
 	assert.ok(
 		WEBGPU_ENVIRONMENT_SHADER.includes(
 			"return vec4<f32>(max(skyColor, vec3<f32>(0.0)), 1.0);"
@@ -894,7 +964,7 @@ async function testParticleShaderDepthConsistency() {
 
 	assert.ok(
 		WEBGPU_PARTICLE_SHADER.includes(
-			"let currJitter = frame.taaJitterCurrentPrev.xy * clipPosition.w;"
+			"let currJitter = frame.jitterNdc * clipPosition.w;"
 		)
 	);
 	assert.ok(
@@ -953,6 +1023,12 @@ async function testWebGPUShaderConstantTokenInjection() {
 				"webgpu.utility.planarReflectionComposite"
 			)
 		).source.code;
+	// Captures disable temporal jitter. Their lookup UV must be computed before
+	// jitter moves the reflector geometry to match the main-view depth buffer.
+	const captureNdc = rawPlanarReflectionCompositeShader.indexOf("let ndc =");
+	const rasterJitter = rawPlanarReflectionCompositeShader.indexOf("frame.jitterNdc");
+	assert.ok(captureNdc >= 0 && rasterJitter > captureNdc,
+		"planar reflection UV must remain unjittered while raster position uses current jitter");
 	assert.deepEqual(
 		readWGSLStructFieldNames(rawPlanarReflectionCompositeShader, "ObjectUniforms"),
 		readLayoutFieldNames(WEBGPU_OBJECT_UNIFORM_LAYOUT),
@@ -961,7 +1037,6 @@ async function testWebGPUShaderConstantTokenInjection() {
 		readWGSLStructFieldNames(rawPlanarReflectionCompositeShader, "MaterialCommonUniforms"),
 		readLayoutFieldNames(WEBGPU_MATERIAL_COMMON_UNIFORM_LAYOUT),
 	);
-	assert.ok(rawSceneShader.includes("__WEBGPU_MAX_DIRECTIONAL_LIGHTS__"));
 
 	const compileStage = new ShaderBackendCompileStage({
 		runtime: new ShaderRuntime({ mode: "strict" }),
@@ -1120,6 +1195,7 @@ async function run() {
 		await testFeatureGate();
 		await testSceneSourcesPreserveSourceLocations();
 		await testSceneShaderCoverage();
+		await testSharedFrameUniformABI();
 		await testGBufferSlotShaderABI();
 		await testScenePipelineLimitConstantsMatchLayout();
 		await testDecalBatchLayoutHonorsStorageTextureLimit();

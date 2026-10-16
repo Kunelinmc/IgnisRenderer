@@ -7,7 +7,7 @@ fn shadeSceneWithOptions(
 	let shadingMode = material.shadingMode;
 	let alphaModeMask = materialCommon.materialParams.z > 0.5;
 	let doubleSided = materialCommon.materialParams.w > 0.5;
-	let enableLighting = frame.options.x > 0.5;
+	let enableLighting = frameLights.lightingEnabled != 0u;
 
 	let materialRenderFlags = u32(materialCommon.renderParams.x + 0.5);
 	let isWireframe = (materialRenderFlags & 1u) != 0u;
@@ -36,7 +36,7 @@ fn shadeSceneWithOptions(
 	}
 
 	let viewDir = safeNormalize(
-		frame.cameraPosition.xyz - input.worldPosition,
+		cameraPosition(frame.inverseView) - input.worldPosition,
 		vec3<f32>(0.0, 0.0, 1.0)
 	);
 
@@ -68,7 +68,7 @@ fn shadeSceneWithOptions(
 		);
 	}
 	let emissive = materialCommon.emissiveFactor.rgb * emissiveSample.rgb * materialCommon.emissiveFactor.a;
-	let linearDepth = dot(frame.cameraPosition.xyz - input.worldPosition, frame.environmentBasisBackward.xyz);
+	let linearDepth = cameraLinearDepth(frame.inverseView, input.worldPosition);
 	let invCurrentW = 1.0 / max(abs(input.currentClip.w), EPSILON);
 	let invPrevW = 1.0 / max(abs(input.prevClip.w), EPSILON);
 	let currentNdc = input.currentClip.xy * invCurrentW;
