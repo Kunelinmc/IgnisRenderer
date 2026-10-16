@@ -138,6 +138,10 @@ feature runtimes consume them. Clustered lighting, probes, shadows, materials,
 and environment IBL retain separate state owners while sharing explicit scene
 and shader data contracts.
 
+Reflection probes own their derived caches. Frame transform synchronization
+and warmup preparation share the lighting runtime's cache refresh function;
+the renderer facade does not expose this subsystem operation.
+
 Environment prefiltering is a standalone workflow owned by `IBLPrefilter` and
 its CPU, worker, WebGPU, or WebGL executor. GPU executors consume generic
 backend capabilities: WebGPU compute or WebGL auxiliary raster work. Backends

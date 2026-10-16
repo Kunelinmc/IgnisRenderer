@@ -375,6 +375,19 @@ Consumers must read its row-major values from `worldToGrid3x3.elements`.
 
 `ReflectionProbe` is a specialized light source representing an influence volume where local specular reflections are captured or applied.
 
+#### Runtime cache ownership
+
+- `ReflectionProbe` must own its derived runtime cache. The lighting runtime's
+  `refreshReflectionProbeCaches(lights)` function must refresh reflection probes
+  from the supplied light collection and ignore other light types.
+- Frame transform synchronization and warmup scene preparation must call this
+  shared function after updating scene world matrices and before preparing
+  scene data. Refreshing caches must not request capture or bake environment IBL.
+- `Renderer` must not expose a reflection-probe cache refresh method, and
+  `FrameCoordinatorDelegate` must not require a cache refresh callback.
+- Applications that need a probe's current derived data may use
+  `ReflectionProbe.getRuntimeCache()` after synchronizing scene transforms.
+
 #### Configuration Parameters
 When initializing a `ReflectionProbe` or passing options to its constructor `ReflectionProbeParams`, the following fields must be supported:
 

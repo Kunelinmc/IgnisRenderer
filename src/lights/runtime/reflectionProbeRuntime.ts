@@ -220,6 +220,13 @@ function collectReflectionProbeAtlasCandidates(
 	return candidates;
 }
 
+/**
+ * Refreshes probe-owned derived caches after scene world-matrix synchronization.
+ *
+ * @internal Owned by the lighting runtime for frame and warmup preparation.
+ * Applications should use `ReflectionProbe.getRuntimeCache()` for individual probes.
+ * @param lights Scene lights to refresh; non-reflection lights are ignored.
+ */
 export function refreshReflectionProbeCaches(lights: SceneLight[]): void {
 	for (const light of lights) {
 		if (light.type !== LightType.ReflectionProbe) continue;

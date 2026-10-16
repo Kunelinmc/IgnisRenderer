@@ -29,18 +29,6 @@ export type RendererFeatures = RendererFeatureFlags &
 		worldMatrix: Matrix4;
 	};
 
-export interface FrameTransientContributorContext {
-	now: number;
-	deltaTime: number;
-	scene: Scene;
-	camera: Camera;
-	transient: TransientStore;
-}
-
-export type FrameTransientContributor = (
-	context: FrameTransientContributorContext
-) => void;
-
 export type RenderFrameResult =
 	| { rendered: true; incremental: IncrementalFrameStatus }
 	| { rendered: false; reason: "clean"; incremental: IncrementalFrameStatus };
@@ -83,7 +71,7 @@ import {
 	type FrameCoordinatorDelegate,
 } from "./FrameCoordinator";
 import type { SHCoefficients } from "../maths/types";
-import { LightType, ReflectionProbe } from "../lights";
+import { refreshReflectionProbeCaches } from "../lights/runtime/reflectionProbeRuntime";
 import { Matrix4 } from "../maths/Matrix4";
 import { SH } from "../maths/SH";
 import { Texture } from "../core/Texture";
@@ -151,7 +139,6 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	private _scene: Scene;
 	private _camera: Camera;
 	private _physicsSystem: PhysicsSystem | null = null;
-	private readonly _frameTransientContributors = new Set<FrameTransientContributor>();
 	private _incrementalOptions: IncrementalRenderingOptions;
 	private _lastIncrementalFrameStats: IncrementalFrameStats | null = null;
 	private readonly _backend: IRenderBackend;
@@ -349,7 +336,6 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		if (this._physicsSystem) {
 			this._physicsSystem.bindSceneSpatial(null);
 		}
-		this._frameTransientContributors.clear();
 	}
 
 	/**
@@ -385,13 +371,6 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	 */
 	public get incrementalOptions(): IncrementalRenderingOptions {
 		return this._incrementalOptions;
-	}
-
-	/**
-	 * Gets the set of active frame transient contributors.
-	 */
-	public get frameTransientContributors(): Set<FrameTransientContributor> {
-		return this._frameTransientContributors;
 	}
 
 	/**
@@ -536,16 +515,6 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 			scene: this._scene,
 			transient,
 		});
-	}
-
-	/**
-	 * Refreshes all runtime caches for reflection probes in the scene.
-	 */
-	public refreshReflectionProbeCaches(): void {
-		for (const light of this._scene.getLights()) {
-			if (light.type !== LightType.ReflectionProbe) continue;
-			(light as ReflectionProbe).refreshRuntimeCache();
-		}
 	}
 
 	/**
@@ -722,18 +691,6 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		transient.set(PARTICLE_SIM_DELTA_TIME_SECONDS_KEY, deltaTimeSeconds);
 		transient.set(ANIMATION_SIM_DELTA_TIME_MS_KEY, this._deltaTime);
 
-		if (this._frameTransientContributors.size > 0) {
-			for (const contributor of this._frameTransientContributors) {
-				contributor({
-					now,
-					deltaTime: this._deltaTime,
-					scene: this._scene,
-					camera: this._camera,
-					transient,
-				});
-			}
-		}
-
 		const incremental = await this._coordinator.executeFrame(
 			this,
 			now,
@@ -783,7 +740,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 			await warmupStartDelay;
 		}
 		this._scene.updateWorldMatrices();
-		this.refreshReflectionProbeCaches();
+		refreshReflectionProbeCaches(this._scene.getLights());
 		this._assertCameraInScene(this._scene, this._camera, "renderScene");
 		this._camera.updateMatrices();
 		const transient = createTransientStore();
@@ -898,24 +855,6 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		if (physicsSystem) {
 			physicsSystem.bindSceneSpatial(this._scene);
 		}
-	}
-
-	/**
-	 * Registers a callback hook that populates custom transient store data before every frame.
-	 *
-	 * @param contributor The contributor function.
-	 */
-	public registerFrameTransientContributor(contributor: FrameTransientContributor): void {
-		this._frameTransientContributors.add(contributor);
-	}
-
-	/**
-	 * Unregisters a previously registered frame transient contributor callback.
-	 *
-	 * @param contributor The contributor function.
-	 */
-	public unregisterFrameTransientContributor(contributor: FrameTransientContributor): void {
-		this._frameTransientContributors.delete(contributor);
 	}
 
 	private _readRenderTargetColor(

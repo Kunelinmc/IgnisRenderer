@@ -27,6 +27,10 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
 - `Renderer.renderFrame(nowMs)`
   - Input contract: `nowMs` must use the animation-frame timestamp time base in milliseconds.
   - Behavior contract: must render at most one frame and must not schedule a later frame.
+  - Behavior contract: each executed frame must create its own transient store
+    and pass it through coordinator, pipeline, and backend execution.
+  - Constraint: `Renderer` must not expose a separate transient-contributor
+    registry, registration methods, or contributor collection.
   - Constraint: concurrent calls must reject.
   - Output contract: must return an `IncrementalFrameStatus` in every result branch, including an on-demand clean result.
   - Output contract: `IncrementalFrameStatus` must distinguish planned tile coverage from verified final-output coverage.
@@ -321,6 +325,10 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
 
 ### Scene transform synchronization
 
+- Frame execution and warmup must refresh reflection-probe runtime caches
+  through the lighting runtime after scene world-matrix synchronization and
+  before prepared scene construction, as defined in the
+  [lighting contract](lighting.md#runtime-cache-ownership).
 - `Node.updateLocalMatrix()` must observe direct component edits and replacement
   of `position`, `quaternion`, and `scale`. It should reuse the resolved local
   matrix when those values and the matrix contents remain unchanged.

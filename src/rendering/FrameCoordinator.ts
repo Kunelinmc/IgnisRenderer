@@ -44,6 +44,7 @@ import type {
 import { TextureFormat } from "../core/TextureFormat";
 import type { RendererStageDefinition } from "../pipeline/RendererStageGraph";
 import { isLocalizedLightProbe } from "../lights/runtime/lightProbeRuntime";
+import { refreshReflectionProbeCaches } from "../lights/runtime/reflectionProbeRuntime";
 import {
 	type FrameContext,
 	type FramePassStage,
@@ -56,10 +57,7 @@ import {
 } from "../pipeline/ParticleShadowVolume";
 import { resolveParticleRenderIntent } from "../particles/ParticleRenderIntent";
 import { ShadowPlanner } from "../lights/shadows/ShadowPlanner";
-import type {
-	RendererFeatures,
-	FrameTransientContributor,
-} from "./Renderer";
+import type { RendererFeatures } from "./Renderer";
 import type { AnimationSystem } from "../animation/AnimationSystem";
 import type { PhysicsSystem } from "../physics";
 import type { SHCoefficients } from "../maths/types";
@@ -122,7 +120,6 @@ export interface FrameCoordinatorDelegate {
 	readonly features: RendererFeatures;
 	readonly incrementalOptions: IncrementalRenderingOptions;
 	readonly animationAutoRender: boolean;
-	readonly frameTransientContributors: Set<FrameTransientContributor>;
 
 	setSHCoefficients(coeffs: SHCoefficients): void;
 	setSHAmbientCoefficients(coeffs: SHCoefficients): void;
@@ -130,7 +127,6 @@ export interface FrameCoordinatorDelegate {
 
 	getBackendExtension<T>(key: RenderBackendExtensionKey<T>): T | null;
 	emitPostAnimation(now: number, deltaTime: number, transient: TransientStore): void;
-	refreshReflectionProbeCaches(): void;
 	warn(key: string, message: string): void;
 }
 
@@ -474,7 +470,7 @@ export class FrameCoordinator {
 		delegate.scene.updateWorldMatrices();
 		this._assertCameraInScene(delegate.scene, delegate.camera, "renderScene");
 		delegate.camera.updateMatrices();
-		delegate.refreshReflectionProbeCaches();
+		refreshReflectionProbeCaches(delegate.scene.getLights());
 	}
 
 	private _executeDeformationStage(

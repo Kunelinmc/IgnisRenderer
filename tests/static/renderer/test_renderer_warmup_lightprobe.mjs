@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { Camera } from "../../../src/cameras/Camera.ts";
+import { Node } from "../../../src/core/Node.ts";
 import { Texture } from "../../../src/core/Texture.ts";
 import { LightProbe } from "../../../src/lights/LightProbe.ts";
 import { ReflectionProbe } from "../../../src/lights/ReflectionProbe.ts";
@@ -238,6 +239,54 @@ async function testWarmupAndRenderIncrementalContextContractMatches() {
 	});
 }
 
+async function testWarmupAndRenderRefreshReflectionProbeCaches() {
+	await withDOMGlobals(async () => {
+		for (const operation of ["warmup", "renderFrame"]) {
+			const { backend, renderer } = createRendererFixture();
+			const parent = renderer.scene.add(new Node());
+			const probe = new ReflectionProbe({ source: "manual", radius: 2 });
+			parent.addChild(probe);
+			const rootProbe = renderer.scene.add(new ReflectionProbe({ source: "manual" }));
+			renderer.scene.add(new LightProbe({ sh: SH.empty() }));
+			renderer.scene.updateWorldMatrices();
+			const cache = probe.getRuntimeCache();
+			const rootCache = rootProbe.getRuntimeCache();
+
+			parent.position.set(4, 1, 0);
+			probe.position.set(2, 0, 0);
+			probe.radius = 4;
+			rootProbe.position.set(-3, 2, 1);
+
+			const backendMethod = operation === "warmup" ? "warmup" : "beginFrame";
+			const original = backend[backendMethod].bind(backend);
+			let checked = false;
+			backend[backendMethod] = (...args) => {
+				// Read retained caches so a lazy getter cannot hide a missing refresh.
+				assert.deepEqual(cache.probeWorldPosition, { x: 6, y: 1, z: 0 }, operation);
+				assert.deepEqual(cache.captureWorldPosition, { x: 4, y: 1, z: 0 }, operation);
+				assert.equal(cache.radiusInv, 0.25, operation);
+				assert.deepEqual(rootCache.probeWorldPosition, { x: -3, y: 2, z: 1 }, operation);
+				assert.deepEqual(rootCache.captureWorldPosition, { x: -3, y: 2, z: 1 }, operation);
+				assert.equal(probe.captureRequestToken, 0);
+				assert.equal(probe.prefilteredMap, null);
+				checked = true;
+				return original(...args);
+			};
+
+			try {
+				if (operation === "warmup") {
+					await renderer.warmup();
+				} else {
+					await renderer.renderFrame(0);
+				}
+				assert.equal(checked, true, operation);
+			} finally {
+				await renderer.destroy();
+			}
+		}
+	});
+}
+
 async function testWarmupPostProcessPlanUsesPipelineOrder() {
 	await withDOMGlobals(async () => {
 		const { backend, renderer } = createRendererFixture();
@@ -280,6 +329,7 @@ async function run() {
 	await testWarmupDoesNotBakeEnvironmentProbes();
 	await testWarmupDoesNotCreateProbeWhenSceneHasNone();
 	await testWarmupAndRenderIncrementalContextContractMatches();
+	await testWarmupAndRenderRefreshReflectionProbeCaches();
 	await testWarmupPostProcessPlanUsesPipelineOrder();
 	console.log("Renderer warmup light probe tests passed");
 }
