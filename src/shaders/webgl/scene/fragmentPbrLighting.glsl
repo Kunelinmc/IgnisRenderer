@@ -1,3 +1,39 @@
+// Cosine-weighted isotropic thin-surface GGX transmission, matching WebGPU.
+float evaluatePBRTransmissionLobe(
+	vec3 normal,
+	vec3 viewDirection,
+	vec3 lightDirection,
+	float roughness,
+	float ior,
+	out float vDotH
+) {
+	vDotH = 0.0;
+	float nDotV = clamp(dot(normal, viewDirection), 0.0, 1.0);
+	float nDotL = clamp(-dot(normal, lightDirection), 0.0, 1.0);
+	if (nDotV <= 0.0 || nDotL <= 0.0) return 0.0;
+
+	// Mirroring the incoming light puts the transmission lobe along the view ray.
+	vec3 mirroredLight = reflect(lightDirection, normal);
+	vec3 halfVector = safeNormalize(viewDirection + mirroredLight, normal);
+	vDotH = clamp(dot(viewDirection, halfVector), 0.0, 1.0);
+	if (vDotH <= 0.0 || dot(halfVector, lightDirection) >= 0.0) return 0.0;
+	float nDotH = clamp(dot(normal, halfVector), 0.0, 1.0);
+	float alpha = max(roughness * roughness * clamp(2.0 * ior - 2.0, 0.0, 1.0), 0.0016);
+	float alphaSq = alpha * alpha;
+	float nDotHSq = nDotH * nDotH;
+	// Preserve the narrow GGX peak instead of clamping its squared denominator.
+	float distributionRatio = alpha / ((1.0 - nDotHSq) + alphaSq * nDotHSq);
+	float distribution = distributionRatio * distributionRatio / PI;
+	float smithL = nDotL + sqrt(alphaSq + (1.0 - alphaSq) * nDotL * nDotL);
+	float smithV = nDotV + sqrt(alphaSq + (1.0 - alphaSq) * nDotV * nDotV);
+	return distribution * nDotL / (smithL * smithV);
+}
+
+vec3 resolvePBRShadowNormal(vec3 normal, vec3 lightDirection, float transmission) {
+	// Transmission needs back-side occlusion and a bias toward the incident light.
+	return transmission > 0.0 ? faceforward(normal, -lightDirection, normal) : normal;
+}
+
 vec3 evalPBRLight(
 	vec3 albedo,
 	vec3 pbrNormal,
@@ -7,6 +43,7 @@ vec3 evalPBRLight(
 	float roughness,
 	float metalness,
 	float transmission,
+	float ior,
 	vec3 f0,
 	float nDotV,
 	vec3 energyCompensation,
@@ -29,18 +66,22 @@ vec3 evalPBRLight(
 	if (nDotL <= 0.0 && nDotLTransmission <= 0.0) {
 		return vec3(0.0);
 	}
-	vec3 fView = resolveIridescenceFresnel(
-		nDotV, f0, iridescence, iridescenceThickness, iridescenceIor
-	);
-	vec3 transmittedDiffuse =
-		(vec3(1.0) - fView) * (1.0 - metalness) * transmission *
-		volumeAttenuation * albedo / PI;
-	float clearcoatViewFresnel = clearcoat > 0.0 ?
-		fresnelSchlickScalar(max(dot(clearcoatNormal, viewDir), PBR_MIN_NDOTV), 0.04)
-		: 0.0;
-	vec3 transmitted = transmittedDiffuse *
-		(1.0 - clearcoatViewFresnel * clearcoat) *
-		radiance * nDotLTransmission;
+	vec3 transmitted = vec3(0.0);
+	if (transmission > 0.0 && metalness < 1.0) {
+		float transmissionVdotH;
+		float lobe = evaluatePBRTransmissionLobe(
+			pbrNormal, viewDir, lightDir, roughness, ior, transmissionVdotH
+		);
+		vec3 transmissionFresnel = resolveIridescenceFresnel(
+			transmissionVdotH, f0, iridescence, iridescenceThickness, iridescenceIor
+		);
+		float clearcoatViewFresnel = clearcoat > 0.0 ?
+			fresnelSchlickScalar(max(dot(clearcoatNormal, viewDir), PBR_MIN_NDOTV), 0.04)
+			: 0.0;
+		transmitted = (vec3(1.0) - transmissionFresnel) *
+			((1.0 - metalness) * transmission * lobe) * volumeAttenuation * albedo *
+			(1.0 - clearcoatViewFresnel * clearcoat) * radiance;
+	}
 	if (nDotL <= 0.0) return transmitted;
 
 	vec3 halfVector = safeNormalize(viewDir + lightDir, viewDir);
@@ -358,7 +399,7 @@ vec3 shadePBR(
 		vec3 shadow = sampleDirectionalShadowVisibility(
 			i,
 			vWorldPos,
-			shadowNormal,
+			resolvePBRShadowNormal(shadowNormal, lightDir, transmission),
 			lightDir
 		);
 		directLight += evalPBRLight(
@@ -370,6 +411,7 @@ vec3 shadePBR(
 			roughness,
 			metalness,
 			transmission,
+			ior,
 			f0,
 			nDotV,
 			energyCompensation,
@@ -430,6 +472,7 @@ vec3 shadePBR(
 						roughness,
 						metalness,
 						transmission,
+						ior,
 						f0,
 						nDotV,
 						energyCompensation,
@@ -467,7 +510,7 @@ vec3 shadePBR(
 							shadow = sampleSpotShadowVisibility(
 								shadowIndex,
 								vWorldPos,
-								shadowNormal,
+								resolvePBRShadowNormal(shadowNormal, lightDir, transmission),
 								lightDir
 							);
 						}
@@ -481,6 +524,7 @@ vec3 shadePBR(
 						roughness,
 						metalness,
 						transmission,
+						ior,
 						f0,
 						nDotV,
 						energyCompensation,
@@ -524,6 +568,7 @@ vec3 shadePBR(
 				roughness,
 				metalness,
 				transmission,
+				ior,
 				f0,
 				nDotV,
 				energyCompensation,
@@ -571,7 +616,7 @@ vec3 shadePBR(
 			vec3 shadow = sampleSpotShadowVisibility(
 				i,
 				vWorldPos,
-				shadowNormal,
+				resolvePBRShadowNormal(shadowNormal, lightDir, transmission),
 				lightDir
 			);
 			directLight += evalPBRLight(
@@ -583,6 +628,7 @@ vec3 shadePBR(
 				roughness,
 				metalness,
 				transmission,
+				ior,
 				f0,
 				nDotV,
 				energyCompensation,

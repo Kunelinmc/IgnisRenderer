@@ -22,29 +22,13 @@ for (var i: u32 = 0u; i < directionalCount; i = i + 1u) {
 			linearDepth
 		);
 	}
-	let fView = resolveIridescenceFresnel(
-		nDotV,
-		realF0,
-		iridescence,
-		iridescenceThickness,
-		iridescenceIor
-	);
-	let kT = (vec3<f32>(1.0) - fView) * (1.0 - metalness) * transmission;
-	let transmittedDiffuse = (kT * volumeAttenuation * albedo) / PI;
-	let ncDotV = max(dot(clearcoatNormal, viewDir), PBR_MIN_NDOTV);
-	let clearcoatTransmissionFresnel = select(0.0, fresnelSchlickScalar(ncDotV, 0.04), clearcoat > 0.0);
-	let transmissionAttenuation = vec3<f32>(1.0 - clearcoatTransmissionFresnel * clearcoat);
-
 	directLight += evaluateOpaquePBRLight(
 		opaquePBRSurface,
 		lightDirection,
 		radiance,
 		shadow
 	);
-	directLight +=
-		transmittedDiffuse *
-		transmissionAttenuation *
-		nDotLTransmission *
-		radiance *
-		shadow;
+	directLight += evaluatePBRTransmissionLight(
+		opaquePBRSurface, lightDirection, radiance, shadow, ior, volumeAttenuation
+	);
 }

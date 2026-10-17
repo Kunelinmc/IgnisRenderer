@@ -295,6 +295,22 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   disable sampling for the frame without discarding prepared targets.
 - PBR materials with `transmissionFactor > 0` must be treated as transparent
   pass submissions even when `alphaMode` is `OPAQUE`.
+- Direct PBR transmission must use the same isotropic thin-surface GGX BTDF
+  as WebGPU for directional, point, and spot lights, including clustered
+  lighting. A Lambertian back-light term must not replace specular transmission.
+  The half vector must use the light direction mirrored across the oriented
+  normal, and invalid microfacet-facing configurations must contribute zero.
+- Transmission GGX alpha must use squared perceptual roughness scaled by
+  `clamp(2 * ior - 2, 0, 1)`, with a numerical floor of `0.0016`. Narrow aligned
+  peaks must retain their normalization. Fresnel must use the transmission half
+  vector. Base-color tint, metallic suppression, volume and clearcoat
+  attenuation, light attenuation, and shadow visibility must remain effective.
+  Exact curved-volume exits and anisotropic transmission remain outside this
+  thin-surface approximation.
+- Transmissive PBR receivers must orient the shadow-query normal toward the
+  light. The opaque receiver's back-face shadow shortcut must not make direct
+  transmitted light bypass occluders. This orientation applies only to shadow
+  sampling and bias; it must not change the normal used by the BSDF.
 - If any mesh packet in a frame uses transmission, the WebGL mesh-transparent
   stage must disable weighted OIT and preserve global back-to-front packet
   order. Each transmissive packet must be preceded by a copy of the current

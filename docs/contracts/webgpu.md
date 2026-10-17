@@ -761,6 +761,27 @@ lighting, presentation configuration, reflections, and structured buffer packing
 - Binary hit refinement must apply the same facing test as the coarse trace so
   refinement cannot move a valid hit onto a rejected surface.
 
+### Direct PBR transmission
+
+- Forward PBR directional, point, spot, and sampled area lighting, including
+  clustered lighting, must evaluate direct transmission as a thin-surface GGX
+  BTDF. A Lambertian back-light term must not stand in for specular transmission.
+- The transmission half vector must use the light direction mirrored across the
+  oriented surface normal. Only light arriving on the opposite hemisphere may
+  contribute; invalid microfacet-facing configurations must contribute zero.
+- The lobe must narrow as roughness decreases. Its GGX alpha must use squared
+  perceptual roughness scaled by `clamp(2 * ior - 2, 0, 1)`, with a numerical
+  floor of `0.0016` matching the renderer's minimum perceptual roughness `0.04`.
+  Distribution normalization must preserve the narrow aligned-light peak.
+- Direct transmission must retain base-color tint, dielectric Fresnel loss,
+  metallic suppression, volume attenuation, clearcoat attenuation, light
+  attenuation, and shadow visibility. Fresnel must use the transmission half
+  vector rather than only the macroscopic surface normal.
+- This correction must not change alpha coverage, transparent-pass routing,
+  environment transmission, or screen-space refraction composition. Direct
+  transmission remains an isotropic thin-surface approximation; exact curved
+  volume exits and anisotropic transmission are outside this contract.
+
 ### Screen-space refractions
 
 - `ScreenSpaceRefractionsPass` must capture the nearest transmissive surface

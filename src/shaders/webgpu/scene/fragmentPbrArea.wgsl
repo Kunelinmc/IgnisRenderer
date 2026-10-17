@@ -24,24 +24,7 @@ if (!isClusteredLightingEnabled()) {
 				continue;
 			}
 
-			let fView = resolveIridescenceFresnel(
-				nDotV,
-				realF0,
-				iridescence,
-				iridescenceThickness,
-				iridescenceIor
-			);
-			let kT = (vec3<f32>(1.0) - fView) * (1.0 - metalness) * transmission;
-			let transmittedDiffuse = (kT * volumeAttenuation * albedo) / PI;
 			let ncDotV = max(dot(clearcoatNormal, viewDir), PBR_MIN_NDOTV);
-			let clearcoatTransmissionFresnel = select(
-				0.0,
-				fresnelSchlickScalar(ncDotV, 0.04),
-				clearcoat > 0.0
-			);
-			let transmissionAttenuation =
-				vec3<f32>(1.0 - clearcoatTransmissionFresnel * clearcoat);
-
 			var diffuse = vec3<f32>(0.0);
 			var specular = vec3<f32>(0.0);
 			var clearcoatSpecular = vec3<f32>(0.0);
@@ -137,8 +120,9 @@ if (!isClusteredLightingEnabled()) {
 			directLight += evaluateOpaquePBRLight(
 				opaquePBRSurface, lightDirection, radiance, vec3<f32>(1.0)
 			);
-			directLight += transmittedDiffuse * transmissionAttenuation *
-				nDotLTransmission * radiance;
+			directLight += evaluatePBRTransmissionLight(
+				opaquePBRSurface, lightDirection, radiance, vec3<f32>(1.0), ior, volumeAttenuation
+			);
 		}
 	}
 }

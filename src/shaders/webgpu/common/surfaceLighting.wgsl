@@ -46,6 +46,54 @@ struct OpaquePBRSurfaceInput {
 	sheenRoughness: f32,
 }
 
+// Direct, isotropic thin-surface transmission; shared by forward light loops.
+// Keep this separate from the opaque evaluator used by deferred lighting.
+fn evaluatePBRTransmissionLight(
+	surface: OpaquePBRSurfaceInput,
+	lightDirection: vec3<f32>,
+	radiance: vec3<f32>,
+	visibility: vec3<f32>,
+	ior: f32,
+	volumeAttenuation: vec3<f32>
+) -> vec3<f32> {
+	let nDotV = clamp(dot(surface.normal, surface.viewDirection), 0.0, 1.0);
+	let nDotL = clamp(-dot(surface.normal, lightDirection), 0.0, 1.0);
+	let transmission = surface.transmission * (1.0 - surface.metalness);
+	if (transmission <= 0.0 || nDotV <= 0.0 || nDotL <= 0.0) {
+		return vec3<f32>(0.0);
+	}
+
+	// Mirroring the incoming light puts the transmission lobe along the view ray.
+	let mirroredLight = reflect(lightDirection, surface.normal);
+	let halfVector = safeNormalize(surface.viewDirection + mirroredLight, surface.normal);
+	let vDotH = clamp(dot(surface.viewDirection, halfVector), 0.0, 1.0);
+	if (vDotH <= 0.0 || dot(halfVector, lightDirection) >= 0.0) {
+		return vec3<f32>(0.0);
+	}
+	let nDotH = clamp(dot(surface.normal, halfVector), 0.0, 1.0);
+	let alpha = max(
+		surface.roughness * surface.roughness * clamp(2.0 * ior - 2.0, 0.0, 1.0),
+		0.0016
+	);
+	let alphaSq = alpha * alpha;
+	let nDotHSq = nDotH * nDotH;
+	// This form preserves the narrow GGX peak without a fixed denominator clamp.
+	let distributionRatio = alpha / ((1.0 - nDotHSq) + alphaSq * nDotHSq);
+	let distribution = distributionRatio * distributionRatio / PI;
+	let smithL = nDotL + sqrt(alphaSq + (1.0 - alphaSq) * nDotL * nDotL);
+	let smithV = nDotV + sqrt(alphaSq + (1.0 - alphaSq) * nDotV * nDotV);
+	let btdf = distribution / (smithL * smithV);
+	let fresnel = resolveIridescenceFresnel(
+		vDotH, surface.realF0, surface.iridescence,
+		surface.iridescenceThickness, surface.iridescenceIor
+	);
+	let clearcoatNdotV = max(dot(surface.clearcoatNormal, surface.viewDirection), PBR_MIN_NDOTV);
+	let clearcoatAttenuation =
+		1.0 - fresnelSchlickScalar(clearcoatNdotV, 0.04) * surface.clearcoat;
+	return (vec3<f32>(1.0) - fresnel) * surface.albedo * volumeAttenuation *
+		(transmission * clearcoatAttenuation * btdf * nDotL) * radiance * visibility;
+}
+
 fn evaluateOpaquePBRLight(
 	surface: OpaquePBRSurfaceInput,
 	lightDirection: vec3<f32>,
