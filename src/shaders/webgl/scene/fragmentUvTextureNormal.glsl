@@ -12,6 +12,32 @@ float resolveOITWeight(float alpha, float linearDepth) {
 	return clamp(weight, 1e-2, 3e3);
 }
 
+vec3 resolvePBRGeometricNormal(vec3 worldPosition, vec3 viewDirection, vec3 fallback) {
+	vec3 dx = dFdx(worldPosition), dy = dFdy(worldPosition);
+	float sx = max(max(abs(dx.x), abs(dx.y)), abs(dx.z));
+	float sy = max(max(abs(dy.x), abs(dy.y)), abs(dy.z));
+	vec3 geometric = fallback;
+	// World area per pixel varies with model scale, distance and resolution.
+	if (sx > 0.0 && sy > 0.0) geometric = safeNormalize(cross(dx / sx, dy / sy), fallback);
+	return dot(geometric, viewDirection) >= 0.0 ? geometric : -geometric;
+}
+
+vec3 resolvePBRReflectionDirection(vec3 direction, vec3 geometricNormal) {
+	float horizon = dot(direction, geometricNormal);
+	if (horizon >= PBR_MIN_NDOTV) return direction;
+	return safeNormalize(direction + geometricNormal * (PBR_MIN_NDOTV - horizon), geometricNormal);
+}
+
+vec3 resolvePBRShadingNormal(vec3 shadingNormal, vec3 geometricNormal, vec3 viewDirection) {
+	vec3 normal = safeNormalize(shadingNormal, geometricNormal);
+	vec3 reflection = reflect(-viewDirection, normal);
+	float horizon = dot(reflection, geometricNormal);
+	if (dot(normal, viewDirection) > 0.0 && horizon >= PBR_MIN_NDOTV) return normal;
+	// Correct the reflected ray continuously before reconstructing its half vector.
+	vec3 correctedReflection = resolvePBRReflectionDirection(reflection, geometricNormal);
+	return safeNormalize(viewDirection + correctedReflection, geometricNormal);
+}
+
 vec2 resolveUV(int uvSet) {
 	if (uvSet == 1) return vUv1;
 	if (uvSet == 2) return vUv2;

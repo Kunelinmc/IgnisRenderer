@@ -5,6 +5,55 @@ fn saturate(value: f32) -> f32 {
 	return clamp(value, 0.0, 1.0);
 }
 
+fn resolvePBRGeometricNormal(
+	worldPosition: vec3<f32>, viewDirection: vec3<f32>, fallback: vec3<f32>
+) -> vec3<f32> {
+	let dx = dpdx(worldPosition);
+	let dy = dpdy(worldPosition);
+	let sx = max(max(abs(dx.x), abs(dx.y)), abs(dx.z));
+	let sy = max(max(abs(dy.x), abs(dy.y)), abs(dy.z));
+	var geometric = fallback;
+	// Normalize derivative scale first: world area per pixel is not degeneracy.
+	if (sx > 0.0 && sy > 0.0) {
+		geometric = safeNormalize(cross(dx / sx, dy / sy), fallback);
+	}
+	return select(-geometric, geometric, dot(geometric, viewDirection) >= 0.0);
+}
+
+fn resolvePBRReflectionDirection(direction: vec3<f32>, geometricNormal: vec3<f32>) -> vec3<f32> {
+	let horizon = dot(direction, geometricNormal);
+	if (horizon >= PBR_MIN_NDOTV) { return direction; }
+	return safeNormalize(direction + geometricNormal * (PBR_MIN_NDOTV - horizon), geometricNormal);
+}
+
+fn resolveViewFacingShadingNormal(normal: vec3<f32>, viewDirection: vec3<f32>) -> vec3<f32> {
+	// G-buffer quantization can move a nearly tangent normal behind the viewer.
+	return safeNormalize(normal + viewDirection *
+		max(PBR_MIN_NDOTV - dot(normal, viewDirection), 0.0), viewDirection);
+}
+
+fn resolvePBRShadingNormal(
+	shadingNormal: vec3<f32>, geometricNormal: vec3<f32>, viewDirection: vec3<f32>
+) -> vec3<f32> {
+	let normal = safeNormalize(shadingNormal, geometricNormal);
+	let reflection = reflect(-viewDirection, normal);
+	let horizon = dot(reflection, geometricNormal);
+	if (dot(normal, viewDirection) > 0.0 && horizon >= PBR_MIN_NDOTV) {
+		return normal;
+	}
+	// Project the reflected ray to the visible hemisphere, then recover its
+	// half-vector normal. This joins continuously at the reflection horizon.
+	let correctedReflection = resolvePBRReflectionDirection(reflection, geometricNormal);
+	return safeNormalize(viewDirection + correctedReflection, geometricNormal);
+}
+
+fn resolveIBLSpecularEnergy(
+	brdf: vec2<f32>, fresnelCoefficient: vec3<f32>, compensation: vec3<f32>
+) -> vec3<f32> {
+	return clamp((fresnelCoefficient * brdf.x + vec3<f32>(brdf.y)) * compensation,
+		vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
 fn emptyPBRMaterial() -> PBRMaterialUniforms {
 	return PBRMaterialUniforms(
 		vec4<f32>(0.0), vec4<f32>(0.0), vec4<f32>(0.0),
@@ -1614,10 +1663,12 @@ fn sampleBRDFLUT(nDotV: f32, roughness: f32) -> vec2<f32> {
 	let nv = clamp(nDotV, 0.0, 1.0);
 	let r = clamp(roughness, 0.0, 1.0);
 	if (hasBRDFLUT()) {
+		// The shared environment sampler wraps longitude, but the LUT must not wrap.
+		let halfTexel = vec2<f32>(0.5) / vec2<f32>(textureDimensions(brdfLUTTexture));
 		return textureSampleLevel(
 			brdfLUTTexture,
 			envSpecularSampler,
-			vec2<f32>(min(nv, 0.999999), min(sqrt(r), 0.999999)),
+			clamp(vec2<f32>(nv, sqrt(r)), halfTexel, vec2<f32>(1.0) - halfTexel),
 			0.0
 		).rg;
 	}

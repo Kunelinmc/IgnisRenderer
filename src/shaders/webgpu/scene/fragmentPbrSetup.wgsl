@@ -255,7 +255,7 @@ var pbrNormal = applyNormalMap(
 if (dot(pbrNormal, geometryNormal) < 0.0) {
 	pbrNormal = -pbrNormal;
 }
-let pbrShadowNormal = pbrNormal;
+let pbrGeometricNormal = resolvePBRGeometricNormal(input.worldPosition, viewDir, geometryNormal);
 
 var clearcoatNormal = applyNormalMap(
 	pbrNormal,
@@ -266,6 +266,10 @@ var clearcoatNormal = applyNormalMap(
 if (dot(clearcoatNormal, pbrNormal) < 0.0) {
 	clearcoatNormal = -clearcoatNormal;
 }
+// Build both authored normal-map frames before independently correcting them.
+pbrNormal = resolvePBRShadingNormal(pbrNormal, pbrGeometricNormal, viewDir);
+clearcoatNormal = resolvePBRShadingNormal(clearcoatNormal, pbrGeometricNormal, viewDir);
+let pbrShadowNormal = pbrNormal;
 
 let albedo = clamp(baseColor, vec3<f32>(0.0), vec3<f32>(1.0));
 let baseF0 = 0.16 * reflectance * reflectance;
@@ -312,7 +316,7 @@ let opaquePBRSurface = OpaquePBRSurfaceInput(
 	sheenColor,
 	sheenRoughness
 );
-let reflectionDir = select(
+let reflectionDir = resolvePBRReflectionDirection(select(
 	reflectViewDirection(pbrNormal, viewDir),
 	resolveAnisotropicReflectionDirection(
 		pbrNormal,
@@ -322,7 +326,7 @@ let reflectionDir = select(
 		anisotropyStrength
 	),
 	anisotropyStrength > EPSILON
-);
+), pbrGeometricNormal);
 let maxSheenColor = max(max(sheenColor.x, sheenColor.y), sheenColor.z);
 
 var transmissionPathLength = thickness;

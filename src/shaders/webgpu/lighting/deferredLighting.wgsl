@@ -18,6 +18,8 @@ struct DeferredSurface {
 	viewDir: vec3<f32>,
 	normal: vec3<f32>,
 	shadowNormal: vec3<f32>,
+	geometricNormal: vec3<f32>,
+	geometricNormalReliable: bool,
 	albedo: vec3<f32>,
 	alpha: f32,
 	roughness: f32,
@@ -103,6 +105,52 @@ fn applyDeferredFog(color: vec3<f32>, linearDepth: f32) -> vec3<f32> {
 	return max(mix(color, fog.fogParams1.rgb, fogFactor), vec3<f32>(0.0));
 }
 
+// Return the oriented geometric normal and a reliability flag in w. Use the
+// same cardinal samples for validation and reconstruction; derivatives of a
+// fullscreen resolve may include a different surface in an unchecked diagonal.
+fn resolveDeferredGeometricNormal(
+	coord: vec2<i32>, worldPosition: vec3<f32>, depth: f32,
+	viewDir: vec3<f32>, fallback: vec3<f32>
+) -> vec4<f32> {
+	let invalid = vec4<f32>(fallback, 0.0);
+	let size = vec2<i32>(textureDimensions(gMotionDepthIn));
+	if (any(coord < vec2<i32>(1)) || any(coord >= size - vec2<i32>(1)) || depth <= 0.0) {
+		return invalid;
+	}
+	let neighbors = vec4<f32>(
+		textureLoad(gMotionDepthIn, coord + vec2<i32>(-1, 0), 0).z,
+		textureLoad(gMotionDepthIn, coord + vec2<i32>(1, 0), 0).z,
+		textureLoad(gMotionDepthIn, coord + vec2<i32>(0, -1), 0).z,
+		textureLoad(gMotionDepthIn, coord + vec2<i32>(0, 1), 0).z
+	);
+	if (any(neighbors <= vec4<f32>(0.0))) { return invalid; }
+	// Inverse depth is affine under perspective; depth is affine under orthographic
+	// projection. Allow FP16 storage rounding, rather than a scene-scale depth gap.
+	let inverse = vec4<f32>(1.0) / neighbors;
+	let center = 1.0 / depth;
+	let inversePairs = vec2<f32>(inverse.x + inverse.y, inverse.z + inverse.w);
+	let depthPairs = vec2<f32>(neighbors.x + neighbors.y, neighbors.z + neighbors.w);
+	let inverseError = abs(inversePairs - 2.0 * center) / (inversePairs + 2.0 * center);
+	let depthError = abs(depthPairs - 2.0 * depth) / (depthPairs + 2.0 * depth);
+	if (any(min(inverseError, depthError) > vec2<f32>(0.0006))) { return invalid; }
+	let offsets = array<vec2<i32>, 4>(vec2<i32>(-1, 0), vec2<i32>(1, 0),
+		vec2<i32>(0, -1), vec2<i32>(0, 1));
+	var directions: array<vec3<f32>, 4>;
+	for (var i = 0u; i < 4u; i++) {
+		let uv = (vec2<f32>(coord + offsets[i]) + vec2<f32>(0.5)) / vec2<f32>(size);
+		let delta = reconstructDeferredWorldPosition(uv, neighbors[i]) - worldPosition;
+		let scale = max(max(abs(delta.x), abs(delta.y)), abs(delta.z));
+		if (scale <= 0.0) { return invalid; }
+		directions[i] = normalize(delta / scale);
+	}
+	if (dot(-directions[0], directions[1]) < 0.995 ||
+		dot(-directions[2], directions[3]) < 0.995) { return invalid; }
+	let area = cross(directions[1] - directions[0], directions[3] - directions[2]);
+	if (dot(area, area) <= EPSILON) { return invalid; }
+	let normal = normalize(area);
+	return vec4<f32>(select(normal, -normal, dot(normal, viewDir) < 0.0), 1.0);
+}
+
 fn loadDeferredSurface(input: DeferredVSOut) -> DeferredSurface {
 	let coord = vec2<i32>(i32(input.position.x), i32(input.position.y));
 	let albedoAlpha = textureLoad(gAlbedoAlphaIn, coord, 0);
@@ -153,10 +201,23 @@ fn loadDeferredSurface(input: DeferredVSOut) -> DeferredSurface {
 	if (hasAnisotropy) {
 		materialExt3 = textureLoad(gMaterialExt3In, coord, 0);
 	}
-	let normal = decodeDeferredNormal(normalRoughMetal.xy);
+	let worldPosition = reconstructDeferredWorldPosition(input.uv, motionDepth.z);
+	let viewDir = safeNormalize(
+		cameraPosition(frame.inverseView) - worldPosition,
+		-cameraBackward(frame.inverseView)
+	);
+	let decodedNormal = decodeDeferredNormal(normalRoughMetal.xy);
+	var geometric = vec4<f32>(decodedNormal, 0.0);
+	if (hasAnisotropy) {
+		geometric = resolveDeferredGeometricNormal(
+			coord, worldPosition, motionDepth.z, viewDir, decodedNormal
+		);
+	}
+	let normal = select(decodedNormal, resolveViewFacingShadingNormal(decodedNormal, viewDir),
+		shadingModel == SHADING_PBR);
 	let clearcoatNormal = select(
 		normal,
-		decodeDeferredNormal(materialExt0.xy),
+		resolveViewFacingShadingNormal(decodeDeferredNormal(materialExt0.xy), viewDir),
 		hasClearcoat
 	);
 	let anisotropyTangentCandidate = decodeDeferredNormal(
@@ -171,16 +232,13 @@ fn loadDeferredSurface(input: DeferredVSOut) -> DeferredSurface {
 		cross(normal, anisotropyTangent),
 		fallbackTangentFromNormal(normal)
 	);
-	let worldPosition = reconstructDeferredWorldPosition(input.uv, motionDepth.z);
-	let viewDir = safeNormalize(
-		cameraPosition(frame.inverseView) - worldPosition,
-		-cameraBackward(frame.inverseView)
-	);
 	return DeferredSurface(
 		worldPosition,
 		viewDir,
 		normal,
 		normal,
+		geometric.xyz,
+		geometric.w > 0.0,
 		clamp(albedoAlpha.rgb, vec3<f32>(0.0), vec3<f32>(1.0)),
 		clamp(albedoAlpha.a, 0.0, 1.0),
 		clamp(normalRoughMetal.z, 0.04, 1.0),
@@ -290,6 +348,18 @@ fn evaluateDeferredPBRLight(
 		radiance,
 		shadow
 	);
+}
+
+fn resolveDeferredPBRReflection(surface: DeferredSurface) -> vec3<f32> {
+	let isotropic = reflectViewDirection(surface.normal, surface.viewDir);
+	if (surface.anisotropyStrength <= EPSILON || !surface.geometricNormalReliable) {
+		// Depth discontinuities cannot provide the triangle hemisphere reliably.
+		return isotropic;
+	}
+	return resolvePBRReflectionDirection(resolveAnisotropicReflectionDirection(
+		surface.normal, surface.viewDir, surface.anisotropyBitangent,
+		surface.roughness, surface.anisotropyStrength
+	), surface.geometricNormal);
 }
 
 fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
@@ -497,17 +567,7 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 			sampleDiffuseProbeIrradiance(surface.worldPosition, surface.normal) /
 			(255.0 * PI);
 
-		let reflectionDir = select(
-			reflectViewDirection(surface.normal, surface.viewDir),
-			resolveAnisotropicReflectionDirection(
-				surface.normal,
-				surface.viewDir,
-				surface.anisotropyBitangent,
-				surface.roughness,
-				surface.anisotropyStrength
-			),
-			surface.anisotropyStrength > EPSILON
-		);
+		let reflectionDir = resolveDeferredPBRReflection(surface);
 		let localSelection = selectTopTwoLocalLightProbes(surface.worldPosition);
 		let globalSpecularAmbient = sampleSHRadiance(reflectionDir);
 		let localSpecularAmbient = sampleBlendedLocalLightProbeRadiance(
@@ -528,10 +588,18 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 		surface.iridescenceThickness,
 		surface.iridescenceIor
 	);
+	var specularIBLWeight = fAmbient *
+		max(PBR_SPEC_FALLBACK, (1.0 - surface.roughness) * 0.5);
+	if (hasEnvSpecular()) {
+		let splitSumFresnel = select(pbr.realF0, fAmbient, surface.iridescence > EPSILON);
+		specularIBLWeight = resolveIBLSpecularEnergy(
+			sampleBRDFLUT(pbr.nDotV, surface.roughness), splitSumFresnel, pbr.energyCompensation
+		);
+	}
 	var kdAmbient = vec3<f32>(1.0 - surface.metalness);
 	if (shAmbientEnabled) {
 		kdAmbient =
-			diffuseFresnelWeight(fAmbient, surface.iridescence) *
+			(vec3<f32>(1.0) - specularIBLWeight) *
 			(1.0 - surface.metalness);
 	}
 	let ccAmbientFresnel = select(
@@ -554,17 +622,7 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 	var ambientLight =
 		diffuseAmbient * surface.albedo * kdAmbient * baseAmbientAttenuation;
 
-	let reflectionDir = select(
-		reflectViewDirection(surface.normal, surface.viewDir),
-		resolveAnisotropicReflectionDirection(
-			surface.normal,
-			surface.viewDir,
-			surface.anisotropyBitangent,
-			surface.roughness,
-			surface.anisotropyStrength
-		),
-		surface.anisotropyStrength > EPSILON
-	);
+	let reflectionDir = resolveDeferredPBRReflection(surface);
 	let clearcoatNdotV =
 		max(dot(surface.clearcoatNormal, surface.viewDir), PBR_MIN_NDOTV);
 	let clearcoatReflectionDir = reflectViewDirection(
@@ -577,16 +635,9 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 			surface.roughness,
 			surface.worldPosition
 		);
-		let brdf = sampleBRDFLUT(pbr.nDotV, surface.roughness);
-		let splitSumFresnel = select(
-			pbr.realF0,
-			fAmbient,
-			surface.iridescence > EPSILON
-		);
 		ambientLight +=
 			prefiltered *
-			(splitSumFresnel * brdf.x + vec3<f32>(brdf.y)) *
-			pbr.energyCompensation *
+			specularIBLWeight *
 			clearcoatSpecularAttenuation;
 
 		let clearcoatPrefiltered = sampleEnvironmentSpecular(

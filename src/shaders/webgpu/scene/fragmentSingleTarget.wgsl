@@ -89,6 +89,8 @@ fn shadeTransmissionCapture(
 	if (dot(pbrNormal, geometryNormal) < 0.0) {
 		pbrNormal = -pbrNormal;
 	}
+	pbrNormal = resolvePBRShadingNormal(pbrNormal,
+		resolvePBRGeometricNormal(input.worldPosition, viewDir, geometryNormal), viewDir);
 
 	var mrSample = vec4<f32>(1.0);
 	if (hasPBRTexture(material, PBR_TEXTURE_METALLIC_ROUGHNESS_MAP)) {

@@ -4,6 +4,10 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
 
 ## Contract
 
+- WebGL scene lighting must use the forward material path. Its material G-buffer
+  is a post-processing resource, not a deferred lighting resolve. Cross-backend
+  verification must identify WebGL deferred lighting as unsupported.
+
 ### Backend lifecycle and execution
 
 - WebGL must execute scene-view render-target jobs inside the active frame
@@ -323,6 +327,7 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
 - A transmission draw must disable blending and output its coverage composite
   against the sampled current background so source-over blending cannot apply
   the background twice.
+- A zero sheen color must not attenuate the base IBL lobe at grazing angles.
 - The WebGL PBR material path must support the public specular, clearcoat,
   sheen, transmission, thickness, iridescence, and anisotropy factors and maps.
   Texture channels must follow glTF/KHR semantics: specular factor A, specular

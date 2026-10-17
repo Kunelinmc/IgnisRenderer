@@ -100,6 +100,28 @@ const texture = new Texture({
 
 ### PBR extensions
 
+- GPU PBR shading must distinguish the rasterized triangle's geometric normal
+  from interpolated and normal-mapped shading normals. The geometric normal
+  must be derived from world-position derivatives and oriented to the visible
+  side, with a finite fallback for degenerate derivatives.
+  Derivative normalization must be independent of world area per pixel.
+- Base and clearcoat shading normals must keep their reflection directions in
+  the visible geometric hemisphere. Invalid normals must be corrected
+  continuously at the numerical reflection horizon; valid normals outside that
+  tolerance must retain their directions. Correction must not alter raster
+  culling or front-face identity. Both authored normal-map frames must be built
+  before correcting base and clearcoat normals independently.
+- Anisotropic environment reflection directions must also respect the geometric
+  hemisphere after bending. WebGPU deferred lighting may reconstruct this
+  hemisphere from locally planar depth. Missing or discontinuous neighboring
+  depth must select the corrected isotropic direction rather than an unreliable
+  anisotropic ray. Reconstruction must use the validated neighbors explicitly;
+  full-screen derivatives may include unrelated surfaces across a diagonal.
+- WebGPU must apply the same correction before base and extended G-buffer
+  encoding and in forward and transmission-capture shading. Deferred decoding
+  must prevent quantization from producing a back-facing shading normal.
+  Normal comparisons after G-buffer decoding may include its encoding error.
+
 #### Stable feature masks
 
 - `PBRMaterialFeature` must define append-only unsigned feature bits with the

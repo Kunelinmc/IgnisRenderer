@@ -30,10 +30,17 @@ let fAmbient = resolveIridescenceFresnel(
 let refractionResult = refractViewDirection(viewDir, pbrNormal, ior);
 let isTIR = transmission > 0.0 && refractionResult.valid < 0.5;
 let effectiveFAmbient = select(fAmbient, vec3<f32>(1.0), isTIR);
+var specularIBLWeight = effectiveFAmbient * max(PBR_SPEC_FALLBACK, (1.0 - roughness) * 0.5);
+if (hasEnvSpecular()) {
+	let splitSumFresnel = select(realF0, effectiveFAmbient, iridescence > EPSILON || isTIR);
+	specularIBLWeight = resolveIBLSpecularEnergy(
+		sampleBRDFLUT(nDotV, roughness), splitSumFresnel, energyCompensation
+	);
+}
 var kdAmbient = vec3<f32>((1.0 - metalness) * (1.0 - transmission));
 if (shAmbientEnabled) {
 	kdAmbient =
-		diffuseFresnelWeight(effectiveFAmbient, iridescence) *
+		(vec3<f32>(1.0) - specularIBLWeight) *
 		(1.0 - metalness) *
 		(1.0 - transmission);
 }
@@ -95,16 +102,9 @@ if (hasEnvSpecular()) {
 		roughness,
 		input.worldPosition
 	);
-	let brdf = sampleBRDFLUT(nDotV, roughness);
-	let splitSumFresnel = select(
-		realF0,
-		effectiveFAmbient,
-		iridescence > EPSILON || isTIR
-	);
 	ambientLight +=
 		prefiltered *
-		(splitSumFresnel * brdf.x + vec3<f32>(brdf.y)) *
-		energyCompensation *
+		specularIBLWeight *
 		clearcoatSpecularAttenuation;
 
 	let clearcoatNdotV = max(dot(clearcoatNormal, viewDir), PBR_MIN_NDOTV);

@@ -1,3 +1,11 @@
+#if WEBGL_SCENE_ENVIRONMENT_SPECULAR
+vec2 sampleBRDFLUT(float nDotV, float roughness) {
+	vec2 halfTexel = vec2(0.5) / vec2(textureSize(uBrdfLUT, 0));
+	vec2 uv = vec2(clamp(nDotV, 0.0, 1.0), sqrt(clamp(roughness, 0.0, 1.0)));
+	return textureLod(uBrdfLUT, clamp(uv, halfTexel, vec2(1.0) - halfTexel), 0.0).rg;
+}
+#endif
+
 // Cosine-weighted isotropic thin-surface GGX transmission, matching WebGPU.
 float evaluatePBRTransmissionLobe(
 	vec3 normal,
@@ -216,10 +224,7 @@ vec3 shadePBR(
 	float nDotV = max(dot(pbrNormal, viewDir), PBR_MIN_NDOTV);
 	vec3 energyCompensation = vec3(1.0);
 #if WEBGL_SCENE_ENVIRONMENT_SPECULAR
-	vec2 compensationBRDF = texture(
-		uBrdfLUT,
-		vec2(clamp(nDotV, 0.0, 0.999999), min(sqrt(roughness), 0.999999))
-	).rg;
+	vec2 compensationBRDF = sampleBRDFLUT(nDotV, roughness);
 	float singleScatterEnergy = compensationBRDF.x + compensationBRDF.y;
 	if (singleScatterEnergy > 0.0 && singleScatterEnergy < 1.0) {
 		energyCompensation += clamp(f0, vec3(0.0), vec3(1.0)) *
@@ -228,14 +233,15 @@ vec3 shadePBR(
 #endif
 	vec3 reflectionDir;
 #if WEBGL_MATERIAL_ANISOTROPY || WEBGL_MATERIAL_MODEL_FULL
+	vec3 reflectionGeometricNormal = resolvePBRGeometricNormal(vWorldPos, viewDir, shadowNormal);
 	if (anisotropyStrength > EPSILON) {
-		reflectionDir = resolveAnisotropicReflectionDirection(
+		reflectionDir = resolvePBRReflectionDirection(resolveAnisotropicReflectionDirection(
 			pbrNormal,
 			viewDir,
 			anisotropyBitangent,
 			roughness,
 			anisotropyStrength
-		);
+		), reflectionGeometricNormal);
 	} else {
 		reflectionDir = reflect(-viewDir, pbrNormal);
 	}
@@ -281,9 +287,16 @@ vec3 shadePBR(
 	);
 	vec3 ambientDiffuseWeight =
 		vec3((1.0 - metalness) * (1.0 - transmission));
+	vec3 specularIBLWeight = ambientFresnel * max(PBR_SPEC_FALLBACK, (1.0 - roughness) * 0.5);
+#if WEBGL_SCENE_ENVIRONMENT_SPECULAR
+	if (uHasEnvSpecularMap == 1) {
+		vec3 splitSumFresnel = iridescence > EPSILON ? ambientFresnel : f0;
+		specularIBLWeight = resolveIBLSpecularEnergy(compensationBRDF, splitSumFresnel, energyCompensation);
+	}
+#endif
 	if (shAmbientEnabled) {
 		ambientDiffuseWeight =
-			diffuseFresnelWeight(ambientFresnel, iridescence) *
+			(vec3(1.0) - specularIBLWeight) *
 			(1.0 - metalness) *
 			(1.0 - transmission);
 	}
@@ -296,13 +309,7 @@ vec3 shadePBR(
 			reflectionDir,
 			roughness
 		);
-		vec2 brdf = texture(
-			uBrdfLUT,
-			vec2(clamp(nDotV, 0.0, 1.0), sqrt(roughness))
-		).rg;
-		vec3 splitSumFresnel =
-			iridescence > EPSILON ? ambientFresnel : f0;
-		ambientSpecular = prefiltered * (splitSumFresnel * brdf.x + vec3(brdf.y));
+		ambientSpecular = prefiltered * specularIBLWeight;
 	} else
 #endif
 	{
@@ -313,7 +320,8 @@ vec3 shadePBR(
 		fresnelSchlickScalar(
 			max(dot(clearcoatNormal, viewDir), PBR_MIN_NDOTV), 0.04
 		) : 0.0;
-	vec3 ambientSheenFresnel = fresnelSchlick(nDotV, sheenColor);
+	vec3 ambientSheenFresnel = max(max(sheenColor.r, sheenColor.g), sheenColor.b) > 0.0 ?
+		fresnelSchlick(nDotV, sheenColor) : vec3(0.0);
 	float diffuseClearcoatFresnel = shAmbientEnabled ?
 		ambientClearcoatFresnel : (clearcoat > 0.0 ? 0.04 : 0.0);
 	vec3 ambientDiffuseAttenuation =

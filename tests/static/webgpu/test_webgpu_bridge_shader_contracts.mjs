@@ -658,8 +658,8 @@ async function testSceneShaderCoverage() {
 		)
 	);
 	assert.ok(
-		WEBGPU_DEFERRED_LIGHTING_SHADER.includes(
-			"resolveAnisotropicReflectionDirection(\n\t\t\t\tsurface.normal"
+		/resolveAnisotropicReflectionDirection\(\s*surface\.normal/.test(
+			WEBGPU_DEFERRED_LIGHTING_SHADER
 		)
 	);
 	assert.ok(WEBGPU_SCENE_SHADER.includes("fn resolveOITWeight("));

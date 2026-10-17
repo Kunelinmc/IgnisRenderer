@@ -498,6 +498,9 @@ fn evaluateGBuffer(
 	if (dot(pbrNormal, geometryNormal) < 0.0) {
 		pbrNormal = -pbrNormal;
 	}
+	let pbrViewDirection = safeNormalize(cameraPosition(frame.inverseView) - input.worldPosition,
+		-cameraBackward(frame.inverseView));
+	let pbrGeometricNormal = resolvePBRGeometricNormal(input.worldPosition, pbrViewDirection, geometryNormal);
 
 	var clearcoatNormal = applyNormalMap(
 		pbrNormal,
@@ -508,6 +511,8 @@ fn evaluateGBuffer(
 	if (dot(clearcoatNormal, pbrNormal) < 0.0) {
 		clearcoatNormal = -clearcoatNormal;
 	}
+	pbrNormal = resolvePBRShadingNormal(pbrNormal, pbrGeometricNormal, pbrViewDirection);
+	clearcoatNormal = resolvePBRShadingNormal(clearcoatNormal, pbrGeometricNormal, pbrViewDirection);
 
 	let anisotropyData = resolveAnisotropyDirection(
 		material,
@@ -675,6 +680,10 @@ fn evaluateGBufferBase(
 		if (dot(normal, geometryNormal) < 0.0) {
 			normal = -normal;
 		}
+		let pbrViewDirection = safeNormalize(cameraPosition(frame.inverseView) - input.worldPosition,
+			-cameraBackward(frame.inverseView));
+		normal = resolvePBRShadingNormal(normal,
+			resolvePBRGeometricNormal(input.worldPosition, pbrViewDirection, geometryNormal), pbrViewDirection);
 		materialWord = f32(SHADING_PBR);
 	}
 	if (input.instanceMeta.y > 0.5) {

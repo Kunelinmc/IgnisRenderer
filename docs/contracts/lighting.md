@@ -174,6 +174,23 @@ The cached culling state and bindings must be invalidated when:
 
 ### Environment IBL
 
+- BRDF integration LUTs must use clamp addressing and sample LOD zero within
+  the first and last texel centers. Environment longitude wrapping must not
+  leak into BRDF integration coordinates.
+- WebGPU and WebGL base-layer specular IBL must apply the same multiple-scattering
+  energy compensation as their direct specular lobe. A unit-white environment
+  illuminating a white perfect conductor must retain unit radiance at every
+  roughness, within LUT and floating-point precision.
+- Base-layer diffuse IBL must use the remaining energy of the specular IBL
+  response, including its BRDF integration and multiple-scattering compensation.
+  It must not subtract the single-angle `F(NdotV)` while adding a different
+  integrated specular response. The same rule must apply to WebGL forward and
+  WebGPU forward and deferred lighting.
+- A unit-white environment and matching diffuse SH must return approximately
+  unit radiance for a white, opaque, non-absorbing base dielectric, including
+  grazing views down to `NdotV = 0.001`. This base-lobe check excludes clearcoat,
+  sheen, iridescence, transmission, occlusion, emissive, and analytical lights.
+
 - `IBLPrefilter` must accept an `IBLPrefilterServiceOptions` object at
   construction time. The object may provide one `IRenderBackend`.
 - Per-call `IBLPrefilterOptions` must contain only execution settings and must

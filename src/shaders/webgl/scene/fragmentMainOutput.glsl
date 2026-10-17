@@ -253,6 +253,17 @@ void main() {
 	if (dot(clearcoatNormal, normal) < 0.0) {
 		clearcoatNormal = -clearcoatNormal;
 	}
+#if WEBGL_MATERIAL_MODEL_PBR || WEBGL_MATERIAL_MODEL_FULL
+#if WEBGL_MATERIAL_MODEL_FULL
+	if (uShadingModel == 1) {
+#endif
+		vec3 pbrGeometricNormal = resolvePBRGeometricNormal(vWorldPos, viewDir, geometryNormal);
+		normal = resolvePBRShadingNormal(normal, pbrGeometricNormal, viewDir);
+		clearcoatNormal = resolvePBRShadingNormal(clearcoatNormal, pbrGeometricNormal, viewDir);
+#if WEBGL_MATERIAL_MODEL_FULL
+	}
+#endif
+#endif
 	vec3 sheenColor = vec3(0.0);
 	float sheenRoughness = 0.0;
 #if WEBGL_MATERIAL_SHEEN || WEBGL_MATERIAL_MODEL_FULL

@@ -1,3 +1,8 @@
+vec3 resolveIBLSpecularEnergy(vec2 brdf, vec3 fresnelCoefficient, vec3 compensation) {
+	return clamp((fresnelCoefficient * brdf.x + vec3(brdf.y)) * compensation,
+		vec3(0.0), vec3(1.0));
+}
+
 float distributionGGX(vec3 n, vec3 h, float roughness) {
 	float a = roughness * roughness;
 	float a2 = a * a;

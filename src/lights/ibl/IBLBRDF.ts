@@ -31,7 +31,10 @@ export class IBLBRDF {
 				data[index + 3] = 1;
 			}
 		}
-		return new Texture({ data, width, height, colorSpace: "HDR" });
+		const texture = new Texture({ data, width, height, colorSpace: "HDR" });
+		texture.wrapS = "Clamp";
+		texture.wrapT = "Clamp";
+		return texture;
 	}
 
 	private static _integrateBRDF(
