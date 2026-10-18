@@ -68,20 +68,26 @@ export const TONE_MAPPING_PASS_ORDER = {
 export type WebGPUToneMappingContext = WebGPURuntimePostProcessContext;
 export type WebGLToneMappingContext = WebGLScreenPostProcessContext;
 
-/** @internal Reference ACES fitted mapping shared by CPU presentation. */
+/** @internal Hue-preserving SDR ACES mapping shared by CPU presentation. */
 export function applyACESToneMapping(
 	color: Readonly<Vec3Tuple>,
 	exposure: number,
 	out: Vec3Tuple = [0, 0, 0],
 ): Vec3Tuple {
-	for (let index = 0; index < 3; index++) {
-		const value = color[index];
-		const exposed = Math.max(0, value * exposure);
-		out[index] = Math.min(1, Math.max(0,
-			(exposed * (2.51 * exposed + 0.03)) /
-			(exposed * (2.43 * exposed + 0.59) + 0.14),
-		));
-	}
+	out[0] = Math.max(0, color[0] * exposure);
+	out[1] = Math.max(0, color[1] * exposure);
+	out[2] = Math.max(0, color[2] * exposure);
+	const peak = Math.max(out[0], out[1], out[2]);
+	if (peak === 0) return out;
+	const mappedPeak = Math.min(1, Math.max(0,
+		(peak * (2.51 * peak + 0.03)) /
+		(peak * (2.43 * peak + 0.59) + 0.14),
+	));
+	// One RGB scale preserves emissive chromaticity as exposure or radiance changes.
+	const scale = mappedPeak / peak;
+	out[0] *= scale;
+	out[1] *= scale;
+	out[2] *= scale;
 	return out;
 }
 

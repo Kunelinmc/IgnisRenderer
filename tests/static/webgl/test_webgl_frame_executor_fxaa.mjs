@@ -3,6 +3,7 @@ import {
 	WebGLFrameServiceTestHarness as WebGLFrameExecutor,
 } from "../../helpers/webgl-frame-services.mjs";
 import { Logger } from "../../../src/foundation/Logger.ts";
+import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import {
 	FastApproximateAntiAliasingPass,
 	GammaPass,
@@ -1295,6 +1296,7 @@ function testSSAOPassDetachesSecondaryAttachmentForDownsampleTargets() {
 		viewCamera: {
 			type: "perspective",
 			fov: 60,
+			projectionMatrix: Matrix4.perspective(60, 1280 / 720, 0.1, 100),
 			aspectRatio: 1280 / 720,
 			viewMatrix: { elements: identity },
 			getWorldPosition() {

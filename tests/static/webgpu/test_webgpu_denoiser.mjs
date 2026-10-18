@@ -28,12 +28,19 @@ function createRequest(encoder, overrides = {}) {
 		output: overrides.output ?? createTexture(16, 8, "output"),
 		depth: overrides.depth ?? createTexture(32, 16, "depth"),
 		normal: overrides.normal ?? createTexture(32, 16, "normal"),
+		moments: overrides.moments,
 		sampler: overrides.sampler ?? { label: "sampler" },
 		options: overrides.options,
 	};
 }
 
 function testOptionsAndParameterPacking() {
+	assert.equal(resolveWebGPUDenoiseOptions({ varianceGuided: true }).varianceGuided, true);
+	assert.equal(writeWebGPUDenoiseParams(new Float32Array(16), 8, 8, 1,
+		resolveWebGPUDenoiseOptions({ varianceGuided: true }))[11], 1);
+	assert.equal(resolveWebGPUDenoiseOptions({ roughnessAware: true }).roughnessAware, true);
+	assert.equal(writeWebGPUDenoiseParams(new Float32Array(16), 8, 8, 1,
+		resolveWebGPUDenoiseOptions({ roughnessAware: true }))[10], 1);
 	assert.deepEqual(resolveWebGPUDenoiseOptions(), DEFAULT_WEBGPU_DENOISE_OPTIONS);
 	assert.deepEqual(
 		resolveWebGPUDenoiseOptions({
@@ -53,6 +60,8 @@ function testOptionsAndParameterPacking() {
 			normalPhi: 16,
 			valuePhi: 2,
 			confidenceFloor: 1,
+			roughnessAware: false,
+			varianceGuided: false,
 		}
 	);
 	const params = writeWebGPUDenoiseParams(
@@ -220,6 +229,25 @@ async function testSourceOverwriteAndValidation() {
 		options: { signal: "scalar" },
 	}));
 	assert.equal(overwrite.texture, source);
+	for (const group of backend.bindingGroups) {
+		const entries = group.desc.entries;
+		assert.equal(entries.find((entry) => entry.binding === 6).resource,
+			entries.find((entry) => entry.binding === 0).resource);
+		assert.notEqual(entries.find((entry) => entry.binding === 6).resource,
+			entries.find((entry) => entry.binding === 5).resource);
+	}
+	for (const target of ["scratch", "output"]) {
+		const writable = createTexture(16, 8, `aliased-${target}`);
+		await assert.rejects(
+			denoiser.encode(createRequest(new FakeEncoder(), {
+				scope: `bad-moments-${target}`,
+				[target]: writable,
+				moments: writable,
+				options: { varianceGuided: true },
+			})),
+			/moments distinct from scratch and output/
+		);
+	}
 
 	await assert.rejects(
 		denoiser.encode(createRequest(new FakeEncoder(), {

@@ -44,6 +44,7 @@ const DEFAULT_HISTORY_USAGE = ["sampled", "storage", "render-target"] as const;
 const MOTION_HISTORY_USAGE = ["sampled", "copy-dst", "render-target"] as const;
 const SSR_DENOISE_A_ID = "ssr:denoise-a";
 const SSR_DENOISE_B_ID = "ssr:denoise-b";
+const SSR_MOMENTS_ID = "ssr:moments";
 export const SCREEN_SPACE_REFLECTIONS_PASS_ID = "ssr";
 export const SCREEN_SPACE_REFLECTIONS_PASS_ORDER = {
 	id: SCREEN_SPACE_REFLECTIONS_PASS_ID,
@@ -57,6 +58,8 @@ export const SCREEN_SPACE_REFLECTIONS_PASS_ORDER = {
 } as const satisfies PostProcessScheduleEntry;
 
 export interface SSROptions {
+	/** Rough-reflection rays averaged per pixel (1-8). Mirror surfaces use one ray. */
+	raysPerPixel?: number;
 	/** Maximum ray-march iterations per reflection ray. */
 	maxSteps?: number;
 	/** Maximum view/world-space ray distance for screen-space reflections. */
@@ -84,6 +87,7 @@ export interface SSROptions {
 export const DEFAULT_SSR_OPTIONS: Required<
 	Pick<
 		SSROptions,
+		| "raysPerPixel"
 		| "downsample"
 		| "maxSteps"
 		| "binarySearchSteps"
@@ -96,6 +100,7 @@ export const DEFAULT_SSR_OPTIONS: Required<
 		| "maxRoughness"
 	>
 > = {
+	raysPerPixel: 4,
 	downsample: 2,
 	maxSteps: 64,
 	binarySearchSteps: 6,
@@ -111,6 +116,7 @@ export const DEFAULT_SSR_OPTIONS: Required<
 export type ResolvedSSROptions = Required<
 	Pick<
 		SSROptions,
+		| "raysPerPixel"
 		| "downsample"
 		| "maxSteps"
 		| "binarySearchSteps"
@@ -154,6 +160,8 @@ interface WebGPUSSRResources {
  */
 export function resolveSSROptions(options?: SSROptions | null): ResolvedSSROptions {
 	return {
+		raysPerPixel: Math.min(8, Math.max(1,
+			Math.floor(finiteOr(options?.raysPerPixel, DEFAULT_SSR_OPTIONS.raysPerPixel)))),
 		downsample: clampDownsample(options?.downsample, DEFAULT_SSR_OPTIONS.downsample),
 		maxSteps: finiteOr(options?.maxSteps, DEFAULT_SSR_OPTIONS.maxSteps),
 		binarySearchSteps: finiteOr(
@@ -180,11 +188,12 @@ export function resolveSSROptions(options?: SSROptions | null): ResolvedSSROptio
  * Resolves whether SSR may sample temporal history this frame.
  *
  * @param histories Current frame history slots.
- * @returns `true` when SSR color and motion histories are valid.
+ * @returns `true` when SSR radiance, moments, and motion histories are valid.
  * @sideEffects None.
  */
 export function resolveSSRHistoryValid(histories: PostProcessHistorySlots): boolean {
-	return (histories.ssr?.valid ?? false) && (histories.motion?.valid ?? false);
+	return (histories.ssr?.valid ?? false) && (histories.motion?.valid ?? false) &&
+		(histories[SSR_MOMENTS_ID]?.valid ?? false);
 }
 
 /**
@@ -223,7 +232,7 @@ export function createSSRTraceParams(
 		historyValid ? 1 : 0,
 		0.02,
 		frameIndex,
-		0,
+		options.raysPerPixel,
 	]);
 }
 
@@ -231,7 +240,8 @@ export function createSSRTraceParams(
  * Resolves dynamic history resources required by SSR.
  *
  * @param request History resolution request for the current frame.
- * @returns SSR color history at the configured downsample plus full-size motion history.
+ * @returns SSR radiance and moment histories at the configured downsample,
+ * plus full-size motion history.
  * @sideEffects None.
  */
 export function resolveSSRHistoryDescriptors(
@@ -247,6 +257,13 @@ export function resolveSSRHistoryDescriptors(
 			format: "rgba16float",
 			usage: DEFAULT_HISTORY_USAGE,
 		},
+		{
+			id: SSR_MOMENTS_ID,
+			widthScale: scale,
+			heightScale: scale,
+			format: "rgba16float",
+			usage: DEFAULT_HISTORY_USAGE,
+		},
 		{ id: "motion", usage: MOTION_HISTORY_USAGE },
 	];
 }
@@ -255,7 +272,7 @@ export function resolveSSRHistoryDescriptors(
  * Resolves transient targets used by WebGPU SSR denoising.
  *
  * @param request Current backend and resolved-option request.
- * @returns Two trace-resolution ping-pong targets for the shared denoiser.
+ * @returns Trace-resolution scratch and display targets independent of temporal history.
  * @sideEffects None.
  */
 function resolveSSRTransientDescriptors(
@@ -301,7 +318,7 @@ export class WebGPUScreenSpaceReflectionsImplementation implements PostProcessPa
 				descriptor,
 				read: [POST_PROCESS_SAMPLED_READ],
 				write:
-					descriptor.id === "ssr"
+					descriptor.id === "ssr" || descriptor.id === SSR_MOMENTS_ID
 						? [POST_PROCESS_STORAGE_WRITE, POST_PROCESS_SAMPLED_READ]
 						: [POST_PROCESS_STORAGE_WRITE],
 			})),
@@ -353,7 +370,7 @@ export class WebGPUScreenSpaceReflectionsImplementation implements PostProcessPa
 			return { ran: false };
 		}
 		await context.resources.copyGBufferToHistory("motion", "motion");
-		return { ran: true, updatedHistoryIds: ["ssr", "motion"] };
+		return { ran: true, updatedHistoryIds: ["ssr", SSR_MOMENTS_ID, "motion"] };
 	}
 
 	public invalidate(): void {
@@ -399,6 +416,7 @@ export class WebGPUScreenSpaceReflectionsImplementation implements PostProcessPa
 			POST_PROCESS_SHARED_RESOURCE_IDS.frameHiZ,
 		);
 		const history = context.resources.getHistory("ssr");
+		const moments = context.resources.getHistory(SSR_MOMENTS_ID);
 		const motionHistory = context.resources.getHistory("motion");
 		const denoiseA = context.resources.getTransient(SSR_DENOISE_A_ID);
 		const denoiseB = context.resources.getTransient(SSR_DENOISE_B_ID);
@@ -421,6 +439,8 @@ export class WebGPUScreenSpaceReflectionsImplementation implements PostProcessPa
 			!resources.composeParams ||
 			!history.read ||
 			!history.write ||
+			!moments.read ||
+			!moments.write ||
 			!motionHistory.read ||
 			!motionHistory.write ||
 			!denoiseA ||
@@ -465,6 +485,8 @@ export class WebGPUScreenSpaceReflectionsImplementation implements PostProcessPa
 				{ binding: 6, resource: context.shared.sampler },
 				{ binding: 7, resource: resources.traceParams },
 				{ binding: 8, resource: history.write },
+				{ binding: 9, resource: moments.read },
+				{ binding: 10, resource: moments.write },
 			],
 			"WebGPUSSR_TraceBinding",
 		);
@@ -485,17 +507,20 @@ export class WebGPUScreenSpaceReflectionsImplementation implements PostProcessPa
 			source: history.write,
 			scratch: denoiseA,
 			output: denoiseB,
+			moments: moments.write,
 			depth: depthTexture,
 			normal: normalTexture,
 			sampler: context.shared.sampler,
 			options: {
-				mode: "fast",
+				mode: "quality",
 				signal: "radiance-confidence",
 				radius: 2,
 				depthPhi: 48,
 				normalPhi: 32,
-				valuePhi: 2,
+				valuePhi: 0,
 				confidenceFloor: 0.05,
+				roughnessAware: true,
+				varianceGuided: true,
 			},
 		});
 
@@ -585,6 +610,12 @@ export class WebGPUScreenSpaceReflectionsImplementation implements PostProcessPa
 						},
 						{
 							binding: 8,
+							visibility: GPUShaderStage.COMPUTE,
+							storageTexture: { format: "rgba16float", access: "write-only" },
+						},
+						{ binding: 9, visibility: GPUShaderStage.COMPUTE, texture: {} },
+						{
+							binding: 10,
 							visibility: GPUShaderStage.COMPUTE,
 							storageTexture: { format: "rgba16float", access: "write-only" },
 						},

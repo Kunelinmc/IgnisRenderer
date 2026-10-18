@@ -436,7 +436,7 @@ async function testFourStageExecutionAndTemporalContinuity() {
 	);
 	assert.equal(denoiseBindings.length, 6);
 	assert.equal(
-		denoiseBindings.every((group) => group.desc.entries.length === 6),
+		denoiseBindings.every((group) => group.desc.entries.length === 7),
 		true
 	);
 

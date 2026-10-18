@@ -16,7 +16,7 @@ struct TraceParams {
 	historyValid: f32,
 	depthThreshold: f32,
 	frameIndex: f32,
-	_pad0: f32,
+	raysPerPixel: f32,
 }
 
 @group(0) @binding(0) var sceneColor: texture_2d<f32>;
@@ -28,6 +28,8 @@ struct TraceParams {
 @group(0) @binding(6) var linearSampler: sampler;
 @group(0) @binding(7) var<uniform> traceParams: TraceParams;
 @group(0) @binding(8) var outSSR: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(9) var ssrMomentHistory: texture_2d<f32>;
+@group(0) @binding(10) var outSSRMoments: texture_storage_2d<rgba16float, write>;
 
 @group(1) @binding(0) var<uniform> frame: FrameCameraUniforms;
 
@@ -161,6 +163,41 @@ struct HiZTraceResult {
 	t: f32,
 }
 
+fn ssrDepthCrossing(previousDelta: f32, currentDelta: f32) -> bool {
+	return previousDelta < 0.0 && currentDelta >= 0.0;
+}
+
+fn ssrAcceptRefinedHit(rayDepth: f32, sceneDepth: f32, thickness: f32) -> bool {
+	return sceneDepth > 0.0 && abs(rayDepth - sceneDepth) <= max(thickness, 0.01);
+}
+
+fn ssrBlendTemporal(
+	current: vec4<f32>, history: vec4<f32>, historyWeight: f32, historyValid: bool
+) -> vec4<f32> {
+	let weight = select(0.0, clamp(historyWeight, 0.0, 0.98), historyValid);
+	return mix(current, history, weight);
+}
+
+fn ssrBlendMoments(
+	current: vec2<f32>, history: vec4<f32>, historyWeight: f32, historyValid: bool
+) -> vec4<f32> {
+	let weight = select(0.0, clamp(historyWeight, 0.0, 0.98), historyValid);
+	let resolved = mix(current, history.xy, weight);
+	let effectiveFrames = 1.0 / max((1.0 - weight) * (1.0 - weight) +
+		weight * weight / max(history.z, 1.0), 1.0 / 128.0);
+	return vec4<f32>(resolved, min(effectiveFrames, 128.0), 1.0);
+}
+
+fn loadHiZDepth(uv: vec2<f32>, mip: i32) -> vec2<f32> {
+	let size = textureDimensions(hiZ, mip);
+	let coord = clamp(
+		vec2<i32>(uv * vec2<f32>(size)), vec2<i32>(0), vec2<i32>(size) - vec2<i32>(1)
+	);
+	// Depth bounds must remain conservative; filtering across silhouettes
+	// invents surfaces between unrelated foreground and background depths.
+	return textureLoad(hiZ, coord, mip).xy;
+}
+
 fn traceHiZ(
 	worldPos: vec3<f32>,
 	reflectionDir: vec3<f32>,
@@ -180,6 +217,8 @@ fn traceHiZ(
 	var t = startT + jitter * stride;
 	var mip: i32 = 0;
 	var missT = 0.0;
+	var previousDelta = 0.0;
+	var hasFrontSample = false;
 
 	for (var step: i32 = 0; step < 256; step = step + 1) {
 		if (step >= maxSteps) { break; }
@@ -196,29 +235,39 @@ fn traceHiZ(
 
 		// Clamp mip level to stay in valid range
 		let safeMip = clamp(mip, 0, maxMip);
-		let hizSample = textureSampleLevel(hiZ, linearSampler, suv, f32(safeMip));
+		let hizSample = loadHiZDepth(suv, safeMip);
 		let minDepth = hizSample.x;
 		let maxDepth = max(hizSample.y, hizSample.x); // fallback if .y wasn't written
+		let depthDelta = rayDepth - minDepth;
 
 		// No scene geometry at this location?
 		if (minDepth <= 0.0) {
+			hasFrontSample = false;
 			t += stride * pow(2.0, f32(safeMip));
 			continue;
 		}
 
-		// Is the ray behind the back surface? (completely occluded)
+		// A step can cross the entire thickness interval. Keep its front/back
+		// bracket and refine instead of advancing farther behind the surface.
 		if (rayDepth > maxDepth + thickness) {
-			// Ray is past this cell — advance and try coarser
-			missT = t;
+			if (hasFrontSample && ssrDepthCrossing(previousDelta, depthDelta)) {
+				if (mip > 0) {
+					mip = mip - 1;
+					continue;
+				}
+				result.hit = true;
+				result.t = t;
+				break;
+			}
 			mip = min(mip + 1, maxMip);
 			t += stride * pow(2.0, f32(safeMip));
 			continue;
 		}
 
-		// Is the ray in front of the front surface?
-		if (rayDepth < minDepth - thickness) {
-			// Ray hasn't reached this cell yet — advance at current mip
+		if (depthDelta < 0.0) {
 			missT = t;
+			previousDelta = depthDelta;
+			hasFrontSample = true;
 			t += stride * pow(2.0, f32(safeMip));
 			continue;
 		}
@@ -230,22 +279,19 @@ fn traceHiZ(
 			continue;
 		}
 
-		// At mip 0 and within thickness — we have a hit!
-		if (rayDepth >= minDepth - thickness && rayDepth <= minDepth + thickness * 2.0) {
+		if (ssrDepthCrossing(previousDelta, depthDelta) ||
+			ssrAcceptRefinedHit(rayDepth, minDepth, thickness)) {
 			result.hit = true;
-			result.hitUv = suv;
 			result.t = t;
 			break;
 		}
 
-		// Continue marching at mip 0
-		missT = t;
 		t += stride;
 	}
 
 	// Binary refinement if we got a hit
 	if (result.hit) {
-		var refineMin = missT;
+		var refineMin = select(result.t, missT, hasFrontSample);
 		var refineMax = result.t;
 		let refineSteps = i32(clamp(traceParams.binarySearchSteps, 0.0, 16.0));
 
@@ -262,16 +308,21 @@ fn traceHiZ(
 			}
 
 			let rayDepth = worldToLinearDepth(refinePos);
-			let sceneDepth = textureSampleLevel(hiZ, linearSampler, refineUv, 0.0).x;
+			let sceneDepth = loadHiZDepth(refineUv, 0).x;
 
-			if (sceneDepth > 0.0 && rayDepth >= sceneDepth - thickness) {
+			if (sceneDepth > 0.0 && rayDepth >= sceneDepth) {
 				refineMax = midT;
-				result.hitUv = refineUv;
 			} else {
 				refineMin = midT;
 			}
 		}
 		result.t = refineMax;
+		let refinedPosition = worldPos + reflectionDir * refineMax;
+		let refinedUv = worldToUv(refinedPosition);
+		result.hitUv = refinedUv;
+		result.hit = isInsideScreen(refinedUv) && ssrAcceptRefinedHit(
+			worldToLinearDepth(refinedPosition), loadHiZDepth(refinedUv, 0).x, thickness
+		);
 	}
 
 	return result;
@@ -305,8 +356,9 @@ fn csTrace(@builtin(global_invocation_id) gid: vec3<u32>) {
 	let metalness = clamp(g.w, 0.0, 1.0);
 
 	// Early-out: no geometry or too rough
-	if (depth <= 0.0 || roughness > traceParams.maxRoughness) {
+	if (depth <= 0.0 || roughness > traceParams.maxRoughness || traceParams.intensity <= 0.0) {
 		textureStore(outSSR, vec2<i32>(gid.xy), vec4<f32>(0.0));
+		textureStore(outSSRMoments, vec2<i32>(gid.xy), vec4<f32>(0.0));
 		return;
 	}
 
@@ -323,7 +375,6 @@ fn csTrace(@builtin(global_invocation_id) gid: vec3<u32>) {
 	// Blue-noise jitter from interleaved gradient noise
 	// -----------------------------------------------------------------------
 	let noise = interleavedGradientNoise(pixel, traceParams.frameIndex);
-	let r2 = r2Sequence(traceParams.frameIndex + noise * 64.0);
 
 	// -----------------------------------------------------------------------
 	// Stochastic reflection direction
@@ -331,83 +382,79 @@ fn csTrace(@builtin(global_invocation_id) gid: vec3<u32>) {
 	// For rough surfaces, importance-sample a GGX microfacet normal to
 	// approximate roughness cone tracing.
 	// -----------------------------------------------------------------------
-	var reflectionDir: vec3<f32>;
-	var sampleRoughness: f32;
-
-	if (roughness < 0.05) {
-		// Mirror reflection — no stochastic sampling needed
-		reflectionDir = reflect(worldViewDir, worldNormal);
-		sampleRoughness = 0.0;
-	} else {
-		// Importance-sample a GGX half-vector
-		let xi = vec2<f32>(
-			fract(r2.x + noise),
-			fract(r2.y + noise * 0.7071)
-		);
-		let H = importanceSampleGGX(xi, roughness, worldNormal);
-		reflectionDir = reflect(worldViewDir, H);
-		sampleRoughness = roughness;
-	}
-
-	// Safety: skip if reflection points INTO the surface
-	if (dot(reflectionDir, worldNormal) < 0.001) {
-		textureStore(outSSR, vec2<i32>(gid.xy), vec4<f32>(0.0));
-		return;
-	}
-
-	// -----------------------------------------------------------------------
-	// HiZ ray march with blue-noise jitter for per-pixel t-offset
-	// -----------------------------------------------------------------------
+	let sampleRoughness = select(roughness, 0.0, roughness < 0.05);
+	let sampleCount = select(i32(clamp(traceParams.raysPerPixel, 1.0, 8.0)), 1,
+		roughness < 0.05);
 	let startT = max(traceParams.stride, 0.25);
-	let traceResult = traceHiZ(worldPos, reflectionDir, startT, noise);
+	var current = vec4<f32>(0.0);
+	var sampleLogSum = 0.0;
+	var sampleLogSquareSum = 0.0;
+	for (var sampleIndex = 0; sampleIndex < 8; sampleIndex++) {
+		if (sampleIndex >= sampleCount) { break; }
+		var reflectionDir = reflect(worldViewDir, worldNormal);
+		let sampleNoise = fract(noise + f32(sampleIndex) * GOLDEN_RATIO_CONJUGATE);
+		if (roughness >= 0.05) {
+			let r2 = r2Sequence(traceParams.frameIndex * f32(sampleCount) +
+				f32(sampleIndex) + noise * 64.0);
+			let xi = vec2<f32>(fract(r2.x + sampleNoise),
+				fract(r2.y + sampleNoise * 0.7071));
+			reflectionDir = reflect(worldViewDir,
+				importanceSampleGGX(xi, roughness, worldNormal));
+		}
+		if (dot(reflectionDir, worldNormal) < 0.001) { continue; }
+		let traceResult = traceHiZ(worldPos, reflectionDir, startT, sampleNoise);
+		if (!traceResult.hit) { continue; }
+		// -----------------------------------------------------------------------
+		// Sample the radiance of each hit before temporal/spatial reconstruction.
+		// -----------------------------------------------------------------------
+		let hitUv = traceResult.hitUv;
+		// Roughness is integrated by ray directions and multiscale reconstruction.
+		// Scene color has one mip; requesting a nonexistent LOD cannot prefilter it.
+		let hitColor = clamp(textureSampleLevel(sceneColor, linearSampler, hitUv, 0.0).rgb,
+			vec3<f32>(0.0), vec3<f32>(65504.0));
 
-	if (!traceResult.hit) {
-		textureStore(outSSR, vec2<i32>(gid.xy), vec4<f32>(0.0));
-		return;
+		// -----------------------------------------------------------------------
+		// Screen-edge fade
+		// -----------------------------------------------------------------------
+		let edgeDistance = min(
+			min(hitUv.x, 1.0 - hitUv.x),
+			min(hitUv.y, 1.0 - hitUv.y)
+		);
+		let edge = clamp(edgeDistance / max(traceParams.edgeFade, 1e-4), 0.0, 1.0);
+
+		// -----------------------------------------------------------------------
+		// Distance fade — reflections far from origin are less reliable
+		// -----------------------------------------------------------------------
+		let distFade = 1.0 - clamp(traceResult.t / max(traceParams.maxDistance, 1.0), 0.0, 1.0);
+
+		// -----------------------------------------------------------------------
+		// Roughness attenuation — rougher surfaces get dimmer SSR
+		// (IBL / fallback should cover rough reflections better)
+		// -----------------------------------------------------------------------
+		let roughFade = 1.0 - clamp(sampleRoughness / max(traceParams.maxRoughness, 0.01), 0.0, 1.0);
+
+		// -----------------------------------------------------------------------
+		// Fresnel-weighted reflectance
+		// -----------------------------------------------------------------------
+		let fresnel = fresnelSchlickSSR(nDotV, f0);
+		let fresnelWeight = max(max(fresnel.r, fresnel.g), fresnel.b);
+
+		// -----------------------------------------------------------------------
+		// Final weight
+		// -----------------------------------------------------------------------
+		let weight = clamp(
+			traceParams.intensity * edge * distFade * roughFade * fresnelWeight,
+			0.0,
+			1.0
+		);
+		let radiance = max(hitColor * weight, vec3<f32>(0.0));
+		current += vec4<f32>(radiance, weight);
+		let sampleLog = log(1.0 + dot(radiance, vec3<f32>(0.2126, 0.7152, 0.0722)));
+		sampleLogSum += sampleLog;
+		sampleLogSquareSum += sampleLog * sampleLog;
 	}
-
-	// -----------------------------------------------------------------------
-	// Sample hit color at appropriate mip for roughness cone approximation
-	// Wider cone (higher roughness) → coarser mip → smoother reflections
-	// -----------------------------------------------------------------------
-	let hitUv = traceResult.hitUv;
-	let coneMip = clamp(sampleRoughness * 4.0, 0.0, 3.0);
-	let hitColor = textureSampleLevel(sceneColor, linearSampler, hitUv, coneMip).rgb;
-
-	// -----------------------------------------------------------------------
-	// Screen-edge fade
-	// -----------------------------------------------------------------------
-	let edgeDistance = min(
-		min(hitUv.x, 1.0 - hitUv.x),
-		min(hitUv.y, 1.0 - hitUv.y)
-	);
-	let edge = clamp(edgeDistance / max(traceParams.edgeFade, 1e-4), 0.0, 1.0);
-
-	// -----------------------------------------------------------------------
-	// Distance fade — reflections far from origin are less reliable
-	// -----------------------------------------------------------------------
-	let distFade = 1.0 - clamp(traceResult.t / max(traceParams.maxDistance, 1.0), 0.0, 1.0);
-
-	// -----------------------------------------------------------------------
-	// Roughness attenuation — rougher surfaces get dimmer SSR
-	// (IBL / fallback should cover rough reflections better)
-	// -----------------------------------------------------------------------
-	let roughFade = 1.0 - clamp(sampleRoughness / max(traceParams.maxRoughness, 0.01), 0.0, 1.0);
-
-	// -----------------------------------------------------------------------
-	// Fresnel-weighted reflectance
-	// -----------------------------------------------------------------------
-	let fresnel = fresnelSchlickSSR(nDotV, f0);
-	let fresnelWeight = max(max(fresnel.r, fresnel.g), fresnel.b);
-
-	// -----------------------------------------------------------------------
-	// Final weight
-	// -----------------------------------------------------------------------
-	let weight = clamp(
-		traceParams.intensity * edge * distFade * roughFade * fresnelWeight,
-		0.0,
-		1.0
-	);
+	// Include misses in the denominator so sparse bright hits do not gain energy.
+	current /= f32(sampleCount);
 
 	// -----------------------------------------------------------------------
 	// Temporal reprojection
@@ -415,12 +462,14 @@ fn csTrace(@builtin(global_invocation_id) gid: vec3<u32>) {
 	let motion = motionDepth.xy;
 	let prevUv = uv - vec2<f32>(motion.x * 0.5, -motion.y * 0.5);
 	let hist = textureSampleLevel(ssrHistory, linearSampler, prevUv, 0.0);
+	let momentHistory = textureSampleLevel(ssrMomentHistory, linearSampler, prevUv, 0.0);
 
 	let currDepth = depth;
 	let prevDepth = textureSampleLevel(motionHistory, linearSampler, prevUv, 0.0).z;
 	let relDepth = abs(currDepth - prevDepth) / max(max(currDepth, prevDepth), 1e-4);
 
 	let historyOk = traceParams.historyValid > 0.5
+		&& momentHistory.z >= 1.0 && momentHistory.w > 0.5
 		&& prevUv.x >= 0.0 && prevUv.x <= 1.0
 		&& prevUv.y >= 0.0 && prevUv.y <= 1.0
 		&& relDepth <= traceParams.depthThreshold;
@@ -429,10 +478,17 @@ fn csTrace(@builtin(global_invocation_id) gid: vec3<u32>) {
 	// Rough surfaces need more temporal blending, smooth surfaces less
 	let baseBlend = clamp(traceParams.historyWeight, 0.0, 0.98);
 	let roughnessBlend = mix(baseBlend, min(baseBlend + 0.05, 0.98), sampleRoughness);
-	let blend = select(0.0, roughnessBlend, historyOk);
-
-	let current = vec4<f32>(max(hitColor * weight, vec3<f32>(0.0)), weight);
-	textureStore(outSSR, vec2<i32>(gid.xy), mix(current, hist, blend));
+	textureStore(outSSR, vec2<i32>(gid.xy),
+		ssrBlendTemporal(current, hist, roughnessBlend, historyOk));
+	// Log moments remain finite in rgba16float for bright HDR emitters. Include
+	// within-frame uncertainty so the first few frames can also be reconstructed.
+	let frameLog = log(1.0 + dot(current.rgb, vec3<f32>(0.2126, 0.7152, 0.0722)));
+	let sampleLogMean = sampleLogSum / f32(sampleCount);
+	let frameVariance = max(sampleLogSquareSum / f32(sampleCount) -
+		sampleLogMean * sampleLogMean, 0.0) / max(f32(sampleCount - 1), 1.0);
+	let currentMoments = vec2<f32>(frameLog, frameLog * frameLog + frameVariance);
+	textureStore(outSSRMoments, vec2<i32>(gid.xy),
+		ssrBlendMoments(currentMoments, momentHistory, roughnessBlend, historyOk));
 }
 
 // ---------------------------------------------------------------------------

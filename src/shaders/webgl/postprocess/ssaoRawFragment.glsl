@@ -10,6 +10,7 @@ uniform vec4 uInvSize; // fullInvW, fullInvH, aoInvW, aoInvH
 uniform vec4 uGTAO; // radius, bias, intensity, samples
 uniform vec4 uBlurProj; // blurRadius, blurSharpness, tanHalfFov, aspect
 uniform vec4 uPass; // blurDirX, blurDirY, isOrthographic, frameJitter
+uniform vec4 uProjection; // scaleX, scaleY, reconstructionOffsetX, reconstructionOffsetY
 uniform vec3 uCameraPosition;
 uniform vec3 uBasisRight;
 uniform vec3 uBasisUp;
@@ -32,21 +33,12 @@ vec3 decodeNormal(vec3 encoded) {
 
 vec3 reconstructWorldPos(vec2 uv, float depth) {
 	vec2 ndc = uv * 2.0 - 1.0;
-	if (uPass.z > 0.5) {
-		return
-			uCameraPosition +
-			uBasisRight * ndc.x +
-			uBasisUp * ndc.y -
-			uBasisBackward * depth;
-	}
-	float tanHalfFov = max(uBlurProj.z, 1e-4);
-	float aspect = max(uBlurProj.w, 1e-4);
-	float x = ndc.x * aspect * tanHalfFov * depth;
-	float y = ndc.y * tanHalfFov * depth;
+	float depthScale = uPass.z > 0.5 ? 1.0 : depth;
+	vec2 xy = (ndc + uProjection.zw) * depthScale / uProjection.xy;
 	return
 		uCameraPosition +
-		uBasisRight * x +
-		uBasisUp * y -
+		uBasisRight * xy.x +
+		uBasisUp * xy.y -
 		uBasisBackward * depth;
 }
 
@@ -74,23 +66,12 @@ void main() {
 		MAX_STEP_COUNT
 	);
 
-	float radiusPixels = max(uGTAO.x, 1.0);
-	vec2 radiusUv = radiusPixels * uInvSize.xy;
+	float radiusView = max(uGTAO.x, 1e-4);
+	float depthScale = uPass.z > 0.5 ? 1.0 : max(depth, 1e-4);
+	vec2 radiusUv = 0.5 * radiusView * abs(uProjection.xy) / depthScale;
 	float bias = max(uGTAO.y, 1e-4);
 	float intensity = max(uGTAO.z, 0.0);
 	float frameNoise = interleavedGradientNoise(gl_FragCoord.xy, uPass.w);
-
-	float perspectiveRadiusView =
-		radiusPixels *
-		depth *
-		max(uBlurProj.z, 0.05) *
-		max(uInvSize.x, uInvSize.y) *
-		2.0;
-	float orthographicRadiusView = max(radiusUv.x, radiusUv.y) * 2.0;
-	float radiusView = max(
-		(uPass.z > 0.5) ? orthographicRadiusView : perspectiveRadiusView,
-		1e-3
-	);
 
 	float occ = 0.0;
 	for (int dirIdx = 0; dirIdx < MAX_DIRECTION_COUNT; dirIdx++) {

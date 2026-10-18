@@ -13,15 +13,22 @@ struct ToneMappingParams {
 @group(0) @binding(2) var outTex: texture_storage_2d<rgba16float, write>;
 
 fn acesFitted(color: vec3<f32>) -> vec3<f32> {
+	let positive = max(color, vec3<f32>(0.0));
+	let peak = max(positive.r, max(positive.g, positive.b));
+	if (peak == 0.0) {
+		return positive;
+	}
 	let a = 2.51;
 	let b = 0.03;
 	let c = 2.43;
 	let d = 0.59;
 	let e = 0.14;
-	let mapped =
-		(color * (a * color + vec3<f32>(b))) /
-		(color * (c * color + vec3<f32>(d)) + vec3<f32>(e));
-	return clamp(mapped, vec3<f32>(0.0), vec3<f32>(1.0));
+	let mappedPeak = clamp(
+		(peak * (a * peak + b)) / (peak * (c * peak + d) + e),
+		0.0, 1.0
+	);
+	// Scale RGB together so attenuation and exposure do not shift emissive hue.
+	return positive * (mappedPeak / peak);
 }
 
 fn hdrSoftShoulder(color: vec3<f32>, headroom: f32) -> vec3<f32> {

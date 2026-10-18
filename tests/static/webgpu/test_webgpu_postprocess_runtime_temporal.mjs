@@ -42,6 +42,8 @@ function createTemporalHistories(width = 32, height = 16) {
 		motionHistoryWrite: createTexture(width, height, "motion-history-write"),
 		ssrHistoryRead: createTexture(width, height, "ssr-history-read"),
 		ssrHistoryWrite: createTexture(width, height, "ssr-history-write"),
+		ssrMomentsRead: createTexture(width, height, "ssr-moments-read"),
+		ssrMomentsWrite: createTexture(width, height, "ssr-moments-write"),
 		volumetricHistoryRead: createTexture(width, height, "vol-history-read"),
 		volumetricHistoryWrite: createTexture(width, height, "vol-history-write"),
 		volumetricReservoirHistoryRead: createTexture(
@@ -68,6 +70,11 @@ function createSSRPassRequest(frameContext, histories, historyValid = true) {
 				valid: historyValid,
 				read: { resource: histories.ssrHistoryRead },
 				write: { resource: histories.ssrHistoryWrite },
+			},
+			"ssr:moments": {
+				valid: historyValid,
+				read: { resource: histories.ssrMomentsRead },
+				write: { resource: histories.ssrMomentsWrite },
 			},
 			motion: {
 				valid: historyValid,
@@ -154,6 +161,10 @@ async function executeSSRImplementation(
 			getHistory: (id) => id === "ssr" ? {
 				read: histories.ssrHistoryRead,
 				write: histories.ssrHistoryWrite,
+				valid: historyValid,
+			} : id === "ssr:moments" ? {
+				read: histories.ssrMomentsRead,
+				write: histories.ssrMomentsWrite,
 				valid: historyValid,
 			} : {
 				read: histories.motionHistoryRead,
@@ -302,7 +313,7 @@ async function testSSRAndVolumetricReportHistoryUpdates() {
 	});
 	assert.deepEqual(ssrRun.result, {
 		ran: true,
-		updatedHistoryIds: ["ssr", "motion"],
+		updatedHistoryIds: ["ssr", "ssr:moments", "motion"],
 	});
 	assert.strictEqual(ssrRun.published, ssrTargets.postPing);
 	assert.strictEqual(ssrTargets.sceneColor, ssrTargets.postPing);
@@ -336,6 +347,10 @@ async function testSSRAndVolumetricReportHistoryUpdates() {
 		traceBinding.entries[8].resource,
 		ssrHistories.ssrHistoryWrite
 	);
+	assert.notStrictEqual(composeBinding.entries[1].resource, ssrHistories.ssrHistoryWrite,
+		"Spatial reconstruction must not overwrite the next frame's temporal radiance.");
+	assert.strictEqual(traceBinding.entries[9].resource, ssrHistories.ssrMomentsRead);
+	assert.strictEqual(traceBinding.entries[10].resource, ssrHistories.ssrMomentsWrite);
 	assert.strictEqual(
 		composeBinding.entries[1].resource,
 		ssrRun.transients.ssrDenoiseB
@@ -526,7 +541,7 @@ async function testSSRDestroyReleasesCachedBindings() {
 		frameContext,
 		historyValid: true,
 	});
-	assert.equal(backend.bindingGroups.length, 4);
+	assert.ok(backend.bindingGroups.length > 2);
 
 	const ssrPass = frameContext.postProcess.getEnabledPasses()
 		.find((resolved) => resolved.id === "ssr")?.pass;

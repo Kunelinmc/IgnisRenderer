@@ -309,11 +309,35 @@ browsers and devices continue rendering through SDR and report a fallback
 reason for explicit HDR requests. Existing code remains SDR unless it opts into
 `"auto"` or `"hdr"`.
 
+SDR tone mapping applies the fitted ACES curve to the brightest exposed RGB
+channel and scales all channels together. Bright emissive surfaces and their
+attenuated reflections retain the same scene-linear color ratios instead of
+shifting toward white at different intensities. Neutral colors retain the
+fitted ACES grayscale response. Display HDR keeps its soft-shoulder mapping.
+
 ### Screen-space global illumination
 
 The ray-marched implementation replaces the former screen-neighborhood gather.
 The removed options and their replacements are documented in the
 [migration guidance](../migrations/README.md).
+
+### Screen-space ambient occlusion
+
+SSAO radius and depth bias use view-space distance units on every backend.
+The defaults are `radius: 0.65` and `bias: 0.025`; GPU sampling projects that
+radius using camera depth and projection, so its physical reach remains stable
+when resolution changes. The corrected GPU radius replaces the previous pixel
+interpretation. Existing GPU configurations tuned to pixel values should use
+view-space distances instead. Keep bias well below the radius to preserve
+contact occlusion.
+
+### Screen-space reflections
+
+SSR averages four reflection rays per rough pixel by default and accumulates
+radiance and noise statistics between frames. Display reconstruction is filtered
+separately, with a footprint adapted to roughness and estimated noise.
+`SSROptions.raysPerPixel` accepts `1` through `8`; higher values reduce sampling
+noise at higher tracing cost. Mirror-smooth surfaces use one ray.
 
 ## Related Documents
 

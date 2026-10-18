@@ -103,8 +103,8 @@ export const DEFAULT_SSAO_OPTIONS: Required<
 	>
 > = {
 	samples: 16,
-	radius: 8,
-	bias: 0.1,
+	radius: 0.65,
+	bias: 0.025,
 	intensity: 1,
 	downsample: 2,
 	blurRadius: 2,
@@ -167,6 +167,7 @@ interface WebGLSSAORawProgram {
 		readonly gtao: WebGLUniformLocation | null;
 		readonly blurProj: WebGLUniformLocation | null;
 		readonly pass: WebGLUniformLocation | null;
+		readonly projection: WebGLUniformLocation | null;
 		readonly cameraPosition: WebGLUniformLocation | null;
 		readonly basisRight: WebGLUniformLocation | null;
 		readonly basisUp: WebGLUniformLocation | null;
@@ -231,7 +232,7 @@ export function resolveSSAOOptions(
 		radius: finiteClamped(
 			options?.radius,
 			DEFAULT_SSAO_OPTIONS.radius,
-			1,
+			1e-4,
 			Number.POSITIVE_INFINITY
 		),
 		bias: finiteClamped(
@@ -290,7 +291,7 @@ export function resolveSSAODownsample(value: unknown): number {
  * @param blurDirX Horizontal blur direction.
  * @param blurDirY Vertical blur direction.
  * @param frameJitter Temporal noise phase.
- * @returns Sixteen float parameters expected by the SSAO kernels.
+ * @returns Twenty float parameters expected by the SSAO kernels.
  * @sideEffects None.
  */
 export function createSSAOKernelParams(
@@ -309,6 +310,7 @@ export function createSSAOKernelParams(
 		isOrthographic ? 0 : Math.tan((camera.fov * Math.PI) / 360);
 	const aspect =
 		camera.aspectRatio || Math.max(width, 1) / Math.max(height, 1);
+	const projection = camera.projectionMatrix.elements;
 	return new Float32Array([
 		1 / Math.max(width, 1),
 		1 / Math.max(height, 1),
@@ -326,6 +328,10 @@ export function createSSAOKernelParams(
 		blurDirY,
 		isOrthographic ? 1 : 0,
 		frameJitter,
+		projection[0][0],
+		projection[1][1],
+		isOrthographic ? -projection[0][3] : projection[0][2],
+		isOrthographic ? -projection[1][3] : projection[1][2],
 	]);
 }
 
@@ -829,7 +835,7 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 		if (!resources.params) {
 			resources.params = shared.compute.createBuffer({
 				label: "WebGPUSSAOParams",
-				size: 16 * 4,
+				size: 20 * 4,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
 			});
 		}
@@ -1004,6 +1010,10 @@ export class WebGLScreenSpaceAmbientOcclusionImplementation
 				params[15]
 			);
 		}
+		if (rawProgram.uniforms.projection) {
+			gl.uniform4f(rawProgram.uniforms.projection,
+				params[16], params[17], params[18], params[19]);
+		}
 		if (rawProgram.uniforms.cameraPosition) {
 			gl.uniform3f(
 				rawProgram.uniforms.cameraPosition,
@@ -1144,6 +1154,7 @@ export class WebGLScreenSpaceAmbientOcclusionImplementation
 					gtao: gl.getUniformLocation(program, "uGTAO"),
 					blurProj: gl.getUniformLocation(program, "uBlurProj"),
 					pass: gl.getUniformLocation(program, "uPass"),
+					projection: gl.getUniformLocation(program, "uProjection"),
 					cameraPosition: gl.getUniformLocation(program, "uCameraPosition"),
 					basisRight: gl.getUniformLocation(program, "uBasisRight"),
 					basisUp: gl.getUniformLocation(program, "uBasisUp"),

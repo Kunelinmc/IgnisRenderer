@@ -14,13 +14,19 @@ function binary(operator, left, right) {
 		case "-": return Math.fround(left - right);
 		case "*": return Math.fround(left * right);
 		case "/": return Math.fround(left / right);
+		case "<": return left < right;
+		case ">": return left > right;
+		case "<=": return left <= right;
+		case ">=": return left >= right;
+		case "&&": return left && right;
+		case "||": return left || right;
 		default: throw new Error(`Unsupported WGSL math operator: ${operator}`);
 	}
 }
 
 function compileExpression(source) {
 	const tokens = [];
-	const pattern = /\s*(\d+(?:\.\d+)?(?:e[+-]?\d+)?|[A-Za-z_]\w*|[()[\].,+*/-])/y;
+	const pattern = /\s*(\d+(?:\.\d+)?(?:e[+-]?\d+)?|[A-Za-z_]\w*|&&|\|\||<=|>=|[()[\].,+*/<>-])/y;
 	let offset = 0;
 	while (offset < source.trimEnd().length) {
 		pattern.lastIndex = offset;
@@ -33,7 +39,7 @@ function compileExpression(source) {
 	const expect = (token) => {
 		if (tokens[index++] !== token) throw new Error(`Expected '${token}' in ${source}`);
 	};
-	function parse(minimumPrecedence = 0) {
+	function parse(minimumPrecedence = -3) {
 		const token = tokens[index++];
 		let expression;
 		if (token === "-") {
@@ -82,7 +88,10 @@ function compileExpression(source) {
 				expect(")");
 				expression = (scope) => left(scope)(...args.map((argument) => argument(scope)));
 			} else {
-				const precedence = { "+": 1, "-": 1, "*": 2, "/": 2 }[next];
+				const precedence = {
+					"||": -3, "&&": -2, "<": -1, ">": -1, "<=": -1, ">=": -1,
+					"+": 1, "-": 1, "*": 2, "/": 2,
+				}[next];
 				if (precedence === undefined || precedence < minimumPrecedence) break;
 				index++;
 				const right = parse(precedence + 1);
@@ -96,7 +105,7 @@ function compileExpression(source) {
 	return expression;
 }
 
-// Only straight-line f32 vector/matrix math is supported, not general WGSL or GPU validation.
+// Only straight-line scalar/vector/matrix math is supported, not general WGSL or GPU validation.
 // Interpret the shader asset itself so regressions cannot hide behind copied test formulas.
 export function compileWGSLMath(source, functionNames) {
 	const vector = (length) => (...values) => {
@@ -109,6 +118,15 @@ export function compileWGSLMath(source, functionNames) {
 		Math.fround(sum + Math.fround(value * right[index])), 0);
 	const functions = {
 		dot,
+		abs: (value) => Array.isArray(value)
+			? value.map((lane) => Math.fround(Math.abs(lane)))
+			: Math.fround(Math.abs(value)),
+		max: (left, right) => Math.fround(Math.max(left, right)),
+		min: (left, right) => Math.fround(Math.min(left, right)),
+		clamp: (value, low, high) => Math.fround(Math.min(high, Math.max(low, value))),
+		select: (left, right, condition) => condition ? right : left,
+		mix: (left, right, weight) => binary("+",
+			binary("*", left, binary("-", 1, weight)), binary("*", right, weight)),
 		normalize: (value) => binary("/", value, Math.fround(Math.sqrt(dot(value, value)))),
 		vec2: vector(2), vec3: vector(3), vec4: vector(4),
 	};

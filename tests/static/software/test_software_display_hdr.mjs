@@ -7,10 +7,7 @@ import {
 	DEFAULT_DISPLAY_OUTPUT_OPTIONS,
 } from "../../../src/rendering/DisplayOutput.ts";
 import {
-	encodeLinearSRGB,
-} from "../../../src/postprocess/passes/GammaPass.ts";
-import {
-	applyACESToneMapping,
+	SoftwareToneMappingImplementation,
 } from "../../../src/postprocess/passes/ToneMappingPass.ts";
 
 const originalImageData = globalThis.ImageData;
@@ -235,9 +232,21 @@ function testPresentationAndTargetLifecycle() {
 		attachments: { ...sdrAttachments, color: sdrColor },
 		clipRegions: [{ minX: 0, minY: 0, maxXExclusive: 1, maxYExclusive: 1 }],
 	}, "scene-linear-hdr");
-	const mapped = applyACESToneMapping([4, 0.5, 0.25], 1);
-	assert.equal(sdrAttachments.pixels[0], Math.round(encodeLinearSRGB(mapped[0]) * 255));
+	// Peak ACES is 0.9734171097; the other linear channels retain ratios 1/8 and 1/16.
+	assert.deepEqual(Array.from(sdrAttachments.pixels), [252, 98, 70, 255]);
 	assert.ok(sdrHarness.captured.image.data instanceof Uint8ClampedArray);
+	const sdrFrame = {
+		attachments: { ...sdrAttachments, color: sdrColor },
+		clipRegions: [{ minX: 0, minY: 0, maxXExclusive: 1, maxYExclusive: 1 }],
+	};
+	new SoftwareToneMappingImplementation().execute({ frameContext: sdrFrame }, {
+		dirtyRects: [{ minX: 0, minY: 0, maxX: 0, maxY: 0 }],
+		displayOutput: sdrConfigured.state,
+		resources: { color: { input: sdrColor, output: sdrColor } },
+	});
+	sdrSurface.present(sdrFrame, "display-linear");
+	assert.deepEqual(Array.from(sdrAttachments.pixels), [252, 98, 70, 255]);
+	sdrSurface.destroy();
 }
 
 async function testMediaQueryEventsAndPresentationFailure() {

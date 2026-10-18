@@ -8,7 +8,8 @@ struct DenoiseParams {
 	confidenceFloor: f32,
 	signalMode: f32,
 	qualityMode: f32,
-	_pad0: vec2<f32>,
+	roughnessAware: f32,
+	varianceGuided: f32,
 	_pad1: vec4<f32>,
 }
 
@@ -19,6 +20,7 @@ struct DenoiseParams {
 @group(0) @binding(4) var<uniform> params: DenoiseParams;
 @group(0) @binding(5)
 var signalOut: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(6) var momentTexture: texture_2d<f32>;
 
 const WORKGROUP_SIZE = 8u;
 const TILE_EXTENT = 24u;
@@ -31,6 +33,7 @@ const LUMINANCE = vec3<f32>(0.2126, 0.7152, 0.0722);
 var<workgroup> tileSignal: array<vec4<f32>, TILE_COUNT>;
 var<workgroup> tileDepth: array<f32, TILE_COUNT>;
 var<workgroup> tileNormal: array<vec4<f32>, TILE_COUNT>;
+var<workgroup> tileMoments: array<vec4<f32>, TILE_COUNT>;
 
 fn signNotZero2(value: vec2<f32>) -> vec2<f32> {
 	return vec2<f32>(
@@ -75,17 +78,12 @@ fn loadTileValue(index: u32, coord: vec2<i32>, size: vec2<u32>) {
 		uv,
 		0.0
 	).z;
-	tileNormal[index] = vec4<f32>(
-		decodeNormal(
-			textureSampleLevel(
-				normalTexture,
-				linearSampler,
-				uv,
-				0.0
-			).xy
-		),
-		0.0
-	);
+	let normalSample = textureSampleLevel(normalTexture, linearSampler, uv, 0.0);
+	tileNormal[index] = vec4<f32>(decodeNormal(normalSample.xy), clamp(normalSample.z, 0.0, 1.0));
+	tileMoments[index] = vec4<f32>(0.0, 0.0, 1.0, 0.0);
+	if (params.varianceGuided > 0.5) {
+		tileMoments[index] = textureLoad(momentTexture, safeCoord, 0);
+	}
 }
 
 fn loadHorizontalTile(
@@ -188,6 +186,18 @@ fn spatialWeight(offset: i32, radius: i32) -> f32 {
 	return exp(-0.5 * normalizedOffset * normalizedOffset);
 }
 
+fn temporalNoiseVariance(moments: vec4<f32>) -> f32 {
+	return max(moments.y - moments.x * moments.x, 0.0) / max(moments.z, 1.0);
+}
+
+fn adaptiveSupport(roughness: f32, moments: vec4<f32>) -> f32 {
+	let relativeNoise = clamp(sqrt(temporalNoiseVariance(moments)) /
+		max(abs(moments.x), 0.01), 0.0, 1.0);
+	// Roughness controls the maximum reconstruction footprint; converged pixels
+	// use no spatial blur even when their receiver is not perfectly smooth.
+	return min(4.0, 1.0 + 4.0 * roughness) * mix(0.25, 1.0, relativeNoise);
+}
+
 fn filterTile(centerIndex: u32, axisStride: i32) -> vec4<f32> {
 	if (centerIndex >= TILE_COUNT) {
 		return vec4<f32>(0.0);
@@ -198,6 +208,11 @@ fn filterTile(centerIndex: u32, axisStride: i32) -> vec4<f32> {
 		return centerSignal;
 	}
 	let centerNormal = tileNormal[centerIndex].xyz;
+	let centerRoughness = tileNormal[centerIndex].w;
+	if (params.roughnessAware > 0.5 && centerRoughness < 0.05) {
+		// Mirror radiance contains real image edges even on a flat receiver.
+		return centerSignal;
+	}
 	let centerValue = signalValue(centerSignal);
 	let radius = safePositiveInteger(params.radius, 4);
 	let requestedStepWidth = safePositiveInteger(params.stepWidth, 4);
@@ -206,6 +221,11 @@ fn filterTile(centerIndex: u32, axisStride: i32) -> vec4<f32> {
 		requestedStepWidth,
 		max(TILE_HALO / radius, 1)
 	);
+	var support = f32(radius * stepWidth);
+	if (params.varianceGuided > 0.5) {
+		support = adaptiveSupport(centerRoughness, tileMoments[centerIndex]);
+		if (support < f32(stepWidth)) { return centerSignal; }
+	}
 	let depthPhi = safeNonNegative(params.depthPhi);
 	let normalPhi = safeNonNegative(params.normalPhi);
 	let valuePhi = safeNonNegative(params.valuePhi);
@@ -224,6 +244,9 @@ fn filterTile(centerIndex: u32, axisStride: i32) -> vec4<f32> {
 		if (abs(offset) > radius) {
 			continue;
 		}
+		if (params.varianceGuided > 0.5 && f32(abs(offset) * stepWidth) > support) {
+			continue;
+		}
 		let tileOffset = offset * stepWidth * axisStride;
 		let sampleIndexSigned = i32(centerIndex) + tileOffset;
 		if (sampleIndexSigned < 0 ||
@@ -237,6 +260,9 @@ fn filterTile(centerIndex: u32, axisStride: i32) -> vec4<f32> {
 		}
 		let sampleSignal = sanitizeSignal(tileSignal[sampleIndex]);
 		let sampleNormal = tileNormal[sampleIndex].xyz;
+		let roughnessWeight = select(1.0,
+			exp(-abs(tileNormal[sampleIndex].w - centerRoughness) * 32.0),
+			params.roughnessAware > 0.5);
 		let relativeDepth =
 			abs(sampleDepth - centerDepth) /
 			max(max(sampleDepth, centerDepth), 1e-4);
@@ -266,11 +292,21 @@ fn filterTile(centerIndex: u32, axisStride: i32) -> vec4<f32> {
 			params.signalMode > 0.5
 		);
 		// Radiance differences only represent edges when both values are reliable.
-		let valueWeight = mix(1.0, rawValueWeight, valueTrust);
+		var valueWeight = mix(1.0, rawValueWeight, valueTrust);
+		var supportWeight = 1.0;
+		if (params.varianceGuided > 0.5) {
+			let noiseSigma = sqrt(temporalNoiseVariance(tileMoments[centerIndex])) +
+				sqrt(temporalNoiseVariance(tileMoments[sampleIndex])) + 0.01;
+			valueWeight = exp(-0.5 * valueDistance * valueDistance / (noiseSigma * noiseSigma));
+			let distance = f32(offset * stepWidth) / max(support * 0.7, 0.5);
+			supportWeight = exp(-0.5 * distance * distance);
+		}
 		let baseWeight =
 			spatialWeight(offset, radius) *
+			supportWeight *
 			depthWeight *
 			normalWeight *
+			roughnessWeight *
 			valueWeight;
 		baseWeightSum += baseWeight;
 
@@ -278,11 +314,11 @@ fn filterTile(centerIndex: u32, axisStride: i32) -> vec4<f32> {
 			scalarSum += sampleSignal.x * baseWeight;
 			signalWeightSum += baseWeight;
 		} else {
-			let reliability = mix(
+			let reliability = select(mix(
 				confidenceFloor,
 				1.0,
 				sampleSignal.a
-			);
+			), 1.0, params.varianceGuided > 0.5);
 			let radianceWeight = baseWeight * reliability;
 			colorSum += sampleSignal.rgb * radianceWeight;
 			signalWeightSum += radianceWeight;

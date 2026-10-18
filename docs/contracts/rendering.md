@@ -200,10 +200,17 @@ This document defines cross-backend rendering features, capability gating, pass 
   It must continue to run; HDR output must emit a stable warning.
 - Presentation must complete any missing tone mapping, gamut conversion, or
   transfer encoding based on the final post-process domain.
-- SDR mapping must use ACES fitted tone mapping and the piecewise sRGB transfer
-  function. HDR mapping must apply exposure, a hue-preserving soft shoulder,
-  linear-sRGB to linear Display-P3 conversion, and extended sRGB encoding
-  without clamping encoded RGB to `1.0`.
+- SDR mapping must apply exposure, clamp negative scene-linear RGB to zero,
+  and apply the fitted ACES curve to the largest exposed channel. It must
+  multiply all three channels by the same ratio of mapped peak to exposed
+  peak, with an all-zero input producing all-zero output. This mapping must
+  preserve positive scene-linear RGB ratios under exposure or radiance
+  attenuation, retain the fitted ACES grayscale curve, and bound the mapped
+  peak to `[0, 1]` before the piecewise sRGB transfer function.
+- The SDR tone-mapping pass and presentation fallback must use the same mapping
+  on every backend. HDR mapping must apply exposure, a hue-preserving soft
+  shoulder, linear-sRGB to linear Display-P3 conversion, and extended sRGB
+  encoding without clamping encoded RGB to `1.0`.
 
 ### Transparent presentation
 

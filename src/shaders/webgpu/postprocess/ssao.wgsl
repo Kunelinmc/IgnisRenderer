@@ -5,6 +5,7 @@ struct Params {
 	gtao: vec4<f32>,
 	blurProj: vec4<f32>,
 	passParams: vec4<f32>,
+	projection: vec4<f32>,
 }
 
 @group(0) @binding(0) var texA: texture_2d<f32>;
@@ -40,16 +41,24 @@ fn decodeNormal(encoded: vec2<f32>) -> vec3<f32> {
 	return normalize(n);
 }
 
-fn reconstructViewPos(uv: vec2<f32>, depth: f32) -> vec3<f32> {
+fn ssaoViewPosition(
+	uv: vec2<f32>, depth: f32, projection: vec4<f32>, isOrthographic: bool
+) -> vec3<f32> {
 	let ndc = vec2<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
-	if (params.passParams.z > 0.5) {
-		return vec3<f32>(ndc, -depth);
-	}
-	let tanHalfFov = max(params.blurProj.z, 1e-4);
-	let aspect = max(params.blurProj.w, 1e-4);
-	let x = ndc.x * aspect * tanHalfFov * depth;
-	let y = ndc.y * tanHalfFov * depth;
-	return vec3<f32>(x, y, -depth);
+	let depthScale = select(depth, 1.0, isOrthographic);
+	let xy = (ndc + projection.zw) * depthScale / projection.xy;
+	return vec3<f32>(xy, -depth);
+}
+
+fn ssaoRadiusUv(
+	radiusView: f32, depth: f32, projectionScale: vec2<f32>, isOrthographic: bool
+) -> vec2<f32> {
+	let depthScale = select(max(depth, 1e-4), 1.0, isOrthographic);
+	return 0.5 * max(radiusView, 1e-4) * abs(projectionScale) / depthScale;
+}
+
+fn reconstructViewPos(uv: vec2<f32>, depth: f32) -> vec3<f32> {
+	return ssaoViewPosition(uv, depth, params.projection, params.passParams.z > 0.5);
 }
 
 fn interleavedGradientNoise(pixel: vec2<f32>, frameJitter: f32) -> f32 {
@@ -115,28 +124,13 @@ fn csRaw(@builtin(global_invocation_id) gid: vec3<u32>) {
 		i32(1),
 		i32(MAX_STEP_COUNT)
 	);
-	let radiusPixels = max(params.gtao.x, 1.0);
-	let radiusUv = radiusPixels * params.invSize.xy;
+	let radiusView = max(params.gtao.x, 1e-4);
+	let radiusUv = ssaoRadiusUv(radiusView, depth, params.projection.xy, params.passParams.z > 0.5);
 	let bias = max(params.gtao.y, 1e-4);
 	let intensity = max(params.gtao.z, 0.0);
 	let frameNoise = interleavedGradientNoise(
 		vec2<f32>(gid.xy),
 		params.passParams.w
-	);
-
-	let perspectiveRadiusView = radiusPixels
-		* depth
-		* max(params.blurProj.z, 0.05)
-		* max(params.invSize.x, params.invSize.y)
-		* 2.0;
-	let orthographicRadiusView = max(radiusUv.x, radiusUv.y) * 2.0;
-	let radiusView = max(
-		select(
-			perspectiveRadiusView,
-			orthographicRadiusView,
-			params.passParams.z > 0.5
-		),
-		1e-3
 	);
 
 	var occ = 0.0;

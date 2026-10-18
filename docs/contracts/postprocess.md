@@ -87,6 +87,20 @@ This document defines logical post-process declarations, planning, backend execu
   internal to WebGPU execution; Software and WebGL implementations must not be
   required to expose or emulate that service.
 
+### Ambient occlusion
+
+- `SSAOOptions.radius` and `bias` must use view-space distance units on every
+  backend. Positive radii below `1` must not be rounded up to a pixel radius.
+- `radius` must default to `0.65` and `bias` to `0.025`. GPU implementations
+  must project the configured radius into UV offsets using the current
+  projection matrix and linear depth. The distance falloff must retain the
+  configured view-space radius, independent of resolution and downsampling.
+- Perspective reconstruction must account for projection scale and offset;
+  orthographic reconstruction must account for view bounds and offset.
+- Samples within the depth bias or outside the configured radius must not
+  create occlusion. Increasing sample count must not compensate for incompatible
+  radius and bias units.
+
 ### Backend execution
 
 #### Common Planning
@@ -176,6 +190,30 @@ This document defines logical post-process declarations, planning, backend execu
 - Motion history copies must use
   `copyGBufferToHistory("motion", historyId)` and must validate both the source
   read and history write declarations.
+- SSR traversal must retain a front-to-back depth crossing as a candidate
+  intersection before advancing beyond it. Refined intersections must have a
+  positive mip-zero scene depth and a depth error within the configured
+  thickness; a depth discontinuity alone must not establish a hit.
+- An SSR ray miss on eligible geometry must contribute zero radiance and
+  confidence to the same temporal blend used for a hit. Valid reprojected
+  history must decay through that blend rather than being discarded immediately
+  or retained indefinitely. Invalid history, background pixels, disabled
+  intensity, and surfaces outside the roughness limit must produce zero when
+  there is no current contribution.
+- Rough-surface SSR must average the configured `SSROptions.raysPerPixel`
+  samples, including zero-valued misses. The option must default to `4` and
+  resolve to an integer in `[1, 8]`. Mirror-smooth surfaces may trace one ray.
+- SSR must keep temporal radiance history independent of spatial reconstruction.
+  Spatial filtering must write a distinct transient display result and must not
+  overwrite the radiance history sampled by the next frame.
+- SSR must retain temporal log-luminance moments and an effective frame count
+  under the same validity, reset, and commit rules as radiance history. Spatial
+  reconstruction must use that noise estimate and receiver roughness to bound
+  its footprint and protect reliable reflected image edges. Stable low-noise
+  radiance must not acquire additional blur merely because more frames elapse.
+- SSR reconstruction must bypass spatial filtering on mirror-smooth surfaces
+  with roughness below `0.05` and must reduce mixing across roughness boundaries,
+  so noise reduction on rough surfaces does not blur neighboring mirrors.
 
 #### WebGL
 
@@ -273,9 +311,19 @@ class CustomPass extends PostProcessPass {
 
 ```bash
 bun tests/static/webgpu/test_webgpu_post_graph.mjs
+bun tests/static/webgpu/test_webgpu_ssr_intersections.mjs
 bun tests/static/postprocess/test_postprocess_execution_declarations.mjs
 bunx tsc --noEmit
 ```
+
+`tests/browser/playwright/webgpu_ssr.spec.ts` executes the actual SSR shader
+against controlled depth and history textures. It covers jittered depth
+crossings, depth-edge rejection, temporal miss decay, and ineligible pixels.
+It also checks roughness- and variance-guided reconstruction of fine reflected
+edges, convergence, noise suppression, and emitter chromaticity.
+`tests/browser/playwright/webgpu_ssao.spec.ts` checks actual AO contacts across
+perspective and orthographic projections, resolutions, and downsample factors.
+Flat surfaces, disabled intensity, and samples inside the bias remain unoccluded.
 
 ## Related Documents
 

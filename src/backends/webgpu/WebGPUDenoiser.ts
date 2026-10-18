@@ -36,6 +36,10 @@ export interface WebGPUDenoiseOptions {
 	readonly normalPhi?: number;
 	readonly valuePhi?: number;
 	readonly confidenceFloor?: number;
+	/** Uses packed G-buffer roughness to preserve mirrors and material boundaries. */
+	readonly roughnessAware?: boolean;
+	/** Adapts the spatial footprint and radiance edge weights using temporal moments. */
+	readonly varianceGuided?: boolean;
 }
 
 /** @internal Fully resolved shared WebGPU denoiser options. */
@@ -47,6 +51,8 @@ export interface ResolvedWebGPUDenoiseOptions {
 	readonly normalPhi: number;
 	readonly valuePhi: number;
 	readonly confidenceFloor: number;
+	readonly roughnessAware: boolean;
+	readonly varianceGuided: boolean;
 }
 
 export const DEFAULT_WEBGPU_DENOISE_OPTIONS:
@@ -58,6 +64,8 @@ export const DEFAULT_WEBGPU_DENOISE_OPTIONS:
 		normalPhi: 16,
 		valuePhi: 2,
 		confidenceFloor: 0.05,
+		roughnessAware: false,
+		varianceGuided: false,
 	};
 
 /**
@@ -75,6 +83,7 @@ export interface WebGPUDenoiseRequest {
 	readonly output: IRenderTexture;
 	readonly depth: IRenderTexture;
 	readonly normal: IRenderTexture;
+	readonly moments?: IRenderTexture;
 	readonly sampler: ISampler;
 	readonly options?: WebGPUDenoiseOptions;
 }
@@ -120,6 +129,8 @@ export function resolveWebGPUDenoiseOptions(
 	return {
 		mode,
 		signal,
+		roughnessAware: options?.roughnessAware === true,
+		varianceGuided: options?.varianceGuided === true,
 		radius:
 			mode === "quality" ?
 				2
@@ -214,8 +225,8 @@ export function writeWebGPUDenoiseParams(
 	);
 	target[8] = options.signal === "scalar" ? 1 : 0;
 	target[9] = options.mode === "quality" ? 1 : 0;
-	target[10] = 0;
-	target[11] = 0;
+	target[10] = options.roughnessAware ? 1 : 0;
+	target[11] = options.varianceGuided ? 1 : 0;
 	target[12] = 0;
 	target[13] = 0;
 	target[14] = 0;
@@ -402,6 +413,10 @@ export class WebGPUDenoiser {
 				{ binding: 3, resource: request.sampler },
 				{ binding: 4, resource: params },
 				{ binding: 5, resource: output },
+				{
+					binding: 6,
+					resource: request.options?.varianceGuided ? request.moments! : source,
+				},
 			],
 			`WebGPUDenoise_${request.scope}_${axis}_${iteration}`
 		);
@@ -496,10 +511,21 @@ export class WebGPUDenoiser {
 		}
 		const width = request.source.width;
 		const height = request.source.height;
+		if (request.options?.varianceGuided && !request.moments) {
+			throw new Error(`WebGPU denoiser scope "${request.scope}" requires temporal moments.`);
+		}
+		if (request.options?.varianceGuided && (
+			request.moments === request.scratch || request.moments === request.output
+		)) {
+			throw new Error(
+				`WebGPU denoiser scope "${request.scope}" requires moments distinct from scratch and output.`
+			);
+		}
 		for (const [name, texture] of [
 			["source", request.source],
 			["scratch", request.scratch],
 			["output", request.output],
+			...(request.moments ? [["moments", request.moments] as const] : []),
 		] as const) {
 			if (texture.width !== width || texture.height !== height) {
 				throw new Error(

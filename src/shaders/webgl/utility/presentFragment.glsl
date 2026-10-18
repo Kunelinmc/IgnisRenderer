@@ -15,15 +15,22 @@ uniform float uTransparentOutput;
 out vec4 fragColor;
 
 vec3 acesFitted(vec3 color) {
+	vec3 positive = max(color, vec3(0.0));
+	float peak = max(positive.r, max(positive.g, positive.b));
+	if (peak == 0.0) {
+		return positive;
+	}
 	const float a = 2.51;
 	const float b = 0.03;
 	const float c = 2.43;
 	const float d = 0.59;
 	const float e = 0.14;
-	vec3 mapped =
-		(color * (a * color + vec3(b))) /
-		(color * (c * color + vec3(d)) + vec3(e));
-	return clamp(mapped, vec3(0.0), vec3(1.0));
+	float mappedPeak = clamp(
+		(peak * (a * peak + b)) / (peak * (c * peak + d) + e),
+		0.0, 1.0
+	);
+	// Match the tone-mapping pass when presentation completes scene-linear color.
+	return positive * (mappedPeak / peak);
 }
 
 vec3 hdrSoftShoulder(vec3 color, float headroom) {

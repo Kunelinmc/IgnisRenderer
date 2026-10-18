@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import {
 	ScreenSpaceAmbientOcclusionPass,
@@ -8,7 +9,9 @@ import {
 	resolveSSAOOptions,
 } from "../../../src/postprocess/index.ts";
 import { BackendPostProcessRuntime } from "../../../src/postprocess/BackendPostProcessRuntime.ts";
-import { CameraType } from "../../../src/cameras/Camera.ts";
+import { Camera, CameraType } from "../../../src/cameras/Camera.ts";
+import { OrthographicCamera } from "../../../src/cameras/OrthographicCamera.ts";
+import { compileWGSLMath } from "../../helpers/wgsl-math.mjs";
 import {
 	createResolvedPostProcess,
 } from "../../helpers/postprocess.mjs";
@@ -275,6 +278,9 @@ function testSoftwareSSAOModifiesPixelsAndSkipsMissingBuffers() {
 }
 
 function testSSAOOptionHelpersClampAndPackParams() {
+	assert.equal(resolveSSAOOptions({ radius: 0.65 }).radius, 0.65);
+	assert.equal(resolveSSAOOptions().radius, 0.65);
+	assert.equal(resolveSSAOOptions().bias, 0.025);
 	const options = resolveSSAOOptions({
 		samples: 99,
 		radius: -10,
@@ -285,7 +291,7 @@ function testSSAOOptionHelpersClampAndPackParams() {
 		blurSharpness: 0,
 	});
 	assert.equal(options.samples, 48);
-	assert.equal(options.radius, 1);
+	assert.equal(options.radius, 1e-4);
 	assert.equal(options.bias, 1e-4);
 	assert.equal(options.intensity, 0);
 	assert.equal(options.downsample, 8);
@@ -304,7 +310,7 @@ function testSSAOOptionHelpersClampAndPackParams() {
 		1,
 		0.25
 	);
-	assert.equal(params.length, 16);
+	assert.equal(params.length, 20);
 	assert.equal(params[0], 1 / 64);
 	assert.equal(params[1], 1 / 32);
 	assert.equal(params[2], 1 / 32);
@@ -314,6 +320,50 @@ function testSSAOOptionHelpersClampAndPackParams() {
 	assert.equal(params[13], 1);
 	assert.equal(params[14], 1);
 	assert.equal(params[15], 0.25);
+	assert.deepEqual(Array.from(params.slice(16), (value) => value + 0), [1, 1, 0, 0]);
+}
+
+function testSSAORadiusProjectionAndReconstruction() {
+	const source = readFileSync(new URL(
+		"../../../src/shaders/webgpu/postprocess/ssao.wgsl", import.meta.url,
+	), "utf8");
+	const names = ["ssaoViewPosition", "ssaoRadiusUv"];
+	const functions = names.map((name) => {
+		const start = source.indexOf(`fn ${name}(`);
+		assert.ok(start >= 0, "SSAO projection math must be executable in regression tests");
+		let end = source.indexOf("{", start);
+		let depth = 1;
+		while (depth > 0 && ++end < source.length) {
+			if (source[end] === "{") depth++;
+			if (source[end] === "}") depth--;
+		}
+		return source.slice(start, end + 1);
+	});
+	const shader = compileWGSLMath(functions.join("\n"), names);
+	const camera = new Camera({ fov: 60, aspectRatio: 2 });
+	const ortho = new OrthographicCamera(8).setBounds(-3, 9, -2, 6);
+	ortho.updateMatrices();
+	for (const view of [camera, ortho]) {
+		const orthographic = view.type === CameraType.Orthographic;
+		for (const size of [[800, 400], [1600, 800]]) {
+			const packed = createSSAOKernelParams(...size, size[0] / 2, size[1] / 2,
+				resolveSSAOOptions(), view, 0, 0, 0);
+			const projection = Array.from(packed.slice(16));
+			for (const depth of [2, 10, 30]) {
+				const radiusUv = shader.ssaoRadiusUv(0.65, depth, projection.slice(0, 2),
+					orthographic);
+				const center = shader.ssaoViewPosition([0.5, 0.5], depth, projection, orthographic);
+				const sample = shader.ssaoViewPosition([0.5 + radiusUv[0], 0.5], depth,
+					projection, orthographic);
+				assert.ok(Math.abs(sample[0] - center[0] - 0.65) < 1e-5,
+					"screen-space sampling must retain its configured physical radius");
+				if (orthographic) {
+					assert.ok(Math.abs(center[0] - 3) < 1e-6);
+					assert.ok(Math.abs(center[1] - 2) < 1e-6);
+				}
+			}
+		}
+	}
 }
 
 function testGPUSSAOTransientDescriptorsFollowDownsample() {
@@ -358,5 +408,6 @@ function testGPUSSAOTransientDescriptorsFollowDownsample() {
 await testSSAOPipelineUsesPassOwnedImplementation();
 testSoftwareSSAOModifiesPixelsAndSkipsMissingBuffers();
 testSSAOOptionHelpersClampAndPackParams();
+testSSAORadiusProjectionAndReconstruction();
 testGPUSSAOTransientDescriptorsFollowDownsample();
 console.log("ScreenSpaceAmbientOcclusionPass tests passed");
