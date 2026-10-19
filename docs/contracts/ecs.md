@@ -58,4 +58,4 @@ bun run typecheck
 
 - [Engine architecture](../architecture/engine.md)
 - [Rendering architecture](../architecture/rendering.md)
-- [Migration guidance](../migrations/scene-ecs-decoupling.md)
+- [Migration guidance](../migrations/README.md#scene-and-ecs-projection)

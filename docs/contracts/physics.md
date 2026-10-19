@@ -268,16 +268,6 @@ physics.addCollider(body, {
 });
 ```
 
-Compatibility example (`trimesh-cook` translation path):
-
-```ts
-physics.addCollider(body, {
-	mode: "trimesh-cook",
-	sourceNode: meshInstance,
-});
-// Translated internally to mode: "mesh" with deprecation warning.
-```
-
 ### Debug visualization data
 
 ```ts

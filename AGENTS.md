@@ -32,8 +32,8 @@ required references. Read them before changing related behavior:
   render target contracts.
 - `docs/contracts/postprocess.md`:
   post-process runtime ownership and cross-backend pass behavior.
-- `docs/contributing/README.md`: documentation workflow and required commit
-  header
+- `docs/contributing/commits-and-documentation.md`: documentation workflow and
+  required commit header
   format, approved types, body/footer rules, and examples. Read before
   committing.
 - Relevant subsystem files under `docs/contracts/`, including
@@ -140,8 +140,8 @@ required references. Read them before changing related behavior:
 - Do not add documents directly under `docs/` except for `docs/README.md`.
 - Use English by default. Keep technical terms in their canonical form.
 - Every document must start with one `#` title and use only the sections needed
-  by its document type. Follow `docs/contributing/README.md` for document
-  shapes.
+  by its document type. Follow `docs/contributing/commits-and-documentation.md`
+  for document shapes.
 - Do not add editorial feature versions such as `v1`, `v2`, or `phase 1` to
   filenames, titles, or prose. Preserve versions that are part of real API
   identifiers, formats, protocols, or shader directives.
@@ -224,5 +224,5 @@ required references. Read them before changing related behavior:
 - Use the smallest accurate approved type.
 - Use `!` and `BREAKING CHANGE:` for breaking API, behavior, file layout,
   shader contract, or backend contract changes.
-- Read `docs/contributing/README.md` before creating
+- Read `docs/contributing/commits-and-documentation.md` before creating
   commits.

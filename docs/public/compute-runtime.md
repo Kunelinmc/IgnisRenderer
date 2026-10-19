@@ -220,10 +220,9 @@ try {
 
 ### Compute workflow
 
-`ComputeRuntime` accepts direct WebGPU compute sources. It no longer unwraps a
-`Renderer` or an object shaped like `{ backend }`. Applications should keep
-the `WebGPUBackend` reference used to construct the renderer and pass that
-backend to `ComputeRuntime`.
+`ComputeRuntime` accepts direct WebGPU compute sources. Keep the
+`WebGPUBackend` reference used to construct the renderer and pass that backend
+to `ComputeRuntime`.
 
 Custom `IWebGPUComputeFacade` implementations return
 `Promise<IComputePipeline>` from `createComputePipeline()`. Await pipeline
@@ -238,3 +237,4 @@ Existing `toNormalizedRGBA8Float32()` calls remain supported for
 - [Renderer](renderer.md)
 - [Compute contract](../contracts/compute.md)
 - [WebGPU contract](../contracts/webgpu.md)
+- [Migration guidance](../migrations/README.md#compute-runtime-sources)

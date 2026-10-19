@@ -5,6 +5,38 @@ IgnisRenderer consumers and contributors. Completed implementation history that
 does not require an action is retained in Git rather than in the documentation
 tree.
 
+## Scene and ECS Projection
+
+Use scene nodes directly for rendering, interaction, animation, physics, and
+prefab instantiation. Applications that need an ECS projection create and own
+an `experimentalECS.ECSWorld`:
+
+```ts
+const world = new experimentalECS.ECSWorld(scene);
+const entity = world.getEntityByNode(node);
+```
+
+Replace `scene.ecs` with the application-owned world and `node.entityId` with
+`world.getEntityByNode(node)`. Call `world.destroy()` when finished.
+
+- Bind animation through `AnimationMixer.bindNode()`.
+- Pass nodes, body handles, or body ids to physics runtime methods.
+- Treat `NodePrefab.instantiate(scene)` as returning the cloned root `Node`;
+  resolve its entity through the optional world when needed.
+
+See the [ECS projection contract](../contracts/ecs.md).
+
+## Interaction
+
+Replace `InteractionManager` with `InteractionController` and attach it through
+`attach(scene, camera, physicsSystem?)`. Replace ECS component registration
+with `controller.interactables.set(node, interactable)`, using `Interactable`
+instead of the deprecated `InteractableComponent` alias.
+
+Use `getSelection()` for the primary node, `getSelectedNodes()` for the full
+selection, and `InteractionState` for outlines, drag rectangles, and gizmo UI.
+See the [interaction guide](../public/interaction.md).
+
 ## Mesh Morph Weights
 
 `MeshAsset.defaultMorphWeights` and the second `MeshAsset` constructor argument
@@ -144,6 +176,33 @@ and custom render-target readback share the backend context work queue.
 Applications must wait for an active renderer frame to finish before requesting
 custom render-target readback.
 
+## WebGL Physical Lighting
+
+Require WebGL2 with `EXT_color_buffer_float`, a successful `RGBA16F`
+framebuffer-completeness probe, and linear filtering for half- or full-float
+textures. Handle `WebGLCapabilityError` from `WebGLBackend.initialize()` when
+these requirements are unavailable; there is no `RGBA8` scene-radiance fallback.
+Inspect `Renderer.getDisplayOutputState()` for actual display output, since
+internal HDR support does not guarantee HDR presentation.
+
+- Treat one world unit as one meter, including light ranges, material
+  thickness, and attenuation distance. Retune point and spot intensities for
+  inverse-square falloff; the default intensity remains `1`.
+- Remove compensating probe-capture intensity multipliers and application-side
+  `PI` corrections for SH. Use the units in the
+  [lighting contract](../contracts/lighting.md#units-and-world-scale).
+- Retune Phong and Gouraud highlights for energy-normalized Blinn-Phong.
+  `PhongMaterial.specular` defaults to `{ r: 56, g: 56, b: 56 }` for roughly
+  four-percent linear dielectric reflectance. Provide light, environment,
+  probe, or emissive radiance where older scenes relied on an ambient floor.
+- Split materials or reduce active maps when warmup or drawing reports
+  `material-texture-unit-overflow`; active glTF/KHR maps consume texture units.
+- Review scenes with mixed alpha and transmission layers: mesh transmission
+  uses sorted composition with a scene snapshot before each transmissive
+  packet rather than weighted OIT.
+
+See the [WebGL contract](../contracts/webgl.md).
+
 ## Post-Process Execution Declarations
 
 Custom post-process implementations describe color, G-buffer, history,
@@ -199,6 +258,15 @@ Renderer construction now uses
 and the optional initial `camera` out of the former single options object.
 `RendererOptions` now contains only optional renderer configuration.
 
+Use `renderFrame(nowMs)` for a manually scheduled frame and `renderLoop()` for
+continuous rendering instead of the deprecated `renderScene(nowMs)` alias.
+
+## Compute Runtime Sources
+
+Keep the `WebGPUBackend` used to construct the renderer and pass it directly
+to `ComputeRuntime`. Replace `Renderer` and `{ backend }` wrapper inputs with
+that backend. See the [compute runtime guide](../public/compute-runtime.md).
+
 ## Software HDR Color Pipeline
 
 The Software backend color pipeline is now normalized linear RGBA32F. This is
@@ -225,6 +293,13 @@ WebGPU SSGI uses depth-based ray marching, independent temporal history, and
 depth/normal-aware denoising. Remove legacy gather-mode configuration and pass
 the current world-space distance and thickness settings directly. WebGL,
 Software, and orthographic WebGPU cameras do not execute SSGI.
+
+## Screen-Space Ambient Occlusion
+
+Retune GPU SSAO settings authored in pixel units to view-space distances.
+`SSAOOptions.radius` defaults to `0.65` and `bias` to `0.025` on every backend.
+Keep bias well below the radius. See the
+[post-process contract](../contracts/postprocess.md#ambient-occlusion).
 
 ## WebGPU Deferred G-buffer
 
@@ -273,8 +348,6 @@ when changing multiple settings so the scene is invalidated once.
 window.
 
 ## Related Documents
-
-- [WebGL physical lighting migration](webgl-physical-lighting.md)
 
 - [Renderer guide](../public/renderer.md)
 - [Renderer contract](../contracts/renderer.md)

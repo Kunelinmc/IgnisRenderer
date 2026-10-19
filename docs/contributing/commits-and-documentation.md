@@ -1,4 +1,4 @@
-# Contributing Documentation
+# Commit and Documentation Guidelines
 
 This document defines repository commit messages and documentation authoring
 rules. `AGENTS.md` summarizes the highest-priority requirements; this document

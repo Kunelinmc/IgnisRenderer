@@ -170,28 +170,8 @@ rendering work itself.
 - State changes but the display does not: request or render another frame in
   your application.
 
-## Compatibility
-
-### Interaction workflow
-
-Current code should use `InteractionController` and register nodes through
-`controller.interactables`. The earlier `InteractionManager` API and ECS-based
-`Interactable` components are no longer supported.
-
-When migrating older code:
-
-- Replace `attach(renderer, scene, camera)` with `attach(scene, camera)`.
-- Replace ECS component registration with
-  `controller.interactables.set(node, interactable)`.
-- Keep using `getSelection()` for the primary selection, or switch to
-  `getSelectedNodes()` for multi-selection.
-- Read `InteractionState` directly to draw outlines, drag rectangles, or gizmo
-  UI.
-
-`InteractableComponent` remains as a deprecated alias for `Interactable`, but
-new code should use `Interactable`.
-
 ## Related Documents
 
 - [Renderer](renderer.md)
 - [Geometry contract](../contracts/geometry.md)
+- [Migration guidance](../migrations/README.md#interaction)

@@ -47,9 +47,7 @@ contracts when changing the engine.
 
 - [WebGPU bindings reference](reference/webgpu-bindings.md)
 - [Migration guidance](migrations/README.md)
-- [Scene and ECS decoupling](migrations/scene-ecs-decoupling.md)
-- [WebGL physical lighting migration](migrations/webgl-physical-lighting.md)
-- [Contributing documentation](contributing/README.md)
+- [Commit and documentation guidelines](contributing/commits-and-documentation.md)
 
 ## Documentation Policy
 
@@ -57,5 +55,5 @@ The documentation tree stays shallow: maintained Markdown files live at
 `docs/<category>/<document>.md`. Small features are sections of their owning
 subsystem document rather than standalone files. Architecture explains design;
 contracts contain normative behavior. See the
-[contributing documentation](contributing/README.md) for authoring and commit
-rules.
+[commit and documentation guidelines](contributing/commits-and-documentation.md)
+for authoring and commit rules.
