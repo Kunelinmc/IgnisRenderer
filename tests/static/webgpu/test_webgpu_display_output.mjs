@@ -5,10 +5,10 @@ import {
 	resolveDisplayOutputOptions,
 } from "../../../src/rendering/DisplayOutput.ts";
 import {
-	linearSrgbToDisplayP3,
+	SoftwareGammaImplementation,
 } from "../../../src/postprocess/passes/GammaPass.ts";
 import {
-	applyHDRSoftShoulder,
+	SoftwareToneMappingImplementation,
 } from "../../../src/postprocess/passes/ToneMappingPass.ts";
 import { linearToSRGB } from "../../../src/maths/Common.ts";
 import {
@@ -183,26 +183,37 @@ function testExplicitHDRFallbacks() {
 	);
 }
 
+function runHDRPass(implementation, color, exposure = 1, hdrHeadroom = 4) {
+	const pixels = new Float32Array([...color, 1]);
+	implementation.execute({ frameContext: { attachments: { width: 1 } } }, {
+		dirtyRects: [{ minX: 0, minY: 0, maxX: 0, maxY: 0 }],
+		displayOutput: { requested: { exposure, hdrHeadroom }, activeDynamicRange: "hdr" },
+		resources: { color: { input: pixels, output: pixels } },
+	});
+	return Array.from(pixels.slice(0, 3));
+}
+
 function testDisplayMappingNumerics() {
 	assert.ok(Math.abs(linearToSRGB(0.0031308) - 0.040449936) < 1e-7);
-	const atWhite = applyHDRSoftShoulder([1, 0.5, 0.25], 1, 4);
+	const atWhite = runHDRPass(new SoftwareToneMappingImplementation(), [1, 0.5, 0.25], 1, 4);
 	assert.deepEqual(atWhite, [1, 0.5, 0.25]);
-	const aboveWhite = applyHDRSoftShoulder([1.000001, 0.5000005, 0.25], 1, 4);
-	assert.ok(Math.abs(aboveWhite[0] - 1) < 0.000002);
+	const aboveWhite = runHDRPass(new SoftwareToneMappingImplementation(), [1.000001, 0.5000005, 0.25], 1, 4);
+	assert.ok(Math.abs(aboveWhite[0] - 1) < 0.000003);
 
 	let previous = 1;
 	for (const peak of [1.25, 2, 4, 8, 32]) {
-		const mapped = applyHDRSoftShoulder([peak, peak / 2, peak / 4], 1, 4);
+		const mapped = runHDRPass(new SoftwareToneMappingImplementation(), [peak, peak / 2, peak / 4], 1, 4);
 		assert.ok(mapped[0] >= previous);
 		assert.ok(mapped[0] <= 4);
-		assert.ok(Math.abs(mapped[1] / mapped[0] - 0.5) < 1e-8);
-		assert.ok(Math.abs(mapped[2] / mapped[0] - 0.25) < 1e-8);
+		assert.ok(Math.abs(mapped[1] / mapped[0] - 0.5) < 1e-6);
+		assert.ok(Math.abs(mapped[2] / mapped[0] - 0.25) < 1e-6);
 		previous = mapped[0];
 	}
 
-	const red = linearSrgbToDisplayP3([1, 0, 0]);
-	assert.deepEqual(red, [0.82259287, 0.03319951, 0.01708535]);
-	const white = linearSrgbToDisplayP3([1, 1, 1]);
+	const red = runHDRPass(new SoftwareGammaImplementation(), [1, 0, 0]);
+	const expectedRed = [0.82259287, 0.03319951, 0.01708535].map((value) => linearToSRGB(value));
+	assert.ok(red.every((value, index) => Math.abs(value - expectedRed[index]) < 1e-7));
+	const white = runHDRPass(new SoftwareGammaImplementation(), [1, 1, 1]);
 	assert.ok(white.every((value) => Math.abs(value - 1) < 0.00025));
 }
 

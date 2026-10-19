@@ -1,6 +1,9 @@
 import type { FrameContext } from "../../pipeline/types";
 import type { PostProcessColorDomain } from "../../postprocess/PostProcessPass";
-import type { DisplayOutputState } from "../../rendering/DisplayOutput";
+import {
+	warnIncompletePresentation,
+	type DisplayOutputState,
+} from "../../rendering/DisplayOutput";
 import { ShaderSource } from "../../shaders/ShaderSource";
 
 import type { WebGLFrameTargetManager } from "./WebGLFrameTargetManager";
@@ -19,10 +22,7 @@ interface WebGLPresentProgram {
 	program: WebGLProgram;
 	uniforms: {
 		sourceMap: WebGLUniformLocation | null;
-		exposure: WebGLUniformLocation | null;
-		hdrHeadroom: WebGLUniformLocation | null;
 		hdrEnabled: WebGLUniformLocation | null;
-		colorDomain: WebGLUniformLocation | null;
 		transparentOutput: WebGLUniformLocation | null;
 	};
 }
@@ -68,10 +68,7 @@ export class WebGLFullscreenRenderer implements WebGLProgramWarmupContributor {
 				program,
 				uniforms: {
 					sourceMap: gl.getUniformLocation(program, "uSourceMap"),
-					exposure: gl.getUniformLocation(program, "uExposure"),
-					hdrHeadroom: gl.getUniformLocation(program, "uHdrHeadroom"),
 					hdrEnabled: gl.getUniformLocation(program, "uHdrEnabled"),
-					colorDomain: gl.getUniformLocation(program, "uColorDomain"),
 					transparentOutput: gl.getUniformLocation(program, "uTransparentOutput"),
 				},
 			}),
@@ -132,27 +129,13 @@ export class WebGLFullscreenRenderer implements WebGLProgramWarmupContributor {
 		gl.bindTexture(gl.TEXTURE_2D, source);
 		if (program.uniforms.sourceMap) gl.uniform1i(program.uniforms.sourceMap, 0);
 		const display = this._host.getDisplayOutputState?.();
-		if (program.uniforms.exposure) {
-			gl.uniform1f(program.uniforms.exposure, display?.requested.exposure ?? 1);
-		}
-		if (program.uniforms.hdrHeadroom) {
-			gl.uniform1f(
-				program.uniforms.hdrHeadroom,
-				display?.requested.hdrHeadroom ?? 4,
-			);
-		}
+		warnIncompletePresentation(
+			this._host.getColorDomain?.() ?? "scene-linear-hdr", "webgl",
+		);
 		if (program.uniforms.hdrEnabled) {
 			gl.uniform1f(
 				program.uniforms.hdrEnabled,
 				display?.activeDynamicRange === "hdr" ? 1 : 0,
-			);
-		}
-		if (program.uniforms.colorDomain) {
-			gl.uniform1f(
-				program.uniforms.colorDomain,
-				encodeColorDomain(
-					this._host.getColorDomain?.() ?? "scene-linear-hdr",
-				),
 			);
 		}
 		if (program.uniforms.transparentOutput) {
@@ -181,13 +164,5 @@ export class WebGLFullscreenRenderer implements WebGLProgramWarmupContributor {
 			this._host.gl.deleteVertexArray(this._vao);
 			this._vao = null;
 		}
-	}
-}
-
-function encodeColorDomain(domain: PostProcessColorDomain): number {
-	switch (domain) {
-		case "scene-linear-hdr": return 0;
-		case "display-linear": return 1;
-		case "display-encoded": return 2;
 	}
 }

@@ -1,15 +1,6 @@
-import type { Vec3Tuple } from "../../maths/Vector3";
 import type { FrameAttachments } from "../../pipeline/types";
 import type { PostProcessColorDomain } from "../../postprocess/PostProcessPass";
-import {
-	encodeLinearSRGB,
-	linearSrgbToDisplayP3,
-} from "../../postprocess/passes/GammaPass";
-import {
-	applyACESToneMapping,
-	applyHDRSoftShoulder,
-} from "../../postprocess/passes/ToneMappingPass";
-import type { DisplayOutputState } from "../../rendering/DisplayOutput";
+import { warnIncompletePresentation } from "../../rendering/DisplayOutput";
 import type { RenderSurfaceSize } from "../IRenderBackend";
 import {
 	SOFTWARE_HDR_IMAGE_DATA_SETTINGS,
@@ -32,10 +23,6 @@ export class SoftwareSurfaceRuntime {
 	private _hdrPixels: Float16Array | null = null;
 	private _frameWidth = 0;
 	private _frameHeight = 0;
-	private readonly _inputColor: Vec3Tuple = [0, 0, 0];
-	private readonly _mappedColor: Vec3Tuple = [0, 0, 0];
-	private readonly _p3Color: Vec3Tuple = [0, 0, 0];
-	private readonly _encodedColor: Vec3Tuple = [0, 0, 0];
 
 	constructor(private readonly _displayOutput: SoftwareDisplayOutputManager) {}
 
@@ -94,18 +81,19 @@ export class SoftwareSurfaceRuntime {
 	}
 
 	public present(frame: SoftwareFrameView, colorDomain: PostProcessColorDomain): void {
+		warnIncompletePresentation(colorDomain, "software");
 		const context = this._context;
 		const state = this._displayOutput.state;
 		if (!context) {
-			this._convertRegions(frame, colorDomain, state, null, this._requirePixels());
+			this._copyRegions(frame, null, this._requirePixels());
 			return;
 		}
 		if (state.activeDynamicRange === "hdr") {
-			const imageData = this._prepareHDRImageData(frame, colorDomain, state);
+			const imageData = this._prepareHDRImageData(frame);
 			context.putImageData(imageData, 0, 0);
 			return;
 		}
-		const imageData = this._prepareSDRImageData(frame, colorDomain, state);
+		const imageData = this._prepareSDRImageData(frame);
 		context.putImageData(imageData, 0, 0);
 	}
 
@@ -116,13 +104,9 @@ export class SoftwareSurfaceRuntime {
 		this._frameHeight = 0;
 	}
 
-	private _prepareSDRImageData(
-		frame: SoftwareFrameView,
-		colorDomain: PostProcessColorDomain,
-		state: DisplayOutputState,
-	): ImageData {
+	private _prepareSDRImageData(frame: SoftwareFrameView): ImageData {
 		const pixels = this._requirePixels();
-		this._convertRegions(frame, colorDomain, state, null, pixels);
+		this._copyRegions(frame, null, pixels);
 		if (
 			!this._sdrImageData ||
 			this._sdrImageData.width !== frame.attachments.width ||
@@ -148,17 +132,13 @@ export class SoftwareSurfaceRuntime {
 		return this._sdrImageData;
 	}
 
-	private _prepareHDRImageData(
-		frame: SoftwareFrameView,
-		colorDomain: PostProcessColorDomain,
-		state: DisplayOutputState,
-	): ImageData {
+	private _prepareHDRImageData(frame: SoftwareFrameView): ImageData {
 		const elementCount = frame.attachments.width * frame.attachments.height * 4;
 		if (!this._hdrPixels || this._hdrPixels.length !== elementCount) {
 			this._hdrPixels = new Float16Array(elementCount);
 			this._hdrImageData = null;
 		}
-		this._convertRegions(frame, colorDomain, state, this._hdrPixels, this._requirePixels());
+		this._copyRegions(frame, this._hdrPixels, this._requirePixels());
 		if (
 			!this._hdrImageData ||
 			this._hdrImageData.width !== frame.attachments.width ||
@@ -174,10 +154,8 @@ export class SoftwareSurfaceRuntime {
 		return this._hdrImageData;
 	}
 
-	private _convertRegions(
+	private _copyRegions(
 		frame: SoftwareFrameView,
-		colorDomain: PostProcessColorDomain,
-		state: DisplayOutputState,
 		hdrPixels: Float16Array | null,
 		preview: Uint8ClampedArray,
 	): void {
@@ -187,74 +165,29 @@ export class SoftwareSurfaceRuntime {
 			for (let y = region.minY; y < region.maxYExclusive; y++) {
 				for (let x = region.minX; x < region.maxXExclusive; x++) {
 					const index = (y * width + x) << 2;
-					const transparent =
-						frame.presentationAlphaMode === "premultiplied";
-					const alpha = transparent ?
-						Math.min(1, Math.max(0, finiteOrZero(color[index + 3])))
-					:	1;
+					const transparent = frame.presentationAlphaMode === "premultiplied";
+					const alpha = transparent
+						? Math.min(1, Math.max(0, finiteOrZero(color[index + 3])))
+						: 1;
 					const inverseAlpha = alpha > ALPHA_EPSILON ? 1 / alpha : 0;
-					const encoded = this._completeColor(
-						transparent ? color[index] * inverseAlpha : color[index],
-						transparent ?
-							color[index + 1] * inverseAlpha
-						:	color[index + 1],
-						transparent ?
-							color[index + 2] * inverseAlpha
-						:	color[index + 2],
-						colorDomain,
-						state,
-					);
+					// Canvas ImageData stores straight RGB, even for transparent output.
+					const scale = transparent ? inverseAlpha : 1;
+					const red = Math.max(0, finiteOrZero(color[index] * scale));
+					const green = Math.max(0, finiteOrZero(color[index + 1] * scale));
+					const blue = Math.max(0, finiteOrZero(color[index + 2] * scale));
 					if (hdrPixels) {
-						hdrPixels[index] = finiteOrZero(encoded[0]);
-						hdrPixels[index + 1] = finiteOrZero(encoded[1]);
-						hdrPixels[index + 2] = finiteOrZero(encoded[2]);
+						hdrPixels[index] = red;
+						hdrPixels[index + 1] = green;
+						hdrPixels[index + 2] = blue;
 						hdrPixels[index + 3] = alpha;
 					}
-					preview[index] = Math.round(Math.min(1, Math.max(0, encoded[0])) * 255);
-					preview[index + 1] = Math.round(Math.min(1, Math.max(0, encoded[1])) * 255);
-					preview[index + 2] = Math.round(Math.min(1, Math.max(0, encoded[2])) * 255);
+					preview[index] = Math.round(Math.min(1, Math.max(0, red)) * 255);
+					preview[index + 1] = Math.round(Math.min(1, Math.max(0, green)) * 255);
+					preview[index + 2] = Math.round(Math.min(1, Math.max(0, blue)) * 255);
 					preview[index + 3] = Math.round(alpha * 255);
 				}
 			}
 		}
-	}
-
-	private _completeColor(
-		red: number,
-		green: number,
-		blue: number,
-		domain: PostProcessColorDomain,
-		state: DisplayOutputState,
-	): Vec3Tuple {
-		const encoded = this._encodedColor;
-		if (domain === "display-encoded") {
-			encoded[0] = finiteOrZero(red);
-			encoded[1] = finiteOrZero(green);
-			encoded[2] = finiteOrZero(blue);
-			return encoded;
-		}
-		const hdr = state.activeDynamicRange === "hdr";
-		const input = this._inputColor;
-		input[0] = finiteOrZero(red);
-		input[1] = finiteOrZero(green);
-		input[2] = finiteOrZero(blue);
-		let linear = input;
-		if (domain === "scene-linear-hdr") {
-			linear = hdr
-				? applyHDRSoftShoulder(
-						input,
-						state.requested.exposure,
-						state.requested.hdrHeadroom,
-						this._mappedColor,
-					)
-				: applyACESToneMapping(linear, state.requested.exposure, this._mappedColor);
-		}
-		if (hdr) linear = linearSrgbToDisplayP3(linear, this._p3Color);
-		const upperBound = hdr ? state.requested.hdrHeadroom : 1;
-		encoded[0] = encodeLinearSRGB(Math.min(upperBound, Math.max(0, linear[0])), hdr);
-		encoded[1] = encodeLinearSRGB(Math.min(upperBound, Math.max(0, linear[1])), hdr);
-		encoded[2] = encodeLinearSRGB(Math.min(upperBound, Math.max(0, linear[2])), hdr);
-		return encoded;
 	}
 
 	private _requirePixels(): Uint8ClampedArray {

@@ -55,8 +55,9 @@ advance those histories.
 
 The frame session must track the color domain actually produced by completed
 passes. A skipped or failed pass must not advance the domain. Presentation must
-complete missing tone mapping, gamut conversion, and transfer encoding from
-that actual domain before frame histories and temporal state are committed.
+warn when that actual domain is incomplete and must copy the current color
+without completing missing conversions before frame histories and temporal
+state are committed.
 
 ## Execution Services
 
@@ -105,7 +106,7 @@ particles, environment output, post-processing, and temporal histories must
 follow the shared transparent-presentation contract.
 
 Canvas `ImageData` contains straight RGBA. Software presentation must safely
-unpremultiply the authoritative color after display conversion before writing
+unpremultiply the final post-process color before writing
 SDR or HDR `ImageData`; it must write zero RGB when alpha is zero.
 
 `SoftwareBackend.profile.capabilities.displayHDR` must be `true`, indicating
@@ -136,6 +137,9 @@ encoded values above `1.0`. In HDR mode, `FrameAttachments.pixels` must contain
 only a clipped RGBA8 diagnostic preview. SDR presentation must submit RGBA8
 sRGB pixels. Chromium is the required browser validation target; other browsers
 must use the same probes and fall back to SDR without throwing when unsupported.
+
+Presentation must follow the shared incomplete-color-domain warning contract
+in `docs/contracts/rendering.md` and must not apply missing display conversions.
 
 ## Pass Ownership
 

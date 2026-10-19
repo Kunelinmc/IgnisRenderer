@@ -54,12 +54,10 @@ export const GAMMA_PASS_ORDER = {
 
 /**
  * Converts D65 linear-sRGB values to D65 linear Display-P3.
- *
- * @internal Shared by CPU presentation and numerical contract tests.
  */
-export function linearSrgbToDisplayP3(
+function linearSrgbToDisplayP3(
 	color: Readonly<Vec3Tuple>,
-	out: Vec3Tuple = [0, 0, 0],
+	out: Vec3Tuple,
 ): Vec3Tuple {
 	const [red, green, blue] = color;
 	out[0] = 0.82259287 * red + 0.17753395 * green;
@@ -68,8 +66,8 @@ export function linearSrgbToDisplayP3(
 	return out;
 }
 
-/** @internal Piecewise sRGB transfer function with an optional extended range. */
-export function encodeLinearSRGB(value: number, extended = false): number {
+/** Piecewise sRGB transfer function with an optional extended range. */
+function encodeLinearSRGB(value: number, extended: boolean): number {
 	const linear = Math.max(0, value);
 	const encoded = linear <= 0.0031308 ?
 		12.92 * linear

@@ -68,11 +68,11 @@ export const TONE_MAPPING_PASS_ORDER = {
 export type WebGPUToneMappingContext = WebGPURuntimePostProcessContext;
 export type WebGLToneMappingContext = WebGLScreenPostProcessContext;
 
-/** @internal Hue-preserving SDR ACES mapping shared by CPU presentation. */
-export function applyACESToneMapping(
+/** Hue-preserving SDR ACES mapping for the Software tone-mapping pass. */
+function applyACESToneMapping(
 	color: Readonly<Vec3Tuple>,
 	exposure: number,
-	out: Vec3Tuple = [0, 0, 0],
+	out: Vec3Tuple,
 ): Vec3Tuple {
 	out[0] = Math.max(0, color[0] * exposure);
 	out[1] = Math.max(0, color[1] * exposure);
@@ -92,15 +92,13 @@ export function applyACESToneMapping(
 }
 
 /**
- * Applies the hue-preserving HDR shoulder used by presentation shaders.
- *
- * @internal Shared by CPU presentation and numerical contract tests.
+ * Applies the hue-preserving HDR shoulder for the Software tone-mapping pass.
  */
-export function applyHDRSoftShoulder(
+function applyHDRSoftShoulder(
 	color: Readonly<Vec3Tuple>,
 	exposure: number,
 	hdrHeadroom: number,
-	out: Vec3Tuple = [0, 0, 0],
+	out: Vec3Tuple,
 ): Vec3Tuple {
 	out[0] = Math.max(0, color[0] * exposure);
 	out[1] = Math.max(0, color[1] * exposure);

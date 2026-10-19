@@ -175,10 +175,8 @@ This document defines cross-backend rendering features, capability gating, pass 
   HDR failure must report the applicable display, Canvas HDR, or configuration
   reason; automatic fallback must not warn.
 - WebGL must preserve internal scene radiance in `rgba16float` targets from
-  scene shading through presentation. SDR output must apply exposure, ACES tone
-  mapping, and the piecewise sRGB transfer function. HDR output must apply the
-  shared hue-preserving shoulder, convert linear sRGB to linear Display-P3, and
-  retain encoded RGB values above `1.0` up to the requested headroom.
+  scene shading through post-processing. Enabled tone-mapping and gamma passes
+  must own display conversion for SDR and HDR output.
 - WebGL display-output changes and dynamic-range media-query changes must apply
   at a frame boundary. Resize and context restoration must reconfigure and
   verify the active drawing-buffer format and color space.
@@ -198,8 +196,18 @@ This document defines cross-backend rendering features, capability gating, pass 
   diagnostic.
 - A custom pass without a color contract must be treated as domain-preserving.
   It must continue to run; HDR output must emit a stable warning.
-- Presentation must complete any missing tone mapping, gamut conversion, or
-  transfer encoding based on the final post-process domain.
+- Software, WebGL, and WebGPU presentation must not complete missing exposure,
+  tone mapping, gamut conversion, or transfer encoding. Presentation must copy
+  the final color with only output-range and alpha handling.
+- A final domain other than `display-encoded` must emit
+  `presentation-color-domain-incomplete-<domain>`, warning that display results
+  may not match expectations. `scene-linear-hdr` must identify missing tone
+  mapping and display encoding; `display-linear` must identify missing display
+  encoding. Warnings must be deduplicated per backend kind and domain through
+  `Logger` once keys. `display-encoded` must not emit this warning.
+- Presentation must not insert conversion passes or change pass eligibility.
+  SDR output must clamp RGB to `[0, 1]`; HDR output must preserve nonnegative
+  RGB above `1.0`. Software's RGBA8 diagnostic preview must remain clipped.
 - SDR mapping must apply exposure, clamp negative scene-linear RGB to zero,
   and apply the fitted ACES curve to the largest exposed channel. It must
   multiply all three channels by the same ratio of mapped peak to exposed
@@ -207,8 +215,8 @@ This document defines cross-backend rendering features, capability gating, pass 
   preserve positive scene-linear RGB ratios under exposure or radiance
   attenuation, retain the fitted ACES grayscale curve, and bound the mapped
   peak to `[0, 1]` before the piecewise sRGB transfer function.
-- The SDR tone-mapping pass and presentation fallback must use the same mapping
-  on every backend. HDR mapping must apply exposure, a hue-preserving soft
+- The SDR tone-mapping pass must use the same mapping on every backend.
+  Enabled HDR conversion passes must apply exposure, a hue-preserving soft
   shoulder, linear-sRGB to linear Display-P3 conversion, and extended sRGB
   encoding without clamping encoded RGB to `1.0`.
 

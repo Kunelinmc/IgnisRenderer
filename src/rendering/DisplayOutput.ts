@@ -1,3 +1,6 @@
+import { Logger } from "../foundation/Logger";
+import type { PostProcessColorDomain } from "../postprocess/PostProcessPass";
+
 export type DisplayOutputMode = "sdr" | "auto" | "hdr";
 export type DisplayDynamicRange = "sdr" | "hdr";
 export type DisplayColorSpace = "srgb" | "display-p3";
@@ -119,4 +122,26 @@ function assertFiniteRange(
 			`[${minimum}, ${maximum}].`,
 		);
 	}
+}
+
+/**
+ * Warns about unfinished display conversion without changing color or pass eligibility.
+ *
+ * @internal Backend presentation diagnostic; applications should enable conversion passes.
+ */
+export function warnIncompletePresentation(
+	domain: PostProcessColorDomain,
+	backend: "software" | "webgl" | "webgpu",
+): void {
+	if (domain === "display-encoded") return;
+	const code = `presentation-color-domain-incomplete-${domain}`;
+	const missing = domain === "scene-linear-hdr" ?
+		"tone mapping and display encoding" : "display encoding";
+	Logger.warn(
+		`[${code}] Final color is "${domain}" and is missing ${missing}. ` +
+			"Presentation will copy the current color without conversion; " +
+			"display results may not match expectations. Enable the required " +
+			"post-process passes or provide equivalent color conversions.",
+		{ scope: backend, onceKey: `${backend}-${code}` },
+	);
 }

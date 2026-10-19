@@ -6,6 +6,10 @@ This document defines logical post-process declarations, planning, backend execu
 
 ### Cross-backend declarations
 
+- Enabled tone-mapping and gamma passes must own their declared display color
+  conversions. Backend presentation must not replace disabled, skipped, or
+  missing conversion passes; it must warn for an incomplete final color domain
+  as specified in `docs/contracts/rendering.md`.
 - `PostProcessPassConfig.alphaContract` may be `"opaque-only"` or
   `"premultiplied"` and must default to `"opaque-only"`.
 - Transparent presentation must reject an enabled pass whose alpha contract is

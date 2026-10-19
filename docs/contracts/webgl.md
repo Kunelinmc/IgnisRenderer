@@ -51,8 +51,10 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   color resource.
 - Main scene and dirty-region clears must use alpha `0.0` only for transparent
   presentation. Environment background rendering must restore alpha `1.0`.
-- SDR and HDR presentation shaders must safely unpremultiply for display color
-  conversion and premultiply their output again.
+- SDR and HDR presentation shaders must safely unpremultiply for output-range
+  handling and premultiply their output again. Presentation must follow the
+  shared incomplete-color-domain warning contract in `docs/contracts/rendering.md`
+  and must not apply missing display conversions.
 - Display HDR must require `drawingBufferStorage()`, reflected
   `drawingBufferFormat` and `drawingBufferColorSpace` attributes,
   `EXT_color_buffer_float`, and a matching high-dynamic-range media query. The

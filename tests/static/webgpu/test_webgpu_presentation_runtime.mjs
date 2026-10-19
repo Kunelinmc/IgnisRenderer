@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { Logger } from "../../../src/foundation/Logger.ts";
+import { WebGPUPresentPass } from "../../../src/backends/webgpu/rendergraph/WebGPUPresentPass.ts";
 
 import { WebGPUPresentationRuntime } from "../../../src/backends/webgpu/rendergraph/WebGPUPresentationRuntime.ts";
 
@@ -57,5 +60,50 @@ assert.deepEqual(calls.slice(1), [
 	"shader-change",
 	"destroy",
 ]);
+
+
+// Exercise presentation itself, including repeated domains and alpha mode changes.
+const warnings = [];
+Logger.configure({ resetOnceKeys: true, sink: { warn: (...args) => warnings.push(args.join(" ")) } });
+try {
+	const writes = [];
+	const pass = new WebGPUPresentPass({
+		displayOutputState: { activeDynamicRange: "hdr", requested: { exposure: 7, hdrHeadroom: 4 } },
+		writeBuffer: (_buffer, data) => writes.push(Array.from(data)),
+		createBindingGroup: () => ({}),
+		getCanvasColorTexture: () => ({ width: 1, height: 1 }),
+	});
+	pass._shaderModule = {};
+	pass._pipeline = {};
+	pass._sampler = {};
+	pass._params = {};
+	const encoder = {
+		beginRenderPass() {}, setPipeline() {}, setBindingGroup() {},
+		draw() {}, endRenderPass() {},
+	};
+	for (const domain of ["display-encoded", "scene-linear-hdr", "display-linear"]) {
+		for (const presentationAlphaMode of ["opaque", "premultiplied"]) {
+			await pass.present({
+				encoder, source, colorDomain: domain,
+				frameContext: { presentationAlphaMode },
+				resolveDirtyRects: () => [{ x: 0, y: 0, width: 1, height: 1 }],
+			});
+		}
+	}
+	assert.equal(warnings.length, 2);
+	assert.match(warnings[0], /presentation-color-domain-incomplete-scene-linear-hdr/);
+	assert.match(warnings[0], /tone mapping.*display encoding/);
+	assert.match(warnings[1], /presentation-color-domain-incomplete-display-linear/);
+	assert.match(warnings[1], /may not match expectations/);
+	assert.deepEqual(writes[0], writes[2], "color domain must not alter presentation parameters");
+	assert.deepEqual(writes[2], writes[4]);
+	assert.notDeepEqual(writes[0], writes[1], "transparent alpha handling must remain active");
+	const shader = readFileSync(new URL("../../../src/shaders/webgpu/utility/present.wgsl", import.meta.url), "utf8");
+	assert.doesNotMatch(shader, /acesFitted|hdrSoftShoulder|linearToSrgb|linearSrgbToDisplayP3|exposure/,
+		"presentation must not apply missing color conversions");
+	pass.destroy();
+} finally {
+	Logger.reset();
+}
 
 console.log("WebGPU presentation runtime tests passed");

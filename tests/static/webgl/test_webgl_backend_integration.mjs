@@ -1,4 +1,8 @@
-import assert from "node:assert/strict";import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";import { Matrix4 } from "../../../src/maths/Matrix4.ts";import { drawWebGLPacket } from "../../../src/backends/webgl/WebGLScenePass.ts";import { WebGLBackend } from "../../../src/backends/webgl/WebGLBackend.ts";import { PARTICLE_SIM_DELTA_TIME_SECONDS_KEY } from "../../../src/pipeline/types.ts";import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";import { createScenePassCaptureGL, runWebGLBackendFile } from "../../helpers/webgl-backend.mjs";import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+
+import { Logger } from "../../../src/foundation/Logger.ts";
+import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";import { Matrix4 } from "../../../src/maths/Matrix4.ts";import { drawWebGLPacket } from "../../../src/backends/webgl/WebGLScenePass.ts";import { WebGLBackend } from "../../../src/backends/webgl/WebGLBackend.ts";import { PARTICLE_SIM_DELTA_TIME_SECONDS_KEY } from "../../../src/pipeline/types.ts";import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";import { createScenePassCaptureGL, runWebGLBackendFile } from "../../helpers/webgl-backend.mjs";import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 import { CameraType } from "../../../src/cameras/Camera.ts";
 import { WebGLEnvironmentRenderer } from "../../../src/backends/webgl/WebGLEnvironmentRenderer.ts";
 import { WebGLFullscreenRenderer } from "../../../src/backends/webgl/WebGLFullscreenRenderer.ts";
@@ -289,6 +293,9 @@ function testWebGLBackendParticleDeltaTimeClamp() {
 }
 
 function testFullscreenPresentationRepaintsIncrementalCanvas() {
+	const warnings = [];
+	Logger.configure({ resetOnceKeys: true, sink: { warn: (...args) => warnings.push(args.join(" ")) } });
+	let domain = "display-encoded";
 	const gl = createScenePassCaptureGL();
 	let drawCount = 0;
 	let dirtyRectResolveCount = 0;
@@ -302,10 +309,7 @@ function testFullscreenPresentationRepaintsIncrementalCanvas() {
 		program: {},
 		uniforms: {
 			sourceMap: null,
-			exposure: null,
-			hdrHeadroom: null,
 			hdrEnabled: null,
-			colorDomain: null,
 		},
 	};
 	const renderer = new WebGLFullscreenRenderer({
@@ -330,6 +334,7 @@ function testFullscreenPresentationRepaintsIncrementalCanvas() {
 			return [{ x: 96, y: 32, width: 128, height: 128 }];
 		},
 		setScissorRect: () => scissorSetCount++,
+		getColorDomain: () => domain,
 		markPresented: () => presentedCount++,
 	});
 
@@ -339,6 +344,21 @@ function testFullscreenPresentationRepaintsIncrementalCanvas() {
 	assert.equal(scissorSetCount, 0);
 	assert.equal(presentedCount, 1);
 	assert.equal(gl.calls.disable.includes(gl.SCISSOR_TEST), true);
+	assert.equal(warnings.length, 0, "encoded presentation must not warn");
+	for (const nextDomain of ["scene-linear-hdr", "display-linear", "display-encoded"]) {
+		domain = nextDomain;
+		assert.equal(renderer.present(null), true);
+		assert.equal(renderer.present(null), true);
+	}
+	assert.equal(warnings.length, 2);
+	assert.match(warnings[0], /presentation-color-domain-incomplete-scene-linear-hdr/);
+	assert.match(warnings[0], /tone mapping.*display encoding/);
+	assert.match(warnings[1], /presentation-color-domain-incomplete-display-linear/);
+	assert.match(warnings[1], /may not match expectations/);
+	const shader = readFileSync(new URL("../../../src/shaders/webgl/utility/presentFragment.glsl", import.meta.url), "utf8");
+	assert.doesNotMatch(shader, /acesFitted|hdrSoftShoulder|linearToSrgb|linearSrgbToDisplayP3|uExposure/,
+		"presentation must not apply missing color conversions");
+	Logger.reset();
 	renderer.destroy();
 }
 

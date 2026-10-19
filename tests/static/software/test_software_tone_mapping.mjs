@@ -1,7 +1,20 @@
 import assert from "node:assert/strict";
 import { SoftwareToneMappingImplementation } from "../../../src/postprocess/index.ts";
-import { applyACESToneMapping } from "../../../src/postprocess/passes/ToneMappingPass.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
+
+function mapSDR(color, exposure) {
+	const pixels = new Float32Array([...color, 1]);
+	new SoftwareToneMappingImplementation().execute({
+		frameContext: { attachments: { width: 1 } },
+	}, {
+		dirtyRects: [{ minX: 0, minY: 0, maxX: 0, maxY: 0 }],
+		displayOutput: {
+			requested: { exposure, hdrHeadroom: 4 }, activeDynamicRange: "sdr",
+		},
+		resources: { color: { input: pixels, output: pixels } },
+	});
+	return Array.from(pixels.slice(0, 3));
+}
 
 function createFrameContext(pixels) {
 	return {
@@ -65,13 +78,13 @@ function testSDRPreservesEmissiveColorRatiosUnderAttenuationAndExposure() {
 		for (const attenuation of [1, 0.25, 0.01, 0.001]) {
 			for (const exposure of [0.01, 1, 8]) {
 				const input = color.map((channel) => channel * attenuation);
-				const mapped = applyACESToneMapping(input, exposure);
+				const mapped = mapSDR(input, exposure);
 				const mappedPeak = Math.max(...mapped);
 				assert.ok(mappedPeak > 0 && mappedPeak <= 1);
 				for (let channel = 0; channel < 3; channel++) {
 					assert.ok(Math.abs(
 						mapped[channel] / mappedPeak - color[channel] / sourcePeak,
-					) < 1e-12, `channel ${channel} changed hue at ${attenuation}, ${exposure}`);
+					) < 1e-7, `channel ${channel} changed hue at ${attenuation}, ${exposure}`);
 				}
 			}
 		}
@@ -87,17 +100,17 @@ function testSDRRetainsGrayscaleCurveAndHandlesZeroAndNegativeChannels() {
 		[4, 0.9734171097148379],
 		[16, 1],
 	]) {
-		const mapped = applyACESToneMapping([input, input, input], 1);
-		assert.ok(mapped.every((channel) => Math.abs(channel - expected) < 1e-12));
-		const exposed = applyACESToneMapping([input / 4, input / 4, input / 4], 4);
+		const mapped = mapSDR([input, input, input], 1);
+		assert.ok(mapped.every((channel) => Math.abs(channel - expected) < 1e-7));
+		const exposed = mapSDR([input / 4, input / 4, input / 4], 4);
 		assert.deepEqual(exposed, mapped);
 	}
-	assert.deepEqual(applyACESToneMapping([4, 2, 1], 0), [0, 0, 0]);
-	assert.deepEqual(applyACESToneMapping([-1, -2, 0], 1), [0, 0, 0]);
+	assert.deepEqual(mapSDR([4, 2, 1], 0), [0, 0, 0]);
+	assert.deepEqual(mapSDR([-1, -2, 0], 1), [0, 0, 0]);
 	const inputAndOutput = [-1, 4, 2];
-	assert.equal(applyACESToneMapping(inputAndOutput, 1, inputAndOutput), inputAndOutput);
-	assert.equal(inputAndOutput[0], 0);
-	assert.ok(Math.abs(inputAndOutput[2] / inputAndOutput[1] - 0.5) < 1e-12);
+	const mapped = mapSDR(inputAndOutput, 1);
+	assert.equal(mapped[0], 0);
+	assert.ok(Math.abs(mapped[2] / mapped[1] - 0.5) < 1e-7);
 }
 
 function run() {

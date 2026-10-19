@@ -1,3 +1,4 @@
+import { warnIncompletePresentation } from "../../../rendering/DisplayOutput";
 import type { FrameContext } from "../../../pipeline/types";
 import type { ICommandEncoder } from "../../ICommandEncoder";
 import {
@@ -15,14 +16,14 @@ import type { WebGPUFrameHost } from "./WebGPUFrameHost";
 import { ShaderSource } from "../../../shaders/ShaderSource";
 import type { PostProcessColorDomain } from "../../../postprocess/PostProcessPass";
 
-export interface WebGPUPresentDirtyRect {
+interface WebGPUPresentDirtyRect {
 	readonly x: number;
 	readonly y: number;
 	readonly width: number;
 	readonly height: number;
 }
 
-export interface WebGPUPresentRequest {
+interface WebGPUPresentRequest {
 	readonly encoder: ICommandEncoder;
 	readonly frameContext: FrameContext | null;
 	readonly source: IRenderTexture;
@@ -61,11 +62,10 @@ export class WebGPUPresentPass {
 			return;
 		}
 		const display = this._host.displayOutputState;
-		this._paramData[0] = display?.requested.exposure ?? 1;
-		this._paramData[1] = display?.requested.hdrHeadroom ?? 4;
-		this._paramData[2] = display?.activeDynamicRange === "hdr" ? 1 : 0;
-		this._paramData[3] = encodeColorDomain(request.colorDomain) +
-			(request.frameContext?.presentationAlphaMode === "premultiplied" ? 4 : 0);
+		warnIncompletePresentation(request.colorDomain, "webgpu");
+		this._paramData[0] = display?.activeDynamicRange === "hdr" ? 1 : 0;
+		this._paramData[1] =
+			request.frameContext?.presentationAlphaMode === "premultiplied" ? 1 : 0;
 		this._host.writeBuffer(this._params, this._paramData);
 
 		if (!this._binding || this._bindingSource !== request.source) {
@@ -208,16 +208,5 @@ export class WebGPUPresentPass {
 		if (typeof destroyFn === "function") {
 			destroyFn.call(resource);
 		}
-	}
-}
-
-function encodeColorDomain(domain: PostProcessColorDomain): number {
-	switch (domain) {
-		case "scene-linear-hdr":
-			return 0;
-		case "display-linear":
-			return 1;
-		case "display-encoded":
-			return 2;
 	}
 }

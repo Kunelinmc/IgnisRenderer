@@ -307,6 +307,15 @@ attenuated reflections retain the same scene-linear color ratios instead of
 shifting toward white at different intensities. Neutral colors retain the
 fitted ACES grayscale response. Display HDR keeps its soft-shoulder mapping.
 
+Tone mapping and display encoding require enabled post-process passes (or
+equivalent custom passes with matching color contracts) on all three backends.
+Disabling `ToneMappingPass` or `GammaPass` no longer triggers automatic
+presentation conversion. Incomplete color domains produce a deduplicated
+warning that display results may not match expectations; presentation copies
+the current color with output-range and alpha handling only. Passes whose input
+color domain does not match still skip execution. HDR capability fallback to
+SDR remains independent of this behavior.
+
 ### Screen-space ambient occlusion
 
 SSAO radius and depth bias use view-space distance units on every backend.

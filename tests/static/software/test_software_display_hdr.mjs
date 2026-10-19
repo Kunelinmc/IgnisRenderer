@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 
+import { Logger } from "../../../src/foundation/Logger.ts";
+import { SoftwareGammaImplementation } from "../../../src/postprocess/passes/GammaPass.ts";
+
 import { SoftwareBackend } from "../../../src/backends/software/SoftwareBackend.ts";
 import { SoftwareDisplayOutputManager } from "../../../src/backends/software/SoftwareDisplayOutputManager.ts";
 import { SoftwareSurfaceRuntime } from "../../../src/backends/software/SoftwareSurfaceRuntime.ts";
@@ -183,6 +186,8 @@ function testCapabilityMatrix() {
 }
 
 function testPresentationAndTargetLifecycle() {
+	const warnings = [];
+	Logger.configure({ resetOnceKeys: true, sink: { warn: (...args) => warnings.push(args.join(" ")) } });
 	const manager = createManager("hdr");
 	const harness = createHarness();
 	const surface = new SoftwareSurfaceRuntime(manager);
@@ -197,7 +202,7 @@ function testPresentationAndTargetLifecycle() {
 	};
 	surface.present(frame, "scene-linear-hdr");
 	assert.ok(harness.captured.image.data instanceof Float16Array);
-	assert.ok(harness.captured.image.data[0] > 1);
+	assert.deepEqual(Array.from(harness.captured.image.data), [4, 2, 1, 1]);
 	assert.equal(attachments.pixels[0], 255);
 	assert.equal(attachments.pixels[1], 255);
 	assert.equal(attachments.pixels[3], 255);
@@ -232,8 +237,8 @@ function testPresentationAndTargetLifecycle() {
 		attachments: { ...sdrAttachments, color: sdrColor },
 		clipRegions: [{ minX: 0, minY: 0, maxXExclusive: 1, maxYExclusive: 1 }],
 	}, "scene-linear-hdr");
-	// Peak ACES is 0.9734171097; the other linear channels retain ratios 1/8 and 1/16.
-	assert.deepEqual(Array.from(sdrAttachments.pixels), [252, 98, 70, 255]);
+	// Missing passes must leave scene color unchanged apart from SDR clipping.
+	assert.deepEqual(Array.from(sdrAttachments.pixels), [255, 128, 64, 255]);
 	assert.ok(sdrHarness.captured.image.data instanceof Uint8ClampedArray);
 	const sdrFrame = {
 		attachments: { ...sdrAttachments, color: sdrColor },
@@ -245,7 +250,29 @@ function testPresentationAndTargetLifecycle() {
 		resources: { color: { input: sdrColor, output: sdrColor } },
 	});
 	sdrSurface.present(sdrFrame, "display-linear");
+	assert.deepEqual(Array.from(sdrAttachments.pixels), [248, 31, 16, 255]);
+	new SoftwareGammaImplementation().execute({ frameContext: sdrFrame }, {
+		dirtyRects: [{ minX: 0, minY: 0, maxX: 0, maxY: 0 }],
+		displayOutput: sdrConfigured.state,
+		resources: { color: { input: sdrColor, output: sdrColor } },
+	});
+	sdrSurface.present(sdrFrame, "display-encoded");
 	assert.deepEqual(Array.from(sdrAttachments.pixels), [252, 98, 70, 255]);
+	for (const domain of ["scene-linear-hdr", "display-linear", "display-encoded"]) {
+		sdrColor.set([0.1, 0.2, 0.3, 0.5]);
+		sdrFrame.presentationAlphaMode = "premultiplied";
+		sdrSurface.present(sdrFrame, domain);
+		assert.deepEqual(Array.from(sdrAttachments.pixels), [51, 102, 153, 128]);
+		sdrColor.set([1, 1, 1, 0]);
+		sdrSurface.present(sdrFrame, domain);
+		assert.deepEqual(Array.from(sdrAttachments.pixels), [0, 0, 0, 0]);
+	}
+	assert.equal(warnings.length, 2, "warn once per backend and incomplete domain");
+	assert.match(warnings[0], /presentation-color-domain-incomplete-scene-linear-hdr/);
+	assert.match(warnings[0], /tone mapping.*display encoding/);
+	assert.match(warnings[1], /presentation-color-domain-incomplete-display-linear/);
+	assert.match(warnings[1], /may not match expectations/);
+	Logger.reset();
 	sdrSurface.destroy();
 }
 
@@ -320,6 +347,7 @@ async function run() {
 try {
 	await run();
 } finally {
+	Logger.reset();
 	globalThis.ImageData = originalImageData;
 	globalThis.matchMedia = originalMatchMedia;
 }
