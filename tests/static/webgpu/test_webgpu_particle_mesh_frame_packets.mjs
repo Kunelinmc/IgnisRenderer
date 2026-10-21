@@ -49,8 +49,6 @@ function createMeshBatch({
 		material,
 		receiveShadows: true,
 		castShadows: true,
-		shadowDensity: 1,
-		shadowSoftness: 1,
 		particles: [
 			{
 				templateIndex,

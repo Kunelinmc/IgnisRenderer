@@ -266,14 +266,12 @@ function testContextMismatchAndProgramFallback() {
 	runtime.destroy();
 }
 
-function testCSMSpotPlanAndParticleResourceCatalog() {
+function testCSMSpotPlanResourceCatalog() {
 	const gl = createGL();
 	const host = createHost(gl);
 	const runtime = new WebGLShadowRuntime(host);
 	const context = createContext();
-	context.scene.shadowTransmitterSubmissions = [];
 	runtime.beginFrame(context);
-	context.scene.particleSystems.push({});
 	const csm = createShadow({
 		strategyType: "csm",
 		cascadeCount: 4,
@@ -293,27 +291,12 @@ function testCSMSpotPlanAndParticleResourceCatalog() {
 	});
 	const spot = createShadow();
 	runtime.prepareFrame(context, createLightState([csm], [spot]));
-	const catalog = runtime.describeGraphResources();
-	const particle = catalog.resources.find((entry) =>
-		entry.id === "shadow:particle-volume");
-	assert.ok(particle);
-	assert.equal(particle.format, "r32float");
-	assert.equal(particle.width, 512);
-	assert.equal(particle.height, 1024);
-	assert.equal(
-		catalog.bindings.find((entry) =>
-			entry.resourceId === "shadow:particle-volume").physicalId,
-		"webgl:slot:shadow:particle-volume",
-	);
 	runtime.renderPreparedFrame(context);
 	assert.ok(gl.viewports.some((viewport) =>
 		viewport.x === 32 && viewport.y === 32 &&
 		viewport.width === 32 && viewport.height === 32));
-	assert.ok(gl.viewports.some((viewport) =>
-		viewport.x === 0 && viewport.y === 64 &&
-		viewport.width === 64 && viewport.height === 64));
 	runtime.destroy();
-	assert.ok(gl.deletedTextures.length >= 3);
+	assert.ok(gl.deletedTextures.length >= 2);
 }
 
 function testShadowMatrixUploadsReuseScratchWithoutChangingValues() {
@@ -349,7 +332,7 @@ function run() {
 	testRuntimeLifecycleAndStableSamplingState();
 	testShadowWarmupContributesDepthAndTransmittancePrograms();
 	testContextMismatchAndProgramFallback();
-	testCSMSpotPlanAndParticleResourceCatalog();
+	testCSMSpotPlanResourceCatalog();
 	testShadowMatrixUploadsReuseScratchWithoutChangingValues();
 	console.log("WebGL shadow runtime tests passed");
 }

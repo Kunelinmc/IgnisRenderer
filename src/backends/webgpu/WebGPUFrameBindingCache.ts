@@ -43,14 +43,12 @@ import type {
 	FrameContext,
 	PreparedScene,
 } from "../../pipeline/types";
-import type { ParticleRenderBatch } from "../../particles/ParticleRenderBatch";
-import { PARTICLE_TRANSIENT_BATCHES_KEY } from "../../pipeline/types";
+import type { FramePreparationRequirements } from "../../pipeline/FrameRequirements";
 import {
 	DEFAULT_FOG_OPTIONS,
 	FOG_PASS_ID,
 	type FogOptions,
 } from "../../postprocess";
-import type { FramePreparationRequirements } from "../../pipeline/FrameRequirements";
 import { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
 import type { WebGPUShadowRuntime } from "./WebGPUShadowRuntime";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
@@ -62,19 +60,6 @@ import {
 import type { WebGPUSceneTargetMode } from "./WebGPUScenePassDescriptors";
 import { clamp } from "../../maths/Common";
 import type { Matrix4 } from "../../maths/Matrix4";
-import {
-	createParticleShadowVolumeGrid,
-	hasParticleShadowCastingBatches,
-	injectParticleBatchIntoShadowVolume,
-} from "../../pipeline/ParticleShadowVolume";
-
-const PARTICLE_SHADOW_VOLUME_MAX_SLICES = 4;
-const PARTICLE_SHADOW_VOLUME_META_FLOATS = 24;
-const PARTICLE_SHADOW_VOLUME_HEADER_FLOATS =
-	PARTICLE_SHADOW_VOLUME_MAX_SLICES * PARTICLE_SHADOW_VOLUME_META_FLOATS;
-const PARTICLE_SHADOW_VOLUME_DENSITY_FLOATS = 64 * 64 * 32;
-const PARTICLE_SHADOW_VOLUME_FALLBACK_FLOATS =
-	PARTICLE_SHADOW_VOLUME_HEADER_FLOATS + 1;
 
 function validateCameraMatrix(matrix: Matrix4, label: string): void {
 	const elements = matrix?.elements;
@@ -140,8 +125,6 @@ export class WebGPUFrameBindingCache {
 		shAmbientEnabled: false, envSpecularIsLinear: true, hasEnvSpecular: false,
 		hasBRDFLUT: false, envSpecularMaxMipLevel: 0,
 	};
-	private _particleShadowVolumeBuffer: IRenderBuffer | null = null;
-	private _particleShadowVolumeBufferSize = 0;
 	private _fogUniformData: Float32Array<ArrayBuffer> = new Float32Array(8);
 	private _sceneBinding: IBindingGroup | null = null;
 	private _depthFrameBinding: IBindingGroup | null = null;
@@ -263,9 +246,6 @@ export class WebGPUFrameBindingCache {
 		this._backend.writeBuffer(
 			this._getEnvironmentBackgroundParamsBuffer(),
 			this._packEnvironmentBackgroundParams(frame, environmentState.environmentTexture),
-		);
-		this._writeParticleShadowVolumeData(
-			new Float32Array(PARTICLE_SHADOW_VOLUME_FALLBACK_FLOATS),
 		);
 
 		const currentShadowAtlas = this._shadowRuntime.atlas;
@@ -480,7 +460,6 @@ export class WebGPUFrameBindingCache {
 							this._envSpecularSampler ?? this._textureRegistry.getWhiteSampler(),
 					},
 					{ binding: 4, resource: this._getFogUniformBuffer() },
-					{ binding: 5, resource: this._getParticleShadowVolumeBuffer() },
 					{
 						binding: 6,
 						resource:
@@ -653,100 +632,6 @@ export class WebGPUFrameBindingCache {
 		return this._environmentBackgroundParamsBuffer;
 	}
 
-	public updateParticleShadowVolumes(
-		context: FrameContext,
-		lightingState: WebGPULightingState,
-	): void {
-		const data = this._packParticleShadowVolumeData(context, lightingState);
-		this._writeParticleShadowVolumeData(data);
-	}
-
-	private _getParticleShadowVolumeBuffer(requiredByteSize = 0): IRenderBuffer {
-		const byteSize = Math.max(
-			PARTICLE_SHADOW_VOLUME_FALLBACK_FLOATS * 4,
-			Math.ceil(requiredByteSize / 4) * 4,
-		);
-		if (!this._particleShadowVolumeBuffer || this._particleShadowVolumeBufferSize < byteSize) {
-			this._particleShadowVolumeBuffer?.destroy();
-			this._particleShadowVolumeBuffer = this._backend.createBuffer({
-				size: byteSize,
-				usage: BufferUsage.Storage | BufferUsage.CopyDst,
-				label: "WebGPUParticleShadowVolumeBuffer",
-			});
-			this._particleShadowVolumeBufferSize = byteSize;
-			this._destroyBindingGroup(this._sceneBinding);
-			this._sceneBinding = null;
-		}
-		return this._particleShadowVolumeBuffer;
-	}
-
-	private _writeParticleShadowVolumeData(data: Float32Array): void {
-		const buffer = this._getParticleShadowVolumeBuffer(data.byteLength);
-		this._backend.writeBuffer(buffer, data as Float32Array<ArrayBuffer>);
-	}
-
-	private _packParticleShadowVolumeData(
-		context: FrameContext,
-		lightingState: WebGPULightingState,
-	): Float32Array {
-		const batches = context.transient.get(PARTICLE_TRANSIENT_BATCHES_KEY) as
-			| readonly ParticleRenderBatch[]
-			| undefined;
-		const directionalShadow = lightingState.directionalShadows[0];
-		if (
-			context.shadowPlan?.hasRasterWork !== true ||
-			!directionalShadow?.enabled ||
-			!hasParticleShadowCastingBatches(batches)
-		) {
-			return new Float32Array(PARTICLE_SHADOW_VOLUME_FALLBACK_FLOATS);
-		}
-
-		const cascadeCount =
-			directionalShadow.strategyType === "csm"
-				? Math.max(1, Math.min(4, directionalShadow.cascadeCount | 0))
-				: 1;
-		const matrices =
-			directionalShadow.strategyType === "csm"
-				? directionalShadow.cascadeViewProjectionMatrices
-				: [directionalShadow.viewProjectionMatrix];
-		const densityOffsetStart = PARTICLE_SHADOW_VOLUME_HEADER_FLOATS;
-		const data = new Float32Array(
-			densityOffsetStart +
-				PARTICLE_SHADOW_VOLUME_DENSITY_FLOATS * PARTICLE_SHADOW_VOLUME_MAX_SLICES,
-		);
-
-		for (
-			let sliceIndex = 0;
-			sliceIndex < Math.min(PARTICLE_SHADOW_VOLUME_MAX_SLICES, cascadeCount);
-			sliceIndex++
-		) {
-			const matrix = matrices[sliceIndex];
-			if (!matrix) {
-				continue;
-			}
-			const grid = createParticleShadowVolumeGrid();
-			for (const batch of batches ?? []) {
-				injectParticleBatchIntoShadowVolume(grid, matrix, batch);
-			}
-			if (!grid.active) {
-				continue;
-			}
-
-			const metaOffset = sliceIndex * PARTICLE_SHADOW_VOLUME_META_FLOATS;
-			writeParticleShadowVolumeMatrix(data, metaOffset, matrix);
-			const densityOffset =
-				densityOffsetStart + sliceIndex * PARTICLE_SHADOW_VOLUME_DENSITY_FLOATS;
-			data[metaOffset + 16] = 1;
-			data[metaOffset + 17] = grid.resolution.width;
-			data[metaOffset + 18] = grid.resolution.height;
-			data[metaOffset + 19] = grid.resolution.depth;
-			data[metaOffset + 20] = densityOffset;
-			data.set(grid.density, densityOffset);
-		}
-
-		return data;
-	}
-
 	private _packFogUniformData(features: WebGPUFeatureState): Float32Array<ArrayBuffer> {
 		const source =
 			features.postProcess.getOptions<FogOptions>(FOG_PASS_ID) ?? DEFAULT_FOG_OPTIONS;
@@ -820,9 +705,6 @@ export class WebGPUFrameBindingCache {
 		this._fogUniformBuffer = null;
 		this._environmentBackgroundParamsBuffer?.destroy();
 		this._environmentBackgroundParamsBuffer = null;
-		this._particleShadowVolumeBuffer?.destroy();
-		this._particleShadowVolumeBuffer = null;
-		this._particleShadowVolumeBufferSize = 0;
 		this._ownedIrradianceProbeGridTexture?.destroy();
 		this._ownedIrradianceProbeGridTexture = null;
 		this._irradianceProbeGridTexture = null;
@@ -900,17 +782,4 @@ function resolvePreparedSceneEnvironment(
 				environment.backgroundExposure
 			:	1,
 	};
-}
-
-function writeParticleShadowVolumeMatrix(
-	target: Float32Array,
-	offset: number,
-	matrix: Matrix4
-): void {
-	const rows = matrix.elements;
-	for (let column = 0; column < 4; column++) {
-		for (let row = 0; row < 4; row++) {
-			target[offset + column * 4 + row] = rows[row]?.[column] ?? 0;
-		}
-	}
 }

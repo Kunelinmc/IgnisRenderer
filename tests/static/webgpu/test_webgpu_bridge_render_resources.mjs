@@ -169,7 +169,6 @@ function testFrameExecutorConsumesComputeFacadeFromHost() {
 		createFrameScope() {
 			return {
 				prepare() { throw new Error("not used by this test"); },
-				updateParticleShadowVolumes() {},
 				destroy() {},
 			};
 		},
@@ -273,9 +272,9 @@ async function testRenderResourcesUseCopyDstForUploads() {
 	);
 	assert.equal("anisotropyTexture" in firstDraw.resolvedInputs, false);
 	assert.ok(firstDraw.resolvedInputs.textures[WEBGPU_TEXTURE_SLOT.ANISOTROPY]);
-	assert.equal(firstDraw.bindings[0].group.desc.entries.length, 13);
+	assert.equal(firstDraw.bindings[0].group.desc.entries.length, 12);
 	assert.ok(
-		firstDraw.bindings[0].group.desc.entries.some((entry) => entry.binding === 5)
+		firstDraw.bindings[0].group.desc.entries.some((entry) => entry.binding === 6)
 	);
 	assert.ok(
 		firstDraw.bindings[0].group.desc.entries.some((entry) => entry.binding === 8)

@@ -169,7 +169,6 @@ function createPreparedFrameResources(options = {}) {
 function createFrameScopeAdapter(resources) {
 	return {
 		prepare: (context, options) => resources.prepareFrame(context, options),
-		updateParticleShadowVolumes() {},
 		destroy() {},
 	};
 }

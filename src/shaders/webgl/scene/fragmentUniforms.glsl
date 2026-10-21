@@ -233,10 +233,6 @@ uniform vec4 uSpotLightColorInner[MAX_SPOT_LIGHTS];
 __WEBGL_SCENE_SHADOW_UNIFORMS__
 uniform int uEnableShadows;
 uniform sampler2D uShadowAtlas;
-uniform sampler2D uParticleShadowVolumeAtlas;
-uniform vec2 uParticleShadowVolumeAtlasSize;
-uniform vec4 uParticleShadowVolumeGridSize;
-uniform vec4 uParticleShadowVolumeSliceParams[4];
 uniform mat4 uDirShadowViewProjection[MAX_DIRECTIONAL_LIGHTS];
 uniform mat4 uDirShadowCascadeViewProjection[MAX_DIRECTIONAL_LIGHTS * 4];
 uniform vec4 uDirShadowCascadeSplits[MAX_DIRECTIONAL_LIGHTS * 4];

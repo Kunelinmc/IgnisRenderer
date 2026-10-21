@@ -1,10 +1,5 @@
 import assert from "node:assert/strict";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
-import {
-	createParticleShadowVolumeGrid,
-	injectParticleBatchIntoShadowVolume,
-} from "../../../src/pipeline/ParticleShadowVolume.ts";
-import { ParticleBlendMode } from "../../../src/particles/types.ts";
 import { sampleSoftwareShadow } from "../../../src/backends/software/SoftwareShadowSampler.ts";
 
 function createFixture(size = 4, overrides = {}) {
@@ -27,7 +22,7 @@ function createFixture(size = 4, overrides = {}) {
 		effectiveFilterMode: definition.filterMode ?? "pcf",
 	};
 	const slice = { resolution: size, viewProjection: Matrix4.identity(), projection: Matrix4.identity(), lightDirection: { x: 0, y: -1, z: 0 } };
-	const runtime = { size, depthBuffer: new Float32Array(size * size), transmissionBuffer: new Float32Array(size * size * 3), particleVolume: createParticleShadowVolumeGrid() };
+	const runtime = { size, depthBuffer: new Float32Array(size * size), transmissionBuffer: new Float32Array(size * size * 3) };
 	runtime.depthBuffer.fill(1);
 	runtime.transmissionBuffer.fill(1);
 	return { shadow, slice, runtime };
@@ -168,41 +163,6 @@ function createFixture(size = 4, overrides = {}) {
 		Math.abs(beforeBoundary - afterBoundary) < 1e-3,
 		"High-quality PCF must remain continuous across shadow-map texel boundaries",
 	);
-}
-
-{
-	const { shadow, slice, runtime } = createFixture();
-	const particleVolume = createParticleShadowVolumeGrid({
-		width: 16,
-		height: 16,
-		depth: 8,
-	});
-	runtime.particleVolume = particleVolume;
-	injectParticleBatchIntoShadowVolume(particleVolume, slice.viewProjection, {
-		systemId: "particle-shadow",
-		blendMode: ParticleBlendMode.Alpha,
-		texture: null,
-		receiveShadows: true,
-		castShadows: true,
-		shadowDensity: 12,
-		shadowSoftness: 1,
-		particles: [{
-			position: { x: 0, y: 0, z: 0 },
-			size: 2,
-			color: { r: 255, g: 255, b: 255, a: 1 },
-			rotation: 0,
-			depth: 1,
-			uvRect: { u0: 0, v0: 0, u1: 1, v1: 1 },
-		}],
-	});
-	const visibility = sampleSoftwareShadow(
-		shadow,
-		slice,
-		runtime,
-		{ x: 0, y: 0, z: 0 },
-		null,
-	);
-	assert.ok(visibility.r < 0.99);
 }
 
 console.log("software plan-native shadow sampling tests passed");

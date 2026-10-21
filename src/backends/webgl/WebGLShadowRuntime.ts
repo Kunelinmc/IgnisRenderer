@@ -1,16 +1,8 @@
-import { Logger } from "../../foundation/Logger";
 import type { Matrix4 } from "../../maths/Matrix4";
 import {
-	createParticleShadowVolumeGrid,
-	hasParticleShadowCastingBatches,
-	injectParticleBatchIntoShadowVolume,
-} from "../../pipeline/ParticleShadowVolume";
-import {
-	PARTICLE_TRANSIENT_BATCHES_KEY,
 	type DrawSubmission,
 	type FrameContext,
 } from "../../pipeline/types";
-import type { ParticleRenderBatch } from "../../particles/ParticleRenderBatch";
 import type {
 	RenderGraphPhysicalBinding,
 	RenderGraphResourceDescriptor,
@@ -25,11 +17,6 @@ import {
 } from "../constants";
 
 import {
-	WEBGL_PARTICLE_SHADOW_VOLUME_ATLAS_COLUMNS,
-	WEBGL_PARTICLE_SHADOW_VOLUME_GRID_DEPTH,
-	WEBGL_PARTICLE_SHADOW_VOLUME_GRID_HEIGHT,
-	WEBGL_PARTICLE_SHADOW_VOLUME_GRID_WIDTH,
-	WEBGL_PARTICLE_SHADOW_VOLUME_MAX_SLICES,
 	WEBGL_SHADOW_ATLAS_COLUMNS,
 	WEBGL_SHADOW_ATLAS_ROWS,
 } from "./constants";
@@ -48,17 +35,6 @@ import {
 	type WebGLShadowRasterSlice,
 } from "./WebGLShadowRasterPass";
 import type { WebGLFrameGraphResourceCatalogSnapshot } from "./rendergraph/types";
-
-const PARTICLE_ATLAS_WIDTH =
-	WEBGL_PARTICLE_SHADOW_VOLUME_GRID_WIDTH *
-	WEBGL_PARTICLE_SHADOW_VOLUME_ATLAS_COLUMNS;
-const PARTICLE_ATLAS_ROWS = Math.ceil(
-	(WEBGL_PARTICLE_SHADOW_VOLUME_GRID_DEPTH *
-		WEBGL_PARTICLE_SHADOW_VOLUME_MAX_SLICES) /
-		WEBGL_PARTICLE_SHADOW_VOLUME_ATLAS_COLUMNS,
-);
-const PARTICLE_ATLAS_HEIGHT =
-	WEBGL_PARTICLE_SHADOW_VOLUME_GRID_HEIGHT * PARTICLE_ATLAS_ROWS;
 
 function getMaxShadowSize(values: WebGLShadowData[]): number {
 	let maxSize = 0;
@@ -102,11 +78,6 @@ export interface WebGLShadowSamplingState {
 	readonly transmittanceTexture: WebGLTexture | null;
 	readonly atlasTileSize: number;
 	readonly transmittanceAvailable: boolean;
-	readonly particleVolumeTexture: WebGLTexture | null;
-	readonly particleVolumeActiveSliceCount: number;
-	readonly particleVolumeAtlasSize: Readonly<Float32Array>;
-	readonly particleVolumeGridSize: Readonly<Float32Array>;
-	readonly particleVolumeSliceParams: Readonly<Float32Array>;
 }
 
 interface MutableShadowSamplingState {
@@ -115,11 +86,6 @@ interface MutableShadowSamplingState {
 	transmittanceTexture: WebGLTexture | null;
 	atlasTileSize: number;
 	transmittanceAvailable: boolean;
-	particleVolumeTexture: WebGLTexture | null;
-	particleVolumeActiveSliceCount: number;
-	particleVolumeAtlasSize: Float32Array;
-	particleVolumeGridSize: Float32Array;
-	particleVolumeSliceParams: Float32Array;
 }
 
 /** @internal Device and frame-baseline dependencies for one WebGL shadow runtime. */
@@ -157,19 +123,10 @@ export class WebGLShadowRuntime implements WebGLProgramWarmupContributor {
 		transmittanceTexture: null,
 		atlasTileSize: 0,
 		transmittanceAvailable: false,
-		particleVolumeTexture: null,
-		particleVolumeActiveSliceCount: 0,
-		particleVolumeAtlasSize: new Float32Array(2),
-		particleVolumeGridSize: new Float32Array(4),
-		particleVolumeSliceParams: new Float32Array(WEBGL_PARTICLE_SHADOW_VOLUME_MAX_SLICES * 4),
 	};
 	private _phase: WebGLShadowRuntimePhase = "idle";
 	private _context: FrameContext | null = null;
-	private _lightState: WebGLLightState | null = null;
 	private _hasPreparedResources = false;
-	private _particlePreparedThisFrame = false;
-	private _particleVolumeTexture: WebGLTexture | null = null;
-	private _particleVolumePixels = new Float32Array(0);
 
 	constructor(host: WebGLShadowRuntimeHost) {
 		this._host = host;
@@ -205,14 +162,12 @@ export class WebGLShadowRuntime implements WebGLProgramWarmupContributor {
 		this._assertCanBegin();
 		this._phase = "begun";
 		this._context = context;
-		this._lightState = null;
 		this._clearPreparedFrameState();
 	}
 
 	/** Builds the reusable plan and allocates predictable shadow targets. */
 	public prepareFrame(context: FrameContext, lightState: WebGLLightState): void {
 		this._assertPhaseAndContext("begun", context, "prepareFrame");
-		this._lightState = lightState;
 		this._resetPlan(context);
 		const tileSize = Math.max(
 			getMaxShadowSize(lightState.directionalShadows),
@@ -220,8 +175,7 @@ export class WebGLShadowRuntime implements WebGLProgramWarmupContributor {
 		);
 		const hasPotentialCasters =
 			context.scene.shadowCasterSubmissions.length > 0 ||
-			context.scene.shadowTransmitterSubmissions.length > 0 ||
-			context.scene.particleSystems.length > 0;
+			context.scene.shadowTransmitterSubmissions.length > 0;
 		if (context.shadowPlan?.hasRasterWork !== true || tileSize <= 0 || !hasPotentialCasters) {
 			this._setLightAtlasTileSize(lightState, 0);
 			this._phase = "prepared";
@@ -245,9 +199,6 @@ export class WebGLShadowRuntime implements WebGLProgramWarmupContributor {
 				this._samplingState.enabled &&
 				prepared.transmittanceProgramAvailable &&
 				!!prepared.transmittanceTexture;
-			if (context.scene.particleSystems.length > 0) {
-				this._prepareParticleVolumeTexture();
-			}
 			this._phase = "prepared";
 		} catch (error) {
 			this.abortFrame();
@@ -255,12 +206,11 @@ export class WebGLShadowRuntime implements WebGLProgramWarmupContributor {
 		}
 	}
 
-	/** Uploads particle density and executes the prepared raster plan once. */
+	/** Executes the prepared shadow raster plan once. */
 	public renderPreparedFrame(context: FrameContext): void {
 		this._assertPhaseAndContext("prepared", context, "renderPreparedFrame");
 		try {
 			if (this._hasPreparedResources) {
-				this._updateParticleVolumes(context);
 				this._rasterPass.render(this._plan as WebGLShadowRasterPlan);
 			}
 			this._phase = "rendered";
@@ -275,7 +225,6 @@ export class WebGLShadowRuntime implements WebGLProgramWarmupContributor {
 		if (this._phase === "destroyed") return;
 		this._phase = "idle";
 		this._context = null;
-		this._lightState = null;
 		this._clearPreparedFrameState();
 	}
 
@@ -307,16 +256,6 @@ export class WebGLShadowRuntime implements WebGLProgramWarmupContributor {
 			this._plan.atlasWidth,
 			this._plan.atlasHeight,
 		);
-		if (this._particlePreparedThisFrame) {
-			this._addGraphTexture(
-				resources,
-				bindings,
-				"shadow:particle-volume",
-				"r32float",
-				PARTICLE_ATLAS_WIDTH,
-				PARTICLE_ATLAS_HEIGHT,
-			);
-		}
 		return {
 			resources: Object.freeze(resources),
 			bindings: Object.freeze(bindings),
@@ -326,14 +265,8 @@ export class WebGLShadowRuntime implements WebGLProgramWarmupContributor {
 	public destroy(): void {
 		if (this._phase === "destroyed") return;
 		this._rasterPass.destroy();
-		if (this._particleVolumeTexture) {
-			this._host.gl.deleteTexture(this._particleVolumeTexture);
-			this._particleVolumeTexture = null;
-		}
-		this._particleVolumePixels = new Float32Array(0);
 		this._clearPreparedFrameState();
 		this._context = null;
-		this._lightState = null;
 		this._phase = "destroyed";
 	}
 
@@ -461,157 +394,6 @@ export class WebGLShadowRuntime implements WebGLProgramWarmupContributor {
 		for (const shadow of lightState.spotShadows) shadow.atlasTileSize = size;
 	}
 
-	private _prepareParticleVolumeTexture(): void {
-		if (
-			PARTICLE_ATLAS_WIDTH > this._host.maxTextureSize ||
-			PARTICLE_ATLAS_HEIGHT > this._host.maxTextureSize
-		) {
-			this._warn(
-				"webgl-particle-shadow-volume-atlas-limit",
-				`WebGL particle shadow volume atlas ${PARTICLE_ATLAS_WIDTH}x` +
-					`${PARTICLE_ATLAS_HEIGHT} exceeds MAX_TEXTURE_SIZE=` +
-					`${this._host.maxTextureSize}; disabling particle volume shadows ` +
-					"for this frame.",
-			);
-			return;
-		}
-		if (!this._particleVolumeTexture) {
-			const gl = this._host.gl;
-			const texture = gl.createTexture();
-			if (!texture) {
-				const message = "Failed to create WebGL particle shadow volume atlas";
-				this._warn("webgl-particle-shadow-volume-create-failed", message);
-				throw new Error(`[webgl-particle-shadow-volume-create-failed] ${message}`);
-			}
-			this._particleVolumeTexture = texture;
-			try {
-				gl.bindTexture(gl.TEXTURE_2D, texture);
-				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-				gl.texImage2D(
-					gl.TEXTURE_2D,
-					0,
-					gl.R32F,
-					PARTICLE_ATLAS_WIDTH,
-					PARTICLE_ATLAS_HEIGHT,
-					0,
-					gl.RED,
-					gl.FLOAT,
-					null,
-				);
-			} catch (error) {
-				gl.deleteTexture(texture);
-				this._particleVolumeTexture = null;
-				this._warn(
-					"webgl-particle-shadow-volume-create-failed",
-					"Failed to allocate WebGL particle shadow volume storage.",
-				);
-				throw error;
-			} finally {
-				gl.bindTexture(gl.TEXTURE_2D, null);
-			}
-		}
-		const requiredPixels = PARTICLE_ATLAS_WIDTH * PARTICLE_ATLAS_HEIGHT;
-		if (this._particleVolumePixels.length !== requiredPixels) {
-			this._particleVolumePixels = new Float32Array(requiredPixels);
-		}
-		this._particlePreparedThisFrame = true;
-		this._samplingState.particleVolumeTexture = this._particleVolumeTexture;
-	}
-
-	private _updateParticleVolumes(context: FrameContext): void {
-		this._clearParticleSamplingData();
-		const batches = context.transient.get(PARTICLE_TRANSIENT_BATCHES_KEY) as
-			| readonly ParticleRenderBatch[]
-			| undefined;
-		const shadow = this._lightState?.directionalShadows[0];
-		if (
-			!this._samplingState.enabled ||
-			!this._particlePreparedThisFrame ||
-			!this._samplingState.particleVolumeTexture ||
-			!shadow?.enabled ||
-			!hasParticleShadowCastingBatches(batches)
-		)
-			return;
-		this._particleVolumePixels.fill(0);
-		const matrices =
-			shadow.strategyType === "csm"
-				? shadow.cascadeViewProjectionMatrices
-				: [shadow.viewProjectionMatrix];
-		const cascadeCount =
-			shadow.strategyType === "csm" ? Math.max(1, Math.min(4, shadow.cascadeCount | 0)) : 1;
-		let activeSlices = 0;
-		for (
-			let sliceIndex = 0;
-			sliceIndex < Math.min(WEBGL_PARTICLE_SHADOW_VOLUME_MAX_SLICES, cascadeCount);
-			sliceIndex++
-		) {
-			const matrix = matrices[sliceIndex];
-			if (!matrix) continue;
-			const grid = createParticleShadowVolumeGrid({
-				width: WEBGL_PARTICLE_SHADOW_VOLUME_GRID_WIDTH,
-				height: WEBGL_PARTICLE_SHADOW_VOLUME_GRID_HEIGHT,
-				depth: WEBGL_PARTICLE_SHADOW_VOLUME_GRID_DEPTH,
-			});
-			for (const batch of batches ?? []) {
-				injectParticleBatchIntoShadowVolume(grid, matrix, batch);
-			}
-			if (!grid.active) continue;
-			this._packSlice(grid.density, sliceIndex);
-			const offset = sliceIndex * 4;
-			this._samplingState.particleVolumeSliceParams[offset] = 1;
-			this._samplingState.particleVolumeSliceParams[offset + 1] =
-				sliceIndex * WEBGL_PARTICLE_SHADOW_VOLUME_GRID_DEPTH;
-			activeSlices++;
-		}
-		if (activeSlices === 0) return;
-		this._samplingState.particleVolumeActiveSliceCount = activeSlices;
-		this._samplingState.particleVolumeAtlasSize[0] = PARTICLE_ATLAS_WIDTH;
-		this._samplingState.particleVolumeAtlasSize[1] = PARTICLE_ATLAS_HEIGHT;
-		this._samplingState.particleVolumeGridSize[0] = WEBGL_PARTICLE_SHADOW_VOLUME_GRID_WIDTH;
-		this._samplingState.particleVolumeGridSize[1] = WEBGL_PARTICLE_SHADOW_VOLUME_GRID_HEIGHT;
-		this._samplingState.particleVolumeGridSize[2] = WEBGL_PARTICLE_SHADOW_VOLUME_GRID_DEPTH;
-		this._samplingState.particleVolumeGridSize[3] = WEBGL_PARTICLE_SHADOW_VOLUME_ATLAS_COLUMNS;
-		const gl = this._host.gl;
-		try {
-			gl.bindTexture(gl.TEXTURE_2D, this._samplingState.particleVolumeTexture);
-			gl.texImage2D(
-				gl.TEXTURE_2D,
-				0,
-				gl.R32F,
-				PARTICLE_ATLAS_WIDTH,
-				PARTICLE_ATLAS_HEIGHT,
-				0,
-				gl.RED,
-				gl.FLOAT,
-				this._particleVolumePixels,
-			);
-		} finally {
-			gl.bindTexture(gl.TEXTURE_2D, null);
-		}
-	}
-
-	private _packSlice(density: Float32Array, sliceIndex: number): void {
-		const width = WEBGL_PARTICLE_SHADOW_VOLUME_GRID_WIDTH;
-		const height = WEBGL_PARTICLE_SHADOW_VOLUME_GRID_HEIGHT;
-		const depth = WEBGL_PARTICLE_SHADOW_VOLUME_GRID_DEPTH;
-		for (let z = 0; z < depth; z++) {
-			const tileIndex = sliceIndex * depth + z;
-			const tileX = tileIndex % WEBGL_PARTICLE_SHADOW_VOLUME_ATLAS_COLUMNS;
-			const tileY = Math.floor(tileIndex / WEBGL_PARTICLE_SHADOW_VOLUME_ATLAS_COLUMNS);
-			for (let y = 0; y < height; y++) {
-				const sourceOffset = z * width * height + y * width;
-				const targetOffset = (tileY * height + y) * PARTICLE_ATLAS_WIDTH + tileX * width;
-				this._particleVolumePixels.set(
-					density.subarray(sourceOffset, sourceOffset + width),
-					targetOffset,
-				);
-			}
-		}
-	}
-
 	private _addGraphTexture(
 		resources: RenderGraphResourceDescriptor[],
 		bindings: RenderGraphPhysicalBinding[],
@@ -643,7 +425,6 @@ export class WebGLShadowRuntime implements WebGLProgramWarmupContributor {
 
 	private _clearPreparedFrameState(): void {
 		this._hasPreparedResources = false;
-		this._particlePreparedThisFrame = false;
 		this._plan.atlasTileSize = 0;
 		this._plan.sliceCount = 0;
 		this._plan.casterSubmissions = [];
@@ -653,15 +434,6 @@ export class WebGLShadowRuntime implements WebGLProgramWarmupContributor {
 		this._samplingState.transmittanceTexture = null;
 		this._samplingState.atlasTileSize = 0;
 		this._samplingState.transmittanceAvailable = false;
-		this._samplingState.particleVolumeTexture = null;
-		this._clearParticleSamplingData();
-	}
-
-	private _clearParticleSamplingData(): void {
-		this._samplingState.particleVolumeActiveSliceCount = 0;
-		this._samplingState.particleVolumeAtlasSize.fill(0);
-		this._samplingState.particleVolumeGridSize.fill(0);
-		this._samplingState.particleVolumeSliceParams.fill(0);
 	}
 
 	private _assertCanBegin(): void {
@@ -690,12 +462,5 @@ export class WebGLShadowRuntime implements WebGLProgramWarmupContributor {
 				`WebGLShadowRuntime.${operation} received a frame context different from beginFrame`,
 			);
 		}
-	}
-
-	private _warn(key: string, message: string): void {
-		Logger.warn(`[${key}] ${message}`, {
-			scope: "WebGLShadowRuntime",
-			onceKey: key,
-		});
 	}
 }

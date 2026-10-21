@@ -110,9 +110,7 @@ export class ShadowPlanner {
 			options.sceneBounds,
 			options.camera
 		);
-		const casterBounds = options.casterIntent.particleBounds ?
-			mergeSceneBounds(meshCasterBounds, options.casterIntent.particleBounds)
-		: options.casterIntent.hasParticleCasters ?
+		const casterBounds = options.casterIntent.hasParticleCasters ?
 			options.sceneBounds
 		: meshCasterBounds;
 		const preparedLights: PreparedShadowLight[] = [];

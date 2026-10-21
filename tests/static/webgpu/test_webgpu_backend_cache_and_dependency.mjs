@@ -1193,7 +1193,6 @@ async function testBackendPlanOmitsRendererOwnedPostProcessStage() {
 		},
 		beginFrame() {},
 		executePass() {},
-		updateParticleShadowVolumes() {},
 		getPreparedFrameResources() {
 			return null;
 		},
@@ -1244,7 +1243,6 @@ async function testPassPlanAllowsParticleStageBeforeMainOpaque() {
 		},
 		beginFrame() {},
 		executePass() {},
-		updateParticleShadowVolumes() {},
 		getPreparedFrameResources() {
 			return null;
 		},
@@ -1383,7 +1381,6 @@ async function testAbortFrameClearsPlannerAndDelegatesWithoutEndFrame() {
 		},
 		beginFrame() {},
 		executePass() {},
-		updateParticleShadowVolumes() {},
 		getPreparedFrameResources() {
 			return null;
 		},

@@ -185,8 +185,6 @@ function testRateAndBurstSpawn() {
 function testShadowDefaultsAndBatchParams() {
 	const defaultSystem = new ParticleSystem();
 	assert.equal(defaultSystem.castShadows, true);
-	assert.equal(defaultSystem.shadowDensity, 1);
-	assert.equal(defaultSystem.shadowSoftness, 1);
 
 	const simulator = createSimulator();
 	const alphaSystem = new ParticleSystem({
@@ -204,8 +202,6 @@ function testShadowDefaultsAndBatchParams() {
 					blendMode: ParticleBlendMode.Alpha,
 				},
 				castShadows: true,
-				shadowDensity: 2.5,
-				shadowSoftness: 0.75,
 			}),
 		],
 	});
@@ -224,8 +220,6 @@ function testShadowDefaultsAndBatchParams() {
 					blendMode: ParticleBlendMode.Additive,
 				},
 				castShadows: true,
-				shadowDensity: 2,
-				shadowSoftness: 2,
 			}),
 		],
 	});
@@ -238,13 +232,7 @@ function testShadowDefaultsAndBatchParams() {
 	);
 
 	assert.ok(alphaBatch);
-	assert.equal(alphaBatch.castShadows, true);
-	assert.equal(alphaBatch.shadowDensity, 2.5);
-	assert.equal(alphaBatch.shadowSoftness, 0.75);
 	assert.ok(additiveBatch);
-	assert.equal(additiveBatch.castShadows, false);
-	assert.equal(additiveBatch.shadowDensity, 2);
-	assert.equal(additiveBatch.shadowSoftness, 2);
 }
 
 function testGradientAndAtlas() {

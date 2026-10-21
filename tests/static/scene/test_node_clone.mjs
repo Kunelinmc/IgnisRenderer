@@ -76,8 +76,6 @@ function testSpecializedNodeClone() {
 				sizeRange: [0.5, 1],
 				shape: { kind: "billboard" },
 				castShadows: false,
-				shadowDensity: 3.5,
-				shadowSoftness: 0.25,
 			},
 		],
 		colliders: [
@@ -129,8 +127,6 @@ function testSpecializedNodeClone() {
 	assert.ok(clonedParticle instanceof ParticleSystem);
 	assert.equal(clonedParticle.maxParticles, 123);
 	assert.equal(clonedParticle.castShadows, false);
-	assert.equal(clonedParticle.shadowDensity, 3.5);
-	assert.equal(clonedParticle.shadowSoftness, 0.25);
 	assert.notEqual(clonedParticle.emit, particle.emit);
 	assert.notEqual(clonedParticle.emit.direction, particle.emit.direction);
 	assert.deepEqual(clonedParticle.emit.direction, particle.emit.direction);

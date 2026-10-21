@@ -74,7 +74,6 @@ async function testRecordsSingleColorViewWithoutSubmission() {
 					preparedContext = nextContext;
 					return {};
 				},
-				updateParticleShadowVolumes() {},
 				destroy() { destroyedScope = true; },
 			};
 		},

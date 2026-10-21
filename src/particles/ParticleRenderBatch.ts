@@ -36,9 +36,6 @@ export interface ParticleRenderBatch {
 	blendMode: ParticleBlendMode;
 	texture: Texture | null;
 	receiveShadows: boolean;
-	castShadows: boolean;
-	shadowDensity: number;
-	shadowSoftness: number;
 	particles: ParticleRenderItem[];
 }
 
@@ -64,7 +61,5 @@ export interface ParticleMeshRenderBatch {
 	material: Material;
 	receiveShadows: boolean;
 	castShadows: boolean;
-	shadowDensity: number;
-	shadowSoftness: number;
 	particles: ParticleMeshRenderItem[];
 }

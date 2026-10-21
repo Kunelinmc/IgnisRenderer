@@ -72,8 +72,6 @@ export interface ParticleTemplate {
 	shape: ParticleRenderShape;
 	receiveShadows?: boolean;
 	castShadows?: boolean;
-	shadowDensity?: number;
-	shadowSoftness?: number;
 }
 
 interface ParticleColliderBase {

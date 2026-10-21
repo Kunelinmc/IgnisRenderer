@@ -144,9 +144,6 @@ export class ParticleBatchBuilder {
 			blendMode: ParticleBlendMode.Alpha,
 			texture: null,
 			receiveShadows: true,
-			castShadows: true,
-			shadowDensity: 1,
-			shadowSoftness: 1,
 			particles: [],
 		};
 	}
@@ -187,11 +184,6 @@ export class ParticleBatchBuilder {
 			blendMode,
 			texture: shape?.texture ?? null,
 			receiveShadows: template.receiveShadows ?? true,
-			castShadows:
-				(template.castShadows ?? true) &&
-				blendMode !== ParticleBlendMode.Additive,
-			shadowDensity: Math.max(0, template.shadowDensity ?? 1),
-			shadowSoftness: Math.max(0, template.shadowSoftness ?? 1),
 			particles: [],
 		};
 		batches.set(templateIndex, batch);
@@ -224,8 +216,6 @@ export class ParticleBatchBuilder {
 					castShadows:
 						(template.castShadows ?? true) &&
 						primitive.castShadows !== false,
-					shadowDensity: Math.max(0, template.shadowDensity ?? 1),
-					shadowSoftness: Math.max(0, template.shadowSoftness ?? 1),
 					particles: [],
 				};
 				batches.set(key, batch);

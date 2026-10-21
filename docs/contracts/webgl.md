@@ -271,12 +271,12 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   point lights, and `8` spot lights.
 - `WebGLShadowRuntime` must be the sole frame-aware entry point for the WebGL
   shadow subsystem. It must consume `FrameContext.shadowPlan` and own physical
-  atlas placement, reusable raster planning, particle-volume state, and the
-  identity-stable sampling state read by scene consumers. It must not rebuild
+  atlas placement, reusable raster planning, and the identity-stable sampling
+  state read by scene consumers. It must not rebuild
   shared projection metadata or apply backend capability fallback.
 - `WebGLShadowRasterPass` must consume only a prepared
   `WebGLShadowRasterPlan`. It must not inspect `FrameContext`, light collection
-  state, particle transients, or frame-target services, and it must exclusively
+  state or frame-target services, and it must exclusively
   own the shadow framebuffer, depth atlas, and transmittance atlas.
 - `WebGLShadowRasterPass` must clear depth and transmittance only within each
   active atlas slice by using its scissor rectangle. It must not clear the full
@@ -289,8 +289,8 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
 - Skinned or morphed caster and transmitter submissions must use the same current
   animation payload as the scene draw. Shadow depth and transmittance must not
   render bind-pose geometry or omit an otherwise valid animated packet.
-- Shadow consumers must obtain atlas, transmittance, particle-volume, and
-  availability data through one readonly sampling-state contract. Runtime-owned
+- Shadow consumers must obtain atlas, transmittance, and availability data
+  through one readonly sampling-state contract. Runtime-owned
   typed arrays must remain identity-stable and must not be mutated by consumers.
 - WebGL shadow sampling must implement the shared PCF and PCSS quality presets.
   A logical bilinear comparison tap must be reconstructed from four depth
@@ -376,7 +376,7 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   must include required, available, and all active sampler names.
 - The exact `WebGLSceneSamplerLayout` must be the sole authority for scene
   texture-unit allocation. WebGL must not disable shadow transmittance,
-  irradiance-probe grids, particle-shadow volumes, or material samplers through
+  irradiance-probe grids, or material samplers through
   fixed texture-unit thresholds. An over-budget exact layout must fail rather
   than remove an active sampler.
 - WebGL frame preparation must prepare every exact built-in scene variant that
@@ -489,21 +489,15 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   targets that it owns. `WebGLShadowRuntime` must separately describe prepared
   shadow resources, and the `WebGLFrameNodeAdapter` must merge both catalogs
   before whole-frame compilation.
-- A retained shadow stage must declare `shadow:atlas`,
-  `shadow:transmittance`, and `shadow:particle-volume` only when their prepared
-  physical resources exist. A frame without a retained shadow stage must omit
-  all three descriptors and bindings.
-- `shadow:particle-volume` must use `r32float`, frame residency, dimensions
-  derived from the fixed WebGL particle-shadow grid constants, and a stable
-  physical ID. The shadow node must optionally write it as `copy-target` after
-  particle simulation has completed.
+- A retained shadow stage must declare `shadow:atlas` and
+  `shadow:transmittance` only when their prepared physical resources exist. A
+  frame without a retained shadow stage must omit both descriptors and
+  bindings.
 - Opaque scene nodes and every legacy or OIT transparent raster node must
-  optionally read `shadow:particle-volume` as `texture-sampling`. Particle
-  rendering nodes must not declare that read while their shader does not
-  consume the texture.
+  optionally read `shadow:transmittance` as `texture-sampling`.
 - Render Graph shadow descriptors must describe logical extent and physical
-  identity only. Native atlas and particle-volume allocation and destruction
-  must remain owned by the shadow runtime and raster pass.
+  identity only. Native atlas allocation and destruction must remain owned by
+  the shadow runtime and raster pass.
 - `WebGLFrameGraphCompiler` must emit diagnostics for missing resources,
   reads before creation, duplicate creates, unsupported usages, and WebGL
   texture feedback loops.

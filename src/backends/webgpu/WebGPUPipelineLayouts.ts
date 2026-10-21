@@ -154,11 +154,6 @@ export function createWebGPUPipelineLayouts(
 				buffer: { type: "uniform" },
 			},
 			{
-				binding: 5,
-				visibility: GPUShaderStage.FRAGMENT,
-				buffer: { type: "read-only-storage" },
-			},
-			{
 				binding: 6,
 				visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE,
 				texture: { sampleType: "float" },

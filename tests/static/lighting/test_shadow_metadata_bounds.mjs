@@ -1,12 +1,6 @@
 import assert from "node:assert/strict";
 import { Camera } from "../../../src/cameras/Camera.ts";
 import { resolveShadowCasterBounds } from "../../../src/lights/shadows/ShadowCasterBounds.ts";
-import {
-	mergeParticleShadowBounds,
-	resolveParticleShadowCasterBounds,
-} from "../../../src/pipeline/ParticleShadowVolume.ts";
-import { ParticleSystem } from "../../../src/particles/ParticleSystem.ts";
-import { ParticleBlendMode } from "../../../src/particles/types.ts";
 import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
 function createPacket(id, center, radius = 1) {
@@ -69,62 +63,9 @@ function testShadowBoundsFallbackToNearestCasterWhenNothingVisible() {
 	);
 }
 
-function testParticleCastersExpandShadowBounds() {
-	const particle = new ParticleSystem({
-		position: { x: 12, y: 0, z: 0 },
-		emit: {
-			spawnRadius: 1,
-		},
-		templates: [
-			{
-				lifetimeRange: [1, 1],
-				speedRange: [0, 0],
-				sizeRange: [2, 2],
-				shape: {
-					kind: "billboard",
-					blendMode: ParticleBlendMode.Alpha,
-				},
-				castShadows: true,
-				shadowDensity: 1,
-			},
-		],
-	});
-	const additive = new ParticleSystem({
-		position: { x: 100, y: 0, z: 0 },
-		templates: [
-			{
-				lifetimeRange: [0.5, 1.5],
-				speedRange: [2, 5],
-				sizeRange: [0.5, 1],
-				shape: {
-					kind: "billboard",
-					blendMode: ParticleBlendMode.Additive,
-				},
-				castShadows: true,
-				shadowDensity: 1,
-			},
-		],
-	});
-
-	const particleBounds = resolveParticleShadowCasterBounds([particle, additive]);
-	assert.ok(particleBounds);
-	assert.ok(particleBounds.center.x > 10);
-	assert.ok(particleBounds.radius > 0);
-
-	const merged = mergeParticleShadowBounds(
-		{ center: { x: 0, y: 0, z: 0 }, radius: 1 },
-		particleBounds
-	);
-	assert.ok(
-		merged.radius > 6,
-		`Expected particle caster to expand shadow bounds, got ${merged.radius}`
-	);
-}
-
 function run() {
 	testShadowBoundsUseCameraVisibleCasters();
 	testShadowBoundsFallbackToNearestCasterWhenNothingVisible();
-	testParticleCastersExpandShadowBounds();
 	console.log("Shadow metadata bounds tests passed");
 }
 

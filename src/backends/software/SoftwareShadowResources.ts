@@ -1,8 +1,4 @@
 import type { ShadowCastingLight } from "../../lights";
-import {
-	clearParticleShadowVolumeGrid,
-	createParticleShadowVolumeGrid,
-} from "../../pipeline/ParticleShadowVolume";
 import type {
 	SoftwareShadowRenderTarget,
 	SoftwareShadowRuntimeMap,
@@ -30,7 +26,6 @@ export class SoftwareShadowResources {
 				size,
 				depthBuffer: new Float32Array(size * size),
 				transmissionBuffer: new Float32Array(size * size * 3),
-				particleVolume: createParticleShadowVolumeGrid(),
 			};
 			targets[sliceIndex] = target;
 		}
@@ -40,7 +35,6 @@ export class SoftwareShadowResources {
 	public clearTarget(target: SoftwareShadowRenderTarget): void {
 		target.depthBuffer.fill(Infinity);
 		target.transmissionBuffer.fill(1.0);
-		clearParticleShadowVolumeGrid(target.particleVolume);
 	}
 
 	public syncLights(activeLights: ShadowCastingLight[]): void {

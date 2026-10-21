@@ -166,22 +166,6 @@ export class ParticleSystem extends Node {
 		this._primaryTemplate.castShadows = value;
 	}
 
-	public get shadowDensity(): number {
-		return this._primaryTemplate.shadowDensity ?? 1;
-	}
-
-	public set shadowDensity(value: number) {
-		this._primaryTemplate.shadowDensity = resolveNonNegativeFinite(value, 1);
-	}
-
-	public get shadowSoftness(): number {
-		return this._primaryTemplate.shadowSoftness ?? 1;
-	}
-
-	public set shadowSoftness(value: number) {
-		this._primaryTemplate.shadowSoftness = resolveNonNegativeFinite(value, 1);
-	}
-
 	protected override _createCloneInstance(): this {
 		return new ParticleSystem() as this;
 	}
@@ -295,8 +279,6 @@ function createDefaultParticleTemplate(): ParticleTemplate {
 		},
 		receiveShadows: true,
 		castShadows: true,
-		shadowDensity: 1,
-		shadowSoftness: 1,
 	};
 }
 
@@ -328,8 +310,6 @@ function cloneParticleTemplate(source: ParticleTemplate): ParticleTemplate {
 				},
 		receiveShadows: source.receiveShadows ?? true,
 		castShadows: source.castShadows ?? true,
-		shadowDensity: resolveNonNegativeFinite(source.shadowDensity, 1),
-		shadowSoftness: resolveNonNegativeFinite(source.shadowSoftness, 1),
 	};
 }
 

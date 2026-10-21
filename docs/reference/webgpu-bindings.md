@@ -80,7 +80,6 @@ The following pipeline layouts must preserve these bind group roles:
 | `2` | `envSpecularTexture` | `texture_2d<f32>` |
 | `3` | `envSpecularSampler` | Filtering sampler |
 | `4` | `fog` | `FogUniforms` uniform buffer |
-| `5` | `particleShadowVolumes` | Read-only storage buffer |
 | `6` | `shadowTransmittanceAtlas` | `texture_2d<f32>` |
 | `7` | `brdfLUTTexture` | `texture_2d<f32>` |
 | `8` | `irradianceProbeGridCoeffs` | `texture_2d<f32>` |
@@ -261,7 +260,6 @@ Particle render pipelines use `sceneFrameBindGroupLayout` as `group(0)` and
 | `0` | `2` | `envSpecularTexture` | `texture_2d<f32>` |
 | `0` | `3` | `envSpecularSampler` | Filtering sampler |
 | `0` | `4` | `fog` | `FogUniforms` uniform buffer |
-| `0` | `5` | `particleShadowVolumes` | Read-only storage buffer |
 | `0` | `6` | `shadowTransmittanceAtlas` | `texture_2d<f32>` |
 | `0` | `9` | `shadowComparisonSampler` | Comparison sampler |
 | `0` | `10` | `frameLights` | `FrameLightUniforms` uniform buffer |

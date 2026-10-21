@@ -51,10 +51,6 @@ import {
 } from "../pipeline/types";
 import { RenderPipelineRegistry } from "../pipeline/RenderPipelineRegistry";
 import { resolveFramePassRequirements } from "../pipeline/FramePassRequirements";
-import {
-	hasParticleShadowCasters,
-	resolveParticleShadowCasterBounds,
-} from "../pipeline/ParticleShadowVolume";
 import { resolveParticleRenderIntent } from "../particles/ParticleRenderIntent";
 import { ShadowPlanner } from "../lights/shadows/ShadowPlanner";
 import type { RendererFeatures } from "./Renderer";
@@ -845,7 +841,6 @@ export class FrameCoordinator {
 		incremental: IncrementalFrameContext,
 	): FrameContext {
 		const particleIntent = resolveParticleRenderIntent(frame.particleSystems);
-		const particleShadowBounds = resolveParticleShadowCasterBounds(frame.particleSystems);
 		const shadowPlan = ShadowPlanner.plan({
 			manager: delegate.scene.shadows,
 			lights: frame.lights,
@@ -856,14 +851,8 @@ export class FrameCoordinator {
 				meshSubmissions: frame.shadowCasterSubmissions,
 				hasTransparentCasters: frame.shadowTransmitterSubmissions.length > 0,
 				hasParticleCasters:
-					hasParticleShadowCasters(frame.particleSystems) ||
-					(this._backend.profile.capabilities.meshParticles &&
-						particleIntent.hasShadowCastingMeshTemplates),
-				particleBounds: particleShadowBounds ?? undefined,
-				estimatedParticleCapacity: frame.particleSystems.reduce(
-					(total, system) => total + system.maxParticles,
-					0
-				),
+					this._backend.profile.capabilities.meshParticles &&
+					particleIntent.hasShadowCastingMeshTemplates,
 			},
 			hasTransmissionCasters: frame.shadowTransmitterSubmissions.length > 0,
 		}, this._shadowPlannerState);

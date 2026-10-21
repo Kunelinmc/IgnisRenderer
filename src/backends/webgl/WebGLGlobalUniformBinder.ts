@@ -826,34 +826,6 @@ export function bindWebGLGlobalUniforms(
 			unit
 		);
 	}
-	if (uniforms.particleShadowVolumeAtlas && shadowSampling.particleVolumeTexture) {
-		const unit = samplerUnit("uParticleShadowVolumeAtlas");
-		gl.activeTexture(gl.TEXTURE0 + unit);
-		gl.bindTexture(gl.TEXTURE_2D, shadowSampling.particleVolumeTexture);
-		gl.uniform1i(
-			uniforms.particleShadowVolumeAtlas,
-			unit
-		);
-	}
-	if (uniforms.particleShadowVolumeAtlasSize) {
-		gl.uniform2f(
-			uniforms.particleShadowVolumeAtlasSize,
-			shadowSampling.particleVolumeAtlasSize[0],
-			shadowSampling.particleVolumeAtlasSize[1]
-		);
-	}
-	if (uniforms.particleShadowVolumeGridSize) {
-		gl.uniform4fv(
-			uniforms.particleShadowVolumeGridSize,
-			shadowSampling.particleVolumeGridSize as Float32Array
-		);
-	}
-	if (uniforms.particleShadowVolumeSliceParams) {
-		gl.uniform4fv(
-			uniforms.particleShadowVolumeSliceParams,
-			shadowSampling.particleVolumeSliceParams as Float32Array
-		);
-	}
 
 	const usesEnvSpecularUniforms =
 		!!uniforms.envSpecularMap ||

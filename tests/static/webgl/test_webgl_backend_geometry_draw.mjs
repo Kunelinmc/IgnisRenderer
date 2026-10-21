@@ -840,11 +840,11 @@ function testDrawWebGLPacketPreservesInactiveGlobalSamplerUnits() {
 		samplerLayout: {
 			units: {
 				uShadowAtlas: 0,
-				uParticleShadowVolumeAtlas: 1,
+				uShadowTransmittanceAtlas: 1,
 			},
 			activeSamplerNames: [
 				"uShadowAtlas",
-				"uParticleShadowVolumeAtlas",
+				"uShadowTransmittanceAtlas",
 			],
 			required: 2,
 			available: 16,

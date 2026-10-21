@@ -185,7 +185,6 @@ async function createExecutorHarness(postProcessRequest = {
 		createFrameScope() {
 			return {
 				prepare() { return frameResources; },
-				updateParticleShadowVolumes() {},
 				destroy() {},
 			};
 		},
@@ -465,7 +464,6 @@ async function testWarmupHintsFollowPlanPostProcessPasses() {
 		createFrameScope() {
 			return {
 				prepare() { throw new Error("not used by warmup test"); },
-				updateParticleShadowVolumes() {},
 				destroy() {},
 			};
 		},

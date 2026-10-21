@@ -42,9 +42,6 @@ function testSceneShaderUsesFlippedShadowNormal() {
 	assert.ok(shader.fragment.includes("compensateCascadeDepthRange"));
 	assert.ok(shader.fragment.includes("length(shadowClipDepthRow) * 0.5"));
 	assert.ok(shader.fragment.includes("uSpotShadowParamsC"));
-	assert.ok(shader.fragment.includes("uParticleShadowVolumeAtlas"));
-	assert.ok(shader.fragment.includes("uParticleShadowVolumeSliceParams"));
-	assert.ok(shader.fragment.includes("sampleParticleShadowVolumeTransmittance"));
 	assert.ok(shader.fragment.includes("uDirShadowDepthProjectionParams"));
 	assert.ok(shader.fragment.includes("uSpotShadowDepthProjectionParams"));
 	assert.ok(shader.fragment.includes("MAX_SHADOW_SEARCH_SAMPLES = 12"));
@@ -221,7 +218,7 @@ function testFullSceneShaderDeclaresExtensionSamplersForDynamicLayout() {
 	const shader = getTestSceneShader();
 	const samplerMatches = shader.fragment.match(/\buniform\s+sampler2D\b/g) ?? [];
 
-	assert.equal(samplerMatches.length, 30);
+	assert.equal(samplerMatches.length, 29);
 	assert.ok(shader.fragment.includes("uniform sampler2D uAnisotropyMap;"));
 	assert.ok(shader.fragment.includes("uniform sampler2D uClearcoatMap;"));
 	assert.ok(shader.fragment.includes("uniform sampler2D uTransmissionBackgroundMap;"));
@@ -243,7 +240,7 @@ function testSceneShaderIncludesIrradianceProbeGridWhenEnabled() {
 	};
 	const samplerMatches = shader.fragment.match(/\buniform\s+sampler2D\b/g) ?? [];
 
-	assert.equal(samplerMatches.length, 30);
+	assert.equal(samplerMatches.length, 29);
 	assert.ok(shader.fragment.includes("uniform sampler2D uIrradianceProbeGridCoeffs;"));
 	assert.ok(shader.fragment.includes("uIrradianceProbeGridWorldToGridRow0"));
 	assert.ok(shader.fragment.includes("sampleIrradianceProbeGridIrradiance"));

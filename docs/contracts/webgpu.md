@@ -177,7 +177,7 @@ lighting, presentation configuration, reflections, and structured buffer packing
 - `WebGPUFrameServiceOwner` must own particle-render resources through a
 	delegated `WebGPUParticleRenderResources` service. The service must own only
 	billboard pipelines, buffers, bindings, and pass recording; frame scopes
-	retain particle-shadow-volume binding ownership.
+	retain shadow-transmittance binding ownership.
 - `WebGPUParticleRenderResources` must select particle pipeline sample counts
 	from the concrete particle pass-target descriptor. It must not depend on the
 	backend MSAA controller or backend-wide MSAA state.
@@ -275,8 +275,8 @@ lighting, presentation configuration, reflections, and structured buffer packing
 	analysis, target configuration, resource preparation, and whole-frame
 	compilation exactly once.
 - Sealing a `particle-sim` session must update the main frame scope's particle
-  shadow-volume bindings after resource preparation, so billboard and mesh
-  particle shadow volumes consume the current frame's emitted batches.
+  instance bindings after resource preparation, so billboard and mesh particle
+  rendering consumes the current frame's emitted batches.
 - Frames without an enabled `particle-sim` pass must seal during
   `beginFrame()`. `WebGPUBackend.beginFrame()` must return a promise and callers
   must await asynchronous frame-message dispatch and graph sealing before pass

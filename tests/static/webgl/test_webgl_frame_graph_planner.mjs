@@ -70,51 +70,6 @@ function testMainOpaquePlansDepthThenColor() {
 	]);
 }
 
-function testParticleShadowVolumeGraphOwnershipMatchesShaderConsumers() {
-	const planner = new WebGLFrameGraphPlanner();
-	const context = createContext();
-	const shadow = planner.planStage(
-		createPass("shadow"),
-		context,
-		createState()
-	);
-	const particleWrite = shadow.nodes[0].writes.find((write) =>
-		write.id === "shadow:particle-volume");
-	assert.deepEqual(particleWrite, {
-		id: "shadow:particle-volume",
-		usage: "copy-target",
-		optional: true,
-	});
-
-	const opaque = planner.planStage(
-		createPass("main-opaque"),
-		context,
-		createState()
-	);
-	assert.ok(opaque.nodes.find((node) => node.kind === "opaque-scene")
-		.reads.some((read) => read.id === "shadow:particle-volume"));
-	const transparent = planner.planStage(
-		createPass("main-transparent"),
-		context,
-		createState({ oitActive: true, hasParticleSystems: false })
-	);
-	for (const node of transparent.nodes.filter((candidate) =>
-		candidate.kind === "oit-accum" ||
-		candidate.kind === "oit-reveal" ||
-		candidate.kind === "transparent-legacy")) {
-		assert.ok(node.reads.some((read) =>
-			read.id === "shadow:particle-volume"));
-	}
-	const particles = planner.planStage(
-		createPass("particles"),
-		context,
-		createState({ oitActive: true, hasParticleSystems: true })
-	);
-	assert.equal(particles.nodes.some((node) =>
-		(node.reads ?? []).some((read) =>
-			read.id === "shadow:particle-volume")), false);
-}
-
 function testTransparentUsesLegacyWithoutOIT() {
 	const planner = new WebGLFrameGraphPlanner();
 	const plan = planner.planStage(
@@ -283,7 +238,6 @@ function testPostProcessIsComposedByFrameRuntime() {
 function run() {
 	testBeginFramePlansClearAndEnvironment();
 	testMainOpaquePlansDepthThenColor();
-	testParticleShadowVolumeGraphOwnershipMatchesShaderConsumers();
 	testTransparentUsesLegacyWithoutOIT();
 	testTransmissionCreatesOrderedPacketNodes();
 	testTransparentOITDefersResolveWhenParticlesExist();

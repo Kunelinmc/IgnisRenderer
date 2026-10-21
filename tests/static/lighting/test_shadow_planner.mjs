@@ -37,7 +37,6 @@ function createIntent(hasCasters = true) {
 		}).submission] : [],
 		hasTransparentCasters: false,
 		hasParticleCasters: false,
-		estimatedParticleCapacity: 0,
 	};
 }
 

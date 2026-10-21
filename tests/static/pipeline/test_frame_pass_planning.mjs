@@ -12,7 +12,6 @@ import {
 	hasPostProcessExecutionPasses,
 } from "../../../src/postprocess/index.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
-import { ParticleBlendMode } from "../../../src/particles/types.ts";
 import { AlphaMode, Material } from "../../../src/materials/Material.ts";
 import { EMPTY_SHADOW_FRAME_PLAN } from "../../../src/lights/shadows/ShadowFramePlan.ts";
 
@@ -331,48 +330,6 @@ function run() {
 		explicitRequirementsPlan.find((pass) => pass.stage === "postprocess")
 			?.enabled,
 		true,
-	);
-
-	const particleCasterPlan = createBackendPasses(
-		createFrame({
-			particleSystems: [
-				{
-					visible: true,
-					castShadows: true,
-					blendMode: ParticleBlendMode.Alpha,
-					shadowDensity: 1,
-				},
-			],
-			shadowCasterSubmissions: [],
-			shadowPlan: createShadowPlan(true),
-		}),
-		baseResolved,
-		createPostProcess()
-	);
-	assert.equal(
-		particleCasterPlan.find((pass) => pass.stage === "shadow")?.enabled,
-		true
-	);
-
-	const additiveCasterPlan = createBackendPasses(
-		createFrame({
-			particleSystems: [
-				{
-					visible: true,
-					castShadows: true,
-					blendMode: ParticleBlendMode.Additive,
-					shadowDensity: 1,
-				},
-			],
-			shadowCasterSubmissions: [],
-			shadowPlan: createShadowPlan(false),
-		}),
-		baseResolved,
-		createPostProcess()
-	);
-	assert.equal(
-		additiveCasterPlan.find((pass) => pass.stage === "shadow")?.enabled,
-		false
 	);
 
 	const sceneFogPlan = createFramePlan(

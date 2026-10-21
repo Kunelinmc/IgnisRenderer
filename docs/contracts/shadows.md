@@ -109,7 +109,7 @@ cascade selection or projection-data reads when frame or light shadow sampling
 is disabled. Shared sampling helpers must read shadow fields by light and slice
 index rather than passing the complete `ShadowData` value, including its cascade
 arrays, through fragment-stage calls. This fast path must preserve enabled
-PCF/PCSS filtering, cascade blending, and particle-volume transmittance.
+PCF/PCSS filtering, cascade blending, and transmittance sampling.
 
 WebGPU built-in Forward lighting and the Deferred lighting resolve must use
 runtime frame and light uniforms to control shadow sampling. Changing a shadow

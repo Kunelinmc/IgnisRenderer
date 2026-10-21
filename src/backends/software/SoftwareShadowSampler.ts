@@ -15,7 +15,6 @@ import type {
 	SoftwareShadowSampler,
 	SoftwareShadowSamplerCamera,
 } from "./SoftwareShadowContracts";
-import { sampleParticleShadowVolumeTransmittance } from "../../pipeline/ParticleShadowVolume";
 import {
 	MAX_NDC_DEPTH,
 	MIN_CLIP_W,
@@ -402,14 +401,5 @@ export function sampleSoftwareShadow(
 		slice,
 		runtimeTarget,
 	});
-	const volumeTransmittance = sampleParticleShadowVolumeTransmittance(
-		runtimeTarget.particleVolume,
-		slice.viewProjection,
-		worldPoint
-	);
-	return {
-		r: base.r * volumeTransmittance,
-		g: base.g * volumeTransmittance,
-		b: base.b * volumeTransmittance,
-	};
+	return base;
 }

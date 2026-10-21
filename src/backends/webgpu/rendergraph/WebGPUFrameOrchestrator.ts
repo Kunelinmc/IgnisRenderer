@@ -155,9 +155,6 @@ export class WebGPUFrameOrchestrator {
 			this._resolveAttachmentDimension(context.attachments.width),
 			this._resolveAttachmentDimension(context.attachments.height),
 		);
-		if (this._getRecordingSession()) {
-			this._mainFrameScope.updateParticleShadowVolumes(context);
-		}
 	}
 
 	private async _sealFrame(

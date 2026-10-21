@@ -6,10 +6,7 @@ import type {
 } from "./types";
 import type { Matrix4 } from "../../maths/Matrix4";
 import type { IVector3 } from "../../maths/types";
-import type {
-	ParticleMeshRenderBatch,
-	ParticleRenderBatch,
-} from "../../particles/ParticleRenderBatch";
+import type { ParticleMeshRenderBatch } from "../../particles/ParticleRenderBatch";
 import type { DrawSubmission } from "../../pipeline/types";
 
 export interface ShadowDiagnostic {
@@ -76,18 +73,12 @@ export interface ShadowCasterIntent {
 	readonly meshSubmissions: readonly DrawSubmission[];
 	readonly hasTransparentCasters: boolean;
 	readonly hasParticleCasters: boolean;
-	readonly particleBounds?: Readonly<{
-		readonly center: IVector3;
-		readonly radius: number;
-	}>;
-	readonly estimatedParticleCapacity: number;
 }
 
 /** Concrete draw work published after particle simulation. */
 export interface ShadowWorkSet {
 	readonly casterSubmissions: readonly DrawSubmission[];
 	readonly meshParticleBatches: readonly ParticleMeshRenderBatch[];
-	readonly billboardBatches: readonly ParticleRenderBatch[];
 	readonly transmitterSubmissions: readonly DrawSubmission[];
 }
 

@@ -2,14 +2,12 @@ import type { RGB } from "../../foundation/Color";
 import type { ShadowCastingLight } from "../../lights";
 import type { IVector3 } from "../../maths/types";
 import type { Matrix4 } from "../../maths/Matrix4";
-import type { ParticleShadowVolumeGrid } from "../../pipeline/ParticleShadowVolume";
 
 /** @internal CPU storage owned by the Software shadow runtime. */
 export interface SoftwareShadowRenderTarget {
 	size: number;
 	depthBuffer: Float32Array;
 	transmissionBuffer: Float32Array;
-	particleVolume: ParticleShadowVolumeGrid;
 }
 
 /** @internal Per-light Software shadow targets for one backend runtime. */

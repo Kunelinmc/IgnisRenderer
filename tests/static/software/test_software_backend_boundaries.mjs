@@ -34,7 +34,7 @@ for (const source of passSources) {
 	);
 }
 const shadowCoordinatorOwnsExecutionKernel =
-	/calculateShadowFactor|sampleParticleShadowVolumeTransmittance|drawDepthTriangle|drawTransmissionTriangle/.test(
+	/calculateShadowFactor|drawDepthTriangle|drawTransmissionTriangle/.test(
 		passSources[3]
 	);
 assert.equal(

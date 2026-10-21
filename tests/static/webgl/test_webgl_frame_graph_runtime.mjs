@@ -134,7 +134,6 @@ function createExecutor(events, options = {}) {
 				ids.push(
 					"shadow:atlas",
 					"shadow:transmittance",
-					"shadow:particle-volume",
 				);
 			}
 			return {
@@ -568,12 +567,10 @@ async function testWholeFrameCompilesOnceAndUsesPhysicalAlias() {
 	]);
 	assert.equal(debug.compiledGraph.resources.some((resource) =>
 		resource.id === "shadow:atlas" ||
-		resource.id === "shadow:transmittance" ||
-		resource.id === "shadow:particle-volume"), false);
+		resource.id === "shadow:transmittance"), false);
 	assert.equal(debug.compiledGraph.shadowDiagnostics.some((diagnostic) =>
 		diagnostic.resourceId === "shadow:atlas" ||
-		diagnostic.resourceId === "shadow:transmittance" ||
-		diagnostic.resourceId === "shadow:particle-volume"), false);
+		diagnostic.resourceId === "shadow:transmittance"), false);
 	assert.equal(debug.compiledGraph.completeness, "complete");
 	assert.ok(debug.compiledGraph.dependencies.some((edge) =>
 		edge.physicalId === "webgl:scene-color" &&
@@ -608,14 +605,10 @@ function testWholeFrameShadowCatalogFollowsFramePlan() {
 	assert.ok(graph.resources.some(
 		(resource) => resource.id === "shadow:transmittance",
 	));
-	assert.ok(graph.resources.some(
-		(resource) => resource.id === "shadow:particle-volume",
-	));
 	assert.equal(graph.shadowDiagnostics.some((diagnostic) =>
 		diagnostic.code === "read-content-unknown" &&
 		(diagnostic.resourceId === "shadow:atlas" ||
-			diagnostic.resourceId === "shadow:transmittance" ||
-			diagnostic.resourceId === "shadow:particle-volume")), false);
+			diagnostic.resourceId === "shadow:transmittance")), false);
 	runtime.abortFrame();
 }
 
@@ -679,12 +672,10 @@ function testResourceCatalogPreservesScenePresentAlias() {
 	);
 	assert.equal(catalog.resources.some((entry) =>
 		entry.id === "shadow:atlas" ||
-		entry.id === "shadow:transmittance" ||
-		entry.id === "shadow:particle-volume"), false);
+		entry.id === "shadow:transmittance"), false);
 	assert.equal(catalog.bindings.some((entry) =>
 		entry.resourceId === "shadow:atlas" ||
-		entry.resourceId === "shadow:transmittance" ||
-		entry.resourceId === "shadow:particle-volume"), false);
+		entry.resourceId === "shadow:transmittance"), false);
 }
 
 function testResourceCatalogReportsNativeOITFormats() {
@@ -711,7 +702,6 @@ function testPreparedShadowResourcesCompileWithPhysicalBindings() {
 	const shadowResources = [
 		{ id: "shadow:atlas", format: "depth", width: 1024, height: 768 },
 		{ id: "shadow:transmittance", format: "rgba8unorm", width: 1024, height: 768 },
-		{ id: "shadow:particle-volume", format: "r32float", width: 512, height: 1024 },
 	].map((resource) => ({
 		...resource,
 		origin: "imported",
@@ -758,11 +748,6 @@ function testPreparedShadowResourcesCompileWithPhysicalBindings() {
 		transition.fromNodeId === "shadow:shadow:frame" &&
 		transition.nodeId === "main-opaque:opaque-scene:frame" &&
 		transition.resourceId === "shadow:atlas" &&
-		transition.reason === "read-after-write"));
-	assert.ok(compiled.graph.transitions.some((transition) =>
-		transition.fromNodeId === "shadow:shadow:frame" &&
-		transition.nodeId === "main-opaque:opaque-scene:frame" &&
-		transition.resourceId === "shadow:particle-volume" &&
 		transition.reason === "read-after-write"));
 }
 

@@ -40,9 +40,6 @@ export function createRenderViewTransient(
 			blendMode: batch.blendMode,
 			texture: batch.texture,
 			receiveShadows: batch.receiveShadows,
-			castShadows: batch.castShadows,
-			shadowDensity: batch.shadowDensity,
-			shadowSoftness: batch.shadowSoftness,
 			particles,
 		});
 	}

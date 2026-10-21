@@ -392,10 +392,6 @@ export class WebGLSceneShadowUniforms {
 	public readonly shadowAtlas: WebGLSceneUniformLocation;
 	public readonly shadowTransmittanceAtlas: WebGLSceneUniformLocation;
 	public readonly shadowTransmittanceAtlasAvailable: WebGLSceneUniformLocation;
-	public readonly particleShadowVolumeAtlas: WebGLSceneUniformLocation;
-	public readonly particleShadowVolumeAtlasSize: WebGLSceneUniformLocation;
-	public readonly particleShadowVolumeGridSize: WebGLSceneUniformLocation;
-	public readonly particleShadowVolumeSliceParams: WebGLSceneUniformLocation;
 	public readonly dirShadowViewProjection: WebGLSceneUniformLocation;
 	public readonly dirShadowCascadeViewProjection: WebGLSceneUniformLocation;
 	public readonly dirShadowCascadeSplits: WebGLSceneUniformLocation;
@@ -418,12 +414,6 @@ export class WebGLSceneShadowUniforms {
 		this.shadowTransmittanceAtlas = get("uShadowTransmittanceAtlas");
 		this.shadowTransmittanceAtlasAvailable = get(
 			"uShadowTransmittanceAtlasAvailable"
-		);
-		this.particleShadowVolumeAtlas = get("uParticleShadowVolumeAtlas");
-		this.particleShadowVolumeAtlasSize = get("uParticleShadowVolumeAtlasSize");
-		this.particleShadowVolumeGridSize = get("uParticleShadowVolumeGridSize");
-		this.particleShadowVolumeSliceParams = get(
-			"uParticleShadowVolumeSliceParams[0]"
 		);
 		this.dirShadowViewProjection = get("uDirShadowViewProjection[0]");
 		this.dirShadowCascadeViewProjection = get(

@@ -130,13 +130,6 @@ class WebGPUFrameResourceScopeHandle implements WebGPUFrameResourceScopeContract
 		return this._prepared;
 	}
 
-	public updateParticleShadowVolumes(context: FrameContext): void {
-		if (!this._prepared) {
-			throw new Error("WebGPU frame resource scope has not been prepared.");
-		}
-		this._owner.updateParticleShadowVolumes(this._prepared, context);
-	}
-
 	public destroy(): void {
 		if (this._destroyed) {
 			return;
@@ -720,22 +713,6 @@ export class WebGPUFrameServiceOwner {
 	 */
 	public async getDecalBatchPipeline(): Promise<IComputePipeline> {
 		return this._deferredResources.getDecalBatchPipeline();
-	}
-
-	public updateParticleShadowVolumes(
-		frameResources: WebGPUFrameServicePreparedResources,
-		context: FrameContext,
-	): void {
-		const prepared = this._requirePreparedFrameResources(
-			frameResources,
-			"updateParticleShadowVolumes",
-		);
-		if (!context) {
-			return;
-		}
-		const scope = this._requireFrameScope(prepared.scopeKey);
-		scope.frameBindings.updateParticleShadowVolumes(context, prepared.lightingState);
-		prepared.frameBinding = scope.frameBindings.getSceneBinding();
 	}
 
 	public async buildClusteredLighting(

@@ -24,7 +24,6 @@ export function createWebGLSceneSamplerLayout(
 		const material = variant.material;
 		add("uShadowAtlas", scene.shadows);
 		add("uShadowTransmittanceAtlas", scene.shadowTransmittance);
-		add("uParticleShadowVolumeAtlas", scene.shadows);
 		add("uClusterHeaderTexture", scene.clusteredLighting);
 		add("uClusterIndexTexture", scene.clusteredLighting);
 		add("uClusterLightTexture", scene.clusteredLighting);

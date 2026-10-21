@@ -175,7 +175,7 @@ function testSparseShadowAndGridLayoutFitsBelowLegacyThreshold() {
 		},
 	};
 	const layout = createWebGLSceneSamplerLayout(5, variant);
-	assert.equal(layout.required, 5);
+	assert.equal(layout.required, 4);
 	assert.ok(layout.activeSamplerNames.includes("uShadowTransmittanceAtlas"));
 	assert.ok(layout.activeSamplerNames.includes("uIrradianceProbeGridCoeffs"));
 }

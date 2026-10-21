@@ -1,12 +1,5 @@
 import { isShadowCastingLight } from "../../../lights";
 import type { ShadowCastingLight } from "../../../lights";
-import type {
-	PreparedShadowSlice,
-} from "../../../lights/shadows/ShadowFramePlan";
-import {
-	hasParticleShadowCastingBatches,
-	injectParticleBatchIntoShadowVolume,
-} from "../../../pipeline/ParticleShadowVolume";
 import type { Rasterizer } from "../Rasterizer";
 import type { SoftwarePassLike } from "./types";
 import type { SoftwarePassContext } from "../SoftwareFrameServices";
@@ -80,8 +73,6 @@ export class SoftwareShadowPass implements SoftwarePassLike {
 					scene.shadowCasterSubmissions,
 					scene.shadowTransmitterSubmissions,
 				);
-
-				this._injectParticleShadowVolume(context, shadowSlice, shadowRuntime);
 			}
 		}
 	}
@@ -96,23 +87,5 @@ export class SoftwareShadowPass implements SoftwarePassLike {
 			);
 		context.services.shadow.samplerFactory = factory;
 		context.services.shadow.sampler = factory(context.frame.camera);
-	}
-
-	private _injectParticleShadowVolume(
-		context: SoftwarePassContext,
-		shadowSlice: PreparedShadowSlice,
-		shadowRuntime: SoftwareShadowRenderTarget
-	): void {
-		const batches = context.services.particles.batches;
-		if (!hasParticleShadowCastingBatches(batches)) {
-			return;
-		}
-		for (const batch of batches ?? []) {
-			injectParticleBatchIntoShadowVolume(
-				shadowRuntime.particleVolume,
-				shadowSlice.viewProjection,
-				batch
-			);
-		}
 	}
 }

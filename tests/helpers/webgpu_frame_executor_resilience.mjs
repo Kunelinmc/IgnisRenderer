@@ -202,10 +202,6 @@ function createFrameScopeAdapter(resources, state = {}) {
 			state.lastPrepared = resources.prepareFrame(context, options);
 			return state.lastPrepared;
 		},
-		updateParticleShadowVolumes(context) {
-			state.particleShadowVolumeUpdates ??= [];
-			state.particleShadowVolumeUpdates.push(context);
-		},
 		destroy() {},
 		_state: state,
 	};
@@ -499,7 +495,6 @@ function createPlanarReflectionResourcesStub() {
 					state.mainPrepared ??= state.lastPrepared;
 					return state.lastPrepared;
 				},
-				updateParticleShadowVolumes() {},
 				destroy() { state.events.push("scope:destroy"); },
 			};
 		},

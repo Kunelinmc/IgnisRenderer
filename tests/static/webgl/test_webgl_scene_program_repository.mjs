@@ -348,9 +348,6 @@ async function testShadowVariantWithoutTransmittanceKeepsShadowUniforms() {
 	}).stages.fragment.code;
 
 	assert.ok(
-		source.includes("uniform vec4 uParticleShadowVolumeSliceParams[4];"),
-	);
-	assert.ok(
 		source.includes(
 			"uniform mat4 uDirShadowCascadeViewProjection[MAX_DIRECTIONAL_LIGHTS * 4];",
 		),

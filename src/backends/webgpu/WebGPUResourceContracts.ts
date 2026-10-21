@@ -221,9 +221,6 @@ export interface WebGPUFrameResourceScope {
 		context: FrameContext,
 		options: WebGPUFrameScopePrepareOptions,
 	): WebGPUPreparedFrameResources;
-	updateParticleShadowVolumes(
-		context: FrameContext,
-	): void;
 	destroy(): void;
 }
 

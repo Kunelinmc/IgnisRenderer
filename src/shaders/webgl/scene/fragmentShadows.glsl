@@ -85,69 +85,6 @@ float linearizeShadowDepth(float depth, vec4 projectionParams) {
 	return abs((projectionParams.y - ndcDepth * projectionParams.w) / denominator);
 }
 
-float sampleParticleShadowVolumeTransmittance(
-	int shadowType,
-	int index,
-	int cascadeIndex,
-	vec3 worldPosition
-) {
-	if (shadowType != 0 || index != 0 || cascadeIndex < 0 || cascadeIndex >= 4) {
-		return 1.0;
-	}
-
-	vec4 sliceParams = uParticleShadowVolumeSliceParams[cascadeIndex];
-	if (sliceParams.x < 0.5 || uParticleShadowVolumeAtlasSize.x <= 0.0) {
-		return 1.0;
-	}
-
-	float gridWidth = max(uParticleShadowVolumeGridSize.x, 1.0);
-	float gridHeight = max(uParticleShadowVolumeGridSize.y, 1.0);
-	int gridDepth = int(clamp(floor(uParticleShadowVolumeGridSize.z + 0.5), 1.0, 64.0));
-	float tileColumns = max(uParticleShadowVolumeGridSize.w, 1.0);
-	bool isCSM =
-		uDirShadowParamsC[index].y > 0.5 &&
-		uDirShadowParamsC[index].z > 1.5;
-	mat4 volumeViewProjection = isCSM ?
-		uDirShadowCascadeViewProjection[index * 4 + cascadeIndex] :
-		uDirShadowViewProjection[index];
-	vec4 clip = volumeViewProjection * vec4(worldPosition, 1.0);
-	if (clip.w <= EPSILON) {
-		return 1.0;
-	}
-
-	vec3 ndc = clip.xyz / clip.w;
-	if (
-		ndc.x < -1.0 || ndc.x > 1.0 ||
-		ndc.y < -1.0 || ndc.y > 1.0 ||
-		ndc.z < -1.0 || ndc.z > 1.0
-	) {
-		return 1.0;
-	}
-
-	float vx = clamp(round((ndc.x * 0.5 + 0.5) * (gridWidth - 1.0)), 0.0, gridWidth - 1.0);
-	float vy = clamp(round((0.5 - ndc.y * 0.5) * (gridHeight - 1.0)), 0.0, gridHeight - 1.0);
-	int zMax = int(clamp(
-		round((ndc.z * 0.5 + 0.5) * float(gridDepth - 1)),
-		0.0,
-		float(gridDepth - 1)
-	));
-	float opticalDepth = 0.0;
-	for (int z = 0; z < 64; z++) {
-		if (z > zMax) {
-			break;
-		}
-		float tileIndex = sliceParams.y + float(z);
-		float tileX = mod(tileIndex, tileColumns);
-		float tileY = floor(tileIndex / tileColumns);
-		vec2 atlasUv = (
-			vec2(tileX * gridWidth + vx, tileY * gridHeight + vy) + vec2(0.5)
-		) / uParticleShadowVolumeAtlasSize;
-		opticalDepth += texture(uParticleShadowVolumeAtlas, atlasUv).r;
-	}
-
-	return exp(-max(opticalDepth / max(float(gridDepth), 1.0), 0.0));
-}
-
 vec3 sampleShadowTransmittance(vec2 atlasUv) {
 #ifdef WEBGL_SHADOW_TRANSMITTANCE
 	if (uShadowTransmittanceAtlasAvailable == 0) {
@@ -341,13 +278,7 @@ vec3 sampleShadowVisibility(
 
 	vec3 filteredVisibility = visible / sampleCount;
 	float strength = clamp(paramsB.y, 0.0, 1.0);
-	return (vec3(1.0 - strength) + strength * filteredVisibility) *
-		sampleParticleShadowVolumeTransmittance(
-			shadowType,
-			index,
-			cascadeIndex,
-			worldPosition
-		);
+	return vec3(1.0 - strength) + strength * filteredVisibility;
 }
 
 int resolveDirectionalCascadeIndex(
