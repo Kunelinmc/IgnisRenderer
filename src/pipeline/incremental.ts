@@ -40,6 +40,7 @@ export const RENDER_DIRTY_REASON_MASK = {
 	"reflection-probe": 1 << 15,
 	decal: 1 << 16,
 	"probe-capture": 1 << 17,
+	"render-target": 1 << 18,
 } as const;
 
 export type BuiltinRenderDirtyReason = keyof typeof RENDER_DIRTY_REASON_MASK;
@@ -498,6 +499,13 @@ const DIRTY_REASON_SEEDS: readonly DirtyReasonSeed[] = [
 		forceFullFrame: true,
 		temporalHistoryReset: true,
 	},
+	{
+		id: "render-target",
+		mask: RENDER_DIRTY_REASON_MASK["render-target"],
+		groups: ["geometry"],
+		forceFullFrame: true,
+		temporalHistoryReset: true,
+	},
 ];
 
 const POST_PROCESS_GRADE_INDEX: Record<PostProcessGrade, number> = {
@@ -524,7 +532,7 @@ export class IncrementalRegistry {
 	private _framePasses = new Map<FramePassStage, RegisteredFramePassDescriptor>();
 	private _postProcessPasses =
 		new Map<string, RegisteredPostProcessIncrementalMetadata>();
-	private _nextCustomDirtyReasonBit = 18;
+	private _nextCustomDirtyReasonBit = 19;
 	private _nextFramePassOrder = 0;
 	private _nextPostProcessOrder = 0;
 

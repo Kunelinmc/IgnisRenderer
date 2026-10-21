@@ -126,7 +126,15 @@ async function testProbeFaceCameraMatrices() {
 			return { done: Promise.resolve({ readback: null }) };
 		},
 	};
-	const delegate = { renderTargets: { createInternal: () => handle } };
+	let createOptions = null;
+	const delegate = {
+		renderTargets: {
+			createInternal(_descriptor, options) {
+				createOptions = options;
+				return handle;
+			},
+		},
+	};
 	const directions = [
 		{ x: 1, y: 0, z: 0 }, { x: -1, y: 0, z: 0 },
 		{ x: 0, y: 1, z: 0 }, { x: 0, y: -1, z: 0 },
@@ -172,6 +180,7 @@ async function testProbeFaceCameraMatrices() {
 		}
 	}
 	assert.notEqual(jobs[0].camera.inverseViewMatrix, jobs[1].camera.inverseViewMatrix);
+	assert.equal(createOptions?.frameReason, "probe-capture");
 }
 
 function testDescriptorValidation() {

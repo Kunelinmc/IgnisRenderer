@@ -271,6 +271,16 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
   and return a `RenderTargetJobTicket`.
 - `RenderTargetHandle.registerJob(descriptor)` must register recurring work and
   return a destroyable `RenderTargetJobRegistration`.
+- Creating a render target must not request a renderer frame by itself.
+- Enqueuing or registering target work must request one renderer frame using the
+  target's explicit frame reason. Removing a recurring registration must not
+  request a frame. Destroying a target must request a frame so backends can
+  release its resources.
+- Public targets must use the `render-target` frame reason. Renderer-private
+  targets may supply another reason, such as `probe-capture`.
+- `Renderer` must not infer a frame reason from whether a target is public or
+  renderer-private.
+- The `render-target` dirty reason must not be capture-relevant.
 - Scene-view and custom-pass jobs must share ordering, transaction, generation,
   and readback semantics. `Renderer` must not expose a separate custom
   render-pass registry.

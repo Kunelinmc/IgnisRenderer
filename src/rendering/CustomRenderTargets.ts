@@ -24,6 +24,7 @@ import type { FrameContext } from "../pipeline/types";
 import type { Camera } from "../cameras/Camera";
 import type { PreparedScene } from "../pipeline/types";
 import type { RenderBackendType } from "../backends/IRenderBackend";
+import type { RenderDirtyReason } from "../pipeline/incremental";
 
 export type RenderTargetSizeDescriptor =
 	| {
@@ -233,6 +234,8 @@ export class RenderTargetRegistrySnapshot {
 	}
 }
 
+const DEFAULT_RENDER_TARGET_FRAME_REASON: RenderDirtyReason = "render-target";
+
 interface ManagedRenderTargetJob {
 	readonly id: string;
 	readonly targetId: string;
@@ -248,10 +251,10 @@ interface ManagedRenderTarget {
 	readonly descriptor: RenderTargetDescriptor;
 	readonly queued: ManagedRenderTargetJob[];
 	readonly recurring: Map<string, ManagedRenderTargetJob>;
+	readonly frameReason: RenderDirtyReason;
 	destroyed: boolean;
 	generation: number;
 	committedGeneration: number;
-	readonly internal: boolean;
 }
 
 export interface RenderTargetManagerOptions {
@@ -261,7 +264,14 @@ export interface RenderTargetManagerOptions {
 		attachmentIndex: number,
 		options?: RenderTargetReadbackOptions,
 	) => Promise<RenderTargetReadbackResult>;
-	readonly invalidate: (scope: "public" | "internal") => void;
+	/** Requests one renderer frame when target state changes. */
+	readonly requestFrame: (reason: RenderDirtyReason) => void;
+}
+
+/** @internal Options for renderer-private render targets. */
+export interface RenderTargetInternalCreateOptions {
+	/** Frame reason used when this target changes. Defaults to `"render-target"`. */
+	readonly frameReason?: RenderDirtyReason;
 }
 
 /** Handle-centric owner for public and renderer-private render targets. */
@@ -279,20 +289,23 @@ export class RenderTargetManager {
 
 	/** Creates a persistent renderer-owned render target. */
 	public create(descriptor: RenderTargetCreateDescriptor): RenderTargetHandle {
-		return this._createTarget(descriptor, false);
+		return this._createTarget(descriptor, DEFAULT_RENDER_TARGET_FRAME_REASON);
 	}
 
-	/** @internal Creates a target hidden from the public renderer API. */
-	public createInternal(descriptor: RenderTargetCreateDescriptor): RenderTargetHandle {
+	/** @internal Creates a target owned by renderer-internal subsystems. */
+	public createInternal(
+		descriptor: RenderTargetCreateDescriptor,
+		options: RenderTargetInternalCreateOptions = {},
+	): RenderTargetHandle {
 		return this._createTarget({
 			...descriptor,
 			label: descriptor.label ?? "RendererInternalRenderTarget",
-		}, true);
+		}, options.frameReason ?? DEFAULT_RENDER_TARGET_FRAME_REASON);
 	}
 
 	private _createTarget(
 		descriptor: RenderTargetCreateDescriptor,
-		internal: boolean,
+		frameReason: RenderDirtyReason,
 	): RenderTargetHandle {
 		const id = `render-target-${++this._nextTargetId}`;
 		const normalized = normalizeRenderTargetDescriptor({ ...descriptor, id });
@@ -300,13 +313,12 @@ export class RenderTargetManager {
 			descriptor: normalized,
 			queued: [],
 			recurring: new Map(),
+			frameReason,
 			destroyed: false,
 			generation: 0,
 			committedGeneration: 0,
-			internal,
 		};
 		this._targets.set(id, target);
-		this._invalidateTarget(target);
 		return this._createHandle(target);
 	}
 
@@ -441,7 +453,7 @@ export class RenderTargetManager {
 				job.resolve = resolve;
 				job.reject = reject;
 				target.queued.push(job);
-				manager._invalidateTarget(target);
+				manager._requestFrameForTarget(target);
 				return {
 					id: job.id,
 					done,
@@ -458,13 +470,12 @@ export class RenderTargetManager {
 				}
 				const job = manager._createJob(target, descriptor, true);
 				target.recurring.set(job.id, job);
-				manager._invalidateTarget(target);
+				manager._requestFrameForTarget(target);
 				return {
 					id: job.id,
 					destroy: () => {
 						job.cancelled = true;
 						target.recurring.delete(job.id);
-						manager._invalidateTarget(target);
 					},
 				};
 			},
@@ -527,7 +538,7 @@ export class RenderTargetManager {
 		}
 		target.queued.length = 0;
 		target.recurring.clear();
-		this._invalidateTarget(target);
+		this._requestFrameForTarget(target);
 	}
 
 	private _validateJobTarget(
@@ -556,8 +567,8 @@ export class RenderTargetManager {
 		if (target.destroyed) throw new Error("Render target has been destroyed.");
 	}
 
-	private _invalidateTarget(target: ManagedRenderTarget): void {
-		this._options.invalidate(target.internal ? "internal" : "public");
+	private _requestFrameForTarget(target: ManagedRenderTarget): void {
+		this._options.requestFrame(target.frameReason);
 	}
 }
 

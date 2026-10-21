@@ -443,6 +443,11 @@ When initializing a `ReflectionProbe` or passing options to its constructor `Ref
 - **Render-target capture lifecycle**:
   - Probe capture must enqueue one renderer-owned scene-view render-target job
     at a time and must not invoke a backend-specific capture API.
+  - Probe capture targets must supply the non-capture-relevant `probe-capture`
+    frame reason so deferred target work continues capture without invalidating
+    capture-relevant scene state.
+  - Public render-target work must use the `render-target` frame reason and must
+    not abort an in-flight probe capture.
   - Probe face data must be accepted only from a successfully committed
     `RenderTargetJobTicket` generation.
   - WebGPU and WebGL scene-view jobs must preserve HDR radiance in a final

@@ -199,8 +199,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 				options?: RenderTargetReadbackOptions,
 			): Promise<RenderTargetReadbackResult> =>
 				this._readRenderTargetColor(id, attachmentIndex, options),
-			invalidate: (scope) => {
-				const reason = scope === "internal" ? "probe-capture" : "unknown";
+			requestFrame: (reason) => {
 				if (this._scene) this._markFrameDirty(reason);
 				else {
 					this._frameDirty = true;

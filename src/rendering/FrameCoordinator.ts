@@ -653,6 +653,8 @@ export class FrameCoordinator {
 					depth: { format: TextureFormat.Depth32Float },
 					sampleCount: 1,
 					label: "ProbeFaceRenderTarget",
+				}, {
+					frameReason: "probe-capture",
 				}),
 			};
 		}
