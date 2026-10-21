@@ -48,6 +48,7 @@ import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
 import type { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
 import type {
 	WebGPUDepthStaticBindingState,
+	WebGPUDrawModelBinding,
 	WebGPUMaterialBufferResources,
 	WebGPUMaterialResource,
 } from "./WebGPUResourceContracts";
@@ -56,7 +57,10 @@ type FloatBuffer = Float32Array<ArrayBuffer>;
 type MatrixRows = Matrix4Arr;
 
 interface ObjectState {
-	objectUniformBuffer: IRenderBuffer;
+	readonly slot: number;
+	readonly arena: IRenderBuffer;
+	readonly offset: number;
+	readonly dynamicOffsets: readonly [number];
 	objectUniformWriter: WebGPUObjectUniformWriter;
 	previousModelMatrix: MatrixRows;
 	uploadPending: boolean;
@@ -65,9 +69,14 @@ interface ObjectState {
 interface SceneBindingEntry {
 	readonly group: IBindingGroup;
 	readonly material: WebGPUMaterialResource;
+	readonly arena: IRenderBuffer;
 	readonly animationGeneration: number;
+	readonly animationParams: IRenderBuffer;
+	readonly jointMatrices: IRenderBuffer;
+	readonly morphWeights: IRenderBuffer;
 	readonly morphPosition: IRenderBuffer;
 	readonly morphNormal: IRenderBuffer;
+	refs: number;
 }
 
 interface DepthBindingEntry {
@@ -99,6 +108,8 @@ const OBJECT_MODEL_FLOAT_OFFSET = WEBGPU_OBJECT_UNIFORM_LAYOUT.byteOffsetOf("mod
 const OBJECT_NORMAL_FLOAT_OFFSET = WEBGPU_OBJECT_UNIFORM_LAYOUT.byteOffsetOf("normalMatrix") / 4;
 const OBJECT_INSTANCE_FLOAT_OFFSET = WEBGPU_OBJECT_UNIFORM_LAYOUT.byteOffsetOf("instanceData") / 4;
 const MAX_DRAW_ENTRIES = 16_384;
+const OBJECT_ARENA_CHUNK_SLOTS = 1024;
+const ZERO_DYNAMIC_OFFSETS = [0] as const;
 const DEPTH_BINDINGS = [0, 34, 35, 36, 37, 40];
 const FALLBACK_UNIFORM_DATA: FloatBuffer = new Float32Array(4);
 
@@ -108,7 +119,14 @@ export class WebGPUDrawResourceCache {
 	private _materials = new WeakMap<Material, MaterialState>();
 	// Track allocated records for teardown without a second material lookup cache.
 	private readonly _liveMaterials = new Set<WebGPUMaterialResource>();
+	// Draws sharing a snapshot, animation payload, morph set, and arena reuse one group.
+	private readonly _sceneBindings =
+		new WeakMap<WebGPUMaterialResource, SceneBindingEntry[]>();
 	private readonly _retiredBindings: BindingEntry[] = [];
+	private readonly _objectArenas: IRenderBuffer[] = [];
+	private readonly _freeObjectSlots: number[] = [];
+	private readonly _objectSlotStride: number;
+	private _nextObjectSlot = 0;
 	private _fallbackShaderUniformBuffer: IRenderBuffer | null = null;
 	private _currentFrame = 0;
 	private _frameHits = 0;
@@ -120,7 +138,12 @@ export class WebGPUDrawResourceCache {
 		private readonly _layouts: WebGPUPipelineLayouts,
 		private readonly _animationPayloads: WebGPUAnimationPayloadPool,
 		private readonly _textures: WebGPUTextureRegistry,
-	) {}
+	) {
+		const alignment =
+			_backend.device?.limits?.minUniformBufferOffsetAlignment ?? 256;
+		this._objectSlotStride =
+			Math.ceil(WEBGPU_OBJECT_UNIFORM_BYTE_SIZE / alignment) * alignment;
+	}
 
 	/** @internal WebGPU orchestration advances draw history; use Renderer.renderFrame(). */
 	public beginFrame(): void {
@@ -137,11 +160,15 @@ export class WebGPUDrawResourceCache {
 	public destroy(): void {
 		if (this._destroyed) return;
 		this._destroyed = true;
-		for (const binding of this._retiredBindings) this._destroyBinding(binding);
+		// Release draw references first so shared scene entries retire exactly once.
 		for (const entry of this._draws.values()) this._destroyDraw(entry);
-		for (const entry of this._liveMaterials) this._destroyMaterialBuffers(entry);
-		this._retiredBindings.length = 0;
 		this._draws.clear();
+		for (const binding of this._retiredBindings) this._destroyBinding(binding);
+		this._retiredBindings.length = 0;
+		for (const entry of this._liveMaterials) this._destroyMaterialBuffers(entry);
+		for (const arena of this._objectArenas) arena.destroy();
+		this._objectArenas.length = 0;
+		this._freeObjectSlots.length = 0;
 		this._materials = new WeakMap();
 		this._fallbackShaderUniformBuffer?.destroy();
 		this._fallbackShaderUniformBuffer = null;
@@ -154,6 +181,11 @@ export class WebGPUDrawResourceCache {
 		return {
 			materialSnapshots: { frameHits: this._frameHits, frameResolves: this._frameResolves },
 			materialBuffers: { entries: this._liveMaterials.size, references },
+			objectArena: {
+				chunks: this._objectArenas.length,
+				slots: this._nextObjectSlot,
+				freeSlots: this._freeObjectSlots.length,
+			},
 		};
 	}
 
@@ -211,22 +243,80 @@ export class WebGPUDrawResourceCache {
 		animation: WebGPUSceneAnimationPayload,
 		morphPositionBuffer: IRenderBuffer | null = null,
 		morphNormalBuffer: IRenderBuffer | null = null,
-	): IBindingGroup {
+	): WebGPUDrawModelBinding {
 		const draw = this._getDraw(packet);
+		const object = draw.object!;
 		const index = snapshot.wireframe ? 1 : 0;
 		const cached = draw.scene[index];
 		const fallbackStorageBuffer = this._animationPayloads.getFallbackStorageBuffer();
 		const morphPosition = morphPositionBuffer ?? fallbackStorageBuffer;
 		const morphNormal = morphNormalBuffer ?? fallbackStorageBuffer;
-		if (cached?.material === snapshot && cached.animationGeneration === animation.generation &&
+		if (cached?.material === snapshot && cached.arena === object.arena &&
+			cached.animationGeneration === animation.generation &&
+			cached.animationParams === animation.paramsBuffer &&
+			cached.jointMatrices === animation.jointMatricesBuffer &&
+			cached.morphWeights === animation.morphWeightsBuffer &&
 			cached.morphPosition === morphPosition && cached.morphNormal === morphNormal) {
-			return cached.group;
+			return { group: cached.group, dynamicOffsets: object.dynamicOffsets };
 		}
+		const entry = this._acquireSceneBinding(
+			snapshot, animation, morphPosition, morphNormal, object.arena,
+		);
+		if (cached) this._releaseSceneBinding(cached);
+		draw.scene[index] = entry;
+		return { group: entry.group, dynamicOffsets: object.dynamicOffsets };
+	}
+
+	private _acquireSceneBinding(
+		snapshot: WebGPUMaterialResource,
+		animation: WebGPUSceneAnimationPayload,
+		morphPosition: IRenderBuffer,
+		morphNormal: IRenderBuffer,
+		arena: IRenderBuffer,
+	): SceneBindingEntry {
+		let entries = this._sceneBindings.get(snapshot);
+		if (!entries) {
+			entries = [];
+			this._sceneBindings.set(snapshot, entries);
+		}
+		for (const entry of entries) {
+			if (entry.arena !== arena ||
+				entry.animationGeneration !== animation.generation ||
+				entry.animationParams !== animation.paramsBuffer ||
+				entry.jointMatrices !== animation.jointMatricesBuffer ||
+				entry.morphWeights !== animation.morphWeightsBuffer ||
+				entry.morphPosition !== morphPosition ||
+				entry.morphNormal !== morphNormal) continue;
+			entry.refs++;
+			return entry;
+		}
+		const entry = this._createSceneBinding(
+			snapshot, animation, morphPosition, morphNormal, arena,
+		);
+		entry.refs = 1;
+		entries.push(entry);
+		return entry;
+	}
+
+	private _createSceneBinding(
+		snapshot: WebGPUMaterialResource,
+		animation: WebGPUSceneAnimationPayload,
+		morphPosition: IRenderBuffer,
+		morphNormal: IRenderBuffer,
+		arena: IRenderBuffer,
+	): SceneBindingEntry {
 		const materialResources = this.retainMaterial(snapshot);
 		let group: IBindingGroup;
 		try {
 			const entries: Array<{ binding: number; resource: any }> = [
-				{ binding: 0, resource: draw.object!.objectUniformBuffer },
+				{
+					binding: 0,
+					resource: {
+						buffer: arena,
+						offset: 0,
+						size: WEBGPU_OBJECT_UNIFORM_BYTE_SIZE,
+					},
+				},
 			];
 			for (let i = 0; i < snapshot.textures.length; i++) {
 				entries.push({ binding: 1 + i * 2, resource: snapshot.textures[i] });
@@ -263,7 +353,7 @@ export class WebGPUDrawResourceCache {
 				},
 				{
 					binding: WEBGPU_MODEL_BINDING_STATIC_INSTANCES,
-					resource: fallbackStorageBuffer,
+					resource: this._animationPayloads.getFallbackStorageBuffer(),
 				},
 				{
 					binding: WEBGPU_MODEL_BINDING_MATERIAL_COMMON,
@@ -277,7 +367,7 @@ export class WebGPUDrawResourceCache {
 				});
 			}
 			group = this._backend.createBindingGroup({
-				label: "ModelBinding_" + packet.submission.id + "-" + snapshot.data.pipelineKey,
+				label: "ModelBinding_" + snapshot.data.pipelineKey,
 				layout: this._layouts.modelBindGroupLayouts[materialResources.shadingFamily],
 				entries, cache: false,
 			});
@@ -285,12 +375,23 @@ export class WebGPUDrawResourceCache {
 			this.releaseMaterial(snapshot);
 			throw error;
 		}
-		if (cached) this._retiredBindings.push(cached);
-		draw.scene[index] = {
-			group, material: snapshot, morphPosition, morphNormal,
+		return {
+			group, material: snapshot, arena,
 			animationGeneration: animation.generation,
+			animationParams: animation.paramsBuffer,
+			jointMatrices: animation.jointMatricesBuffer,
+			morphWeights: animation.morphWeightsBuffer,
+			morphPosition, morphNormal, refs: 0,
 		};
-		return group;
+	}
+
+	private _releaseSceneBinding(entry: SceneBindingEntry, retire = true): void {
+		if (--entry.refs > 0) return;
+		const entries = this._sceneBindings.get(entry.material);
+		const index = entries?.indexOf(entry) ?? -1;
+		if (index >= 0) entries!.splice(index, 1);
+		if (retire) this._retiredBindings.push(entry);
+		else this._destroyBinding(entry);
 	}
 
 	/** @internal WebGPU depth preparation borrows deformation and static buffers; use Renderer. */
@@ -299,11 +400,13 @@ export class WebGPUDrawResourceCache {
 		animation: WebGPUSceneAnimationPayload,
 		morphPositionBuffer: IRenderBuffer | null,
 		staticState?: WebGPUDepthStaticBindingState,
-	): IBindingGroup {
+	): WebGPUDrawModelBinding {
 		const draw = this._getDraw(packet, staticState);
 		const fallback = this._animationPayloads.getFallbackStorageBuffer();
+		const objectBuffer = staticState?.objectBuffer ?? draw.object!.arena;
+		const objectOffsets = staticState ? ZERO_DYNAMIC_OFFSETS : draw.object!.dynamicOffsets;
 		const resources = [
-			staticState?.objectBuffer ?? draw.object!.objectUniformBuffer,
+			objectBuffer,
 			animation.paramsBuffer, animation.jointMatricesBuffer, animation.morphWeightsBuffer,
 			morphPositionBuffer ?? fallback, staticState?.instanceBuffer ?? fallback,
 		];
@@ -311,11 +414,18 @@ export class WebGPUDrawResourceCache {
 		if (cached && resources.every(
 			(resource, index) => (resource._gpuResource ?? resource) === cached.handles[index] &&
 				resource.size === cached.sizes[index],
-		)) return cached.group;
+		)) return { group: cached.group, dynamicOffsets: objectOffsets };
 		const group = this._backend.createBindingGroup({
 			label: "WebGPUDepthModel_" + packet.submission.id,
 			layout: this._layouts.depthModelBindGroupLayout,
-			entries: resources.map((resource, index) => ({ binding: DEPTH_BINDINGS[index], resource })),
+			entries: resources.map((resource, index) => ({
+				binding: DEPTH_BINDINGS[index],
+				resource: index === 0 ? {
+					buffer: resource,
+					offset: 0,
+					size: WEBGPU_OBJECT_UNIFORM_BYTE_SIZE,
+				} : resource,
+			})),
 			cache: false,
 		});
 		if (cached) this._retiredBindings.push(cached);
@@ -324,7 +434,7 @@ export class WebGPUDrawResourceCache {
 			handles: resources.map((resource) => resource._gpuResource ?? resource),
 			sizes: resources.map((resource) => resource.size),
 		};
-		return group;
+		return { group, dynamicOffsets: objectOffsets };
 	}
 
 	private _getDraw(packet: DrawPacket, staticState?: WebGPUDepthStaticBindingState): DrawEntry {
@@ -334,7 +444,7 @@ export class WebGPUDrawResourceCache {
 		const previousFrame = entry?.lastUsedFrame ?? -1;
 		if (!entry) {
 			entry = {
-				object: staticState ? null : this._createObjectState(packet.submission.id),
+				object: staticState ? null : this._createObjectState(),
 				scene: [null, null], depth: null, lastUsedFrame: this._currentFrame,
 			};
 			this._draws.set(key, entry);
@@ -358,9 +468,11 @@ export class WebGPUDrawResourceCache {
 	}
 
 	private _destroyDraw(entry: DrawEntry): void {
-		for (const binding of entry.scene) if (binding) this._destroyBinding(binding);
+		for (const binding of entry.scene) {
+			if (binding) this._releaseSceneBinding(binding, false);
+		}
 		if (entry.depth) this._destroyBinding(entry.depth);
-		entry.object?.objectUniformBuffer.destroy();
+		if (entry.object) this._freeObjectSlots.push(entry.object.slot);
 	}
 
 	private _destroyBinding(entry: BindingEntry): void {
@@ -492,13 +604,23 @@ export class WebGPUDrawResourceCache {
 		return buffer;
 	}
 
-	private _createObjectState(key: string): ObjectState {
-		return {
-			objectUniformBuffer: this._backend.createBuffer({
-				size: WEBGPU_OBJECT_UNIFORM_BYTE_SIZE,
+	private _createObjectState(): ObjectState {
+		const slot = this._freeObjectSlots.pop() ?? this._nextObjectSlot++;
+		const chunkIndex = Math.floor(slot / OBJECT_ARENA_CHUNK_SLOTS);
+		const chunkSlot = slot - chunkIndex * OBJECT_ARENA_CHUNK_SLOTS;
+		while (this._objectArenas.length <= chunkIndex) {
+			this._objectArenas.push(this._backend.createBuffer({
+				size: OBJECT_ARENA_CHUNK_SLOTS * this._objectSlotStride,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
-				label: `ObjectUniform_${key}`,
-			}),
+				label: `WebGPUObjectUniformArena_${this._objectArenas.length}`,
+			}));
+		}
+		const offset = chunkSlot * this._objectSlotStride;
+		return {
+			slot,
+			arena: this._objectArenas[chunkIndex],
+			offset,
+			dynamicOffsets: [offset],
 			objectUniformWriter: createObjectUniformWriter(),
 			previousModelMatrix: createMatrixRows(),
 			uploadPending: true,
@@ -536,7 +658,7 @@ export class WebGPUDrawResourceCache {
 			entry.objectUniformWriter, instance.worldMatrix, instance.normalMatrix,
 			entry.previousModelMatrix, instance.renderLayers, receiveShadows,
 		);
-		this._backend.writeBuffer(entry.objectUniformBuffer, uniformData);
+		this._backend.writeBuffer(entry.arena, uniformData, entry.offset);
 		entry.uploadPending = false;
 	}
 

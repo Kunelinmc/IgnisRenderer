@@ -95,6 +95,17 @@ export interface WebGPUResolvedDrawInputs {
 export interface WebGPUDrawBinding {
 	readonly slot: number;
 	readonly group: IBindingGroup;
+	/**
+	 * Ordered dynamic offsets for the bound layout. Only model groups declare a
+	 * dynamic binding. Omit for layouts without dynamic bindings.
+	 */
+	readonly dynamicOffsets?: readonly number[];
+}
+
+/** @internal Scene or depth model group together with its object-arena offset. */
+export interface WebGPUDrawModelBinding {
+	readonly group: IBindingGroup;
+	readonly dynamicOffsets: readonly [number];
 }
 
 /** @internal WebGPU draw resolution result; public rendering uses Renderer. */

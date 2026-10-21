@@ -85,6 +85,7 @@ import {
 	WEBGPU_MODEL_BINDING_MATERIAL_COMMON,
 	WEBGPU_MODEL_BINDING_PBR_MATERIAL,
 	WEBGPU_MODEL_BINDING_PHONG_MATERIAL,
+	WEBGPU_OBJECT_UNIFORM_BYTE_SIZE,
 	WEBGPU_SH_COEFFICIENT_COUNT,
 	WEBGPU_SCENE_FRAME_FRAGMENT_TEXTURE_COUNT,
 	WEBGPU_PLANAR_REFLECTION_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
@@ -762,6 +763,18 @@ function testScenePipelineLimitConstantsMatchLayout() {
 	assert.equal(modelBindings("unlit").has(WEBGPU_MODEL_BINDING_PBR_MATERIAL), false);
 	assert.equal(modelBindings("unlit").has(WEBGPU_MODEL_BINDING_PHONG_MATERIAL), false);
 	assert.equal(modelBindings("unlit").has(WEBGPU_MODEL_BINDING_FLAT_MATERIAL), false);
+	for (const family of ["pbr", "phong", "flat", "unlit"]) {
+		const objectEntry = layouts.modelBindGroupLayouts[family].desc.entries
+			.find((entry) => entry.binding === 0);
+		assert.equal(objectEntry.buffer.hasDynamicOffset, true,
+			`${family} object uniforms must use a dynamic arena offset`);
+		assert.equal(objectEntry.buffer.minBindingSize, WEBGPU_OBJECT_UNIFORM_BYTE_SIZE);
+	}
+	const depthObjectEntry = layouts.depthModelBindGroupLayout.desc.entries
+		.find((entry) => entry.binding === 0);
+	assert.equal(depthObjectEntry.buffer.hasDynamicOffset, true,
+		"depth prepass object uniforms must use the same dynamic arena offset");
+	assert.equal(depthObjectEntry.buffer.minBindingSize, WEBGPU_OBJECT_UNIFORM_BYTE_SIZE);
 	const getFragmentEntries = (pipelineLayout) =>
 		pipelineLayout.desc.bindGroupLayouts.flatMap((layout) =>
 			layout.desc.entries.filter(

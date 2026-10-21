@@ -24,6 +24,10 @@ lighting, presentation configuration, reflections, and structured buffer packing
 
 ### Internal frame graph
 
+- `WebGPUCommandEncoder.setBindingGroup()` must omit the native `setBindGroup()`
+  third argument when `dynamicOffsets` is `undefined`, for both render and
+  compute passes. Supplied offset sequences, including empty sequences, must
+  be forwarded unchanged.
 - WebGPU canvas configurations for SDR and HDR must use premultiplied alpha.
   Opaque presentation must force final alpha `1.0`; transparent presentation
   must preserve premultiplied alpha from the final color resource.
@@ -391,19 +395,29 @@ lighting, presentation configuration, reflections, and structured buffer packing
   and destroy them through one lifecycle entrypoint after static bindings release
   their material references.
 - The draw resource cache must index draw records and material snapshots. Each
-  draw record must own its object transform history and scene/depth model bindings
-  together, without a separate object-buffer lookup or object reference count.
+  draw record must own its object transform history and one aligned slot in a
+  shared object-uniform arena, without a separate per-draw object buffer.
   The draw's frame marker must also govern object history advancement; object
   state must not maintain a second frame marker or initialization flag.
   Using either pass must retain the draw record. Eviction must dispose the whole
   inactive record; active-frame records must remain live through submission.
-- A draw record must retain at most one solid and one wireframe scene binding.
-  Replacing either slot must retire its previous binding through the next frame
-  boundary. The slots must share the draw record's lifetime rather than maintain
-  independent pipeline-key caches or expiry frames.
+- The shared object arena must expose each slot through a dynamic uniform
+  offset. Slot stride must use the device `minUniformBufferOffsetAlignment`, and
+  each object binding must declare the `ObjectUniforms` byte size so the arena
+  remains within `maxUniformBufferBindingSize`.
+- A draw record must retain at most one solid and one wireframe scene binding
+  reference. Compatible draws may share a scene binding keyed by material
+  snapshot, animation payload, morph buffers, and object arena. Replacing a
+  slot must release its previous reference and retire the binding through the
+  next frame boundary when the last reference is gone. Scene binding slots must
+  share the draw record's lifetime rather than maintain independent pipeline-key
+  caches or expiry frames.
 - Static depth records must use instance-arena buffer identity directly. Depth
   binding reuse must depend on the bound native buffer identities and sizes;
   animation generation alone must not trigger a rebuild when those are unchanged.
+  Depth model bindings must bind the same object-arena slot with the same
+  dynamic offset used by the draw's scene binding; static depth records must
+  bind their control buffer at offset `0`.
 - Material revision refresh must be tracked on the material record, shared by
   solid and wireframe snapshots. Built-in materials must refresh at most once
   per logical frame; `ShaderMaterial` must continue to observe same-frame edits.
@@ -454,9 +468,10 @@ lighting, presentation configuration, reflections, and structured buffer packing
   amortized constant time and must not sort every entry after reaching its
   capacity.
 - Scene draw bindings must separate object, common material, and
-  lighting-model uniform buffers. `ObjectUniforms` must remain draw-owned;
-  immutable `MaterialCommonUniforms` and the active lighting-model uniform
-  buffer must be shared by compatible dynamic and static draws.
+  lighting-model uniform buffers. `ObjectUniforms` data must remain draw-owned
+  through one non-overlapping arena slot selected by a dynamic offset; immutable
+  `MaterialCommonUniforms` and the active lighting-model uniform buffer must be
+  shared by compatible dynamic and static draws.
 - WebGPU material shading families are `pbr`, `phong`, `flat`, and `unlit`.
   `GouraudMaterial` must continue to use the `phong` family until Gouraud is
   removed by a separate public API change. An unlit draw must not bind an
@@ -1003,14 +1018,16 @@ Scene material packing must use these `group(1)` uniform bindings:
 
 | Binding | Layout | Ownership |
 | --- | --- | --- |
-| `0` | `ObjectUniforms` | One dynamic draw or one static-batch material binding |
+| `0` | `ObjectUniforms` | One dynamic-offset arena slot per draw, or one static-batch control buffer |
 | `41` | `MaterialCommonUniforms` | Shared immutable material snapshot |
 | `42` | `PBRMaterialUniforms` | Shared PBR snapshot only |
 | `43` | `PhongMaterialUniforms` | Shared Phong or Gouraud snapshot only |
 | `44` | `FlatMaterialUniforms` | Shared Flat snapshot only |
 
 `ObjectUniforms` must contain current and previous model transforms, the normal
-matrix, and one instance metadata vector. `MaterialCommonUniforms` must contain
+matrix, and one instance metadata vector. Binding `0` must use a dynamic
+uniform offset; dynamic draws select one arena slot, while static-batch bindings
+use offset `0`. `MaterialCommonUniforms` must contain
 base color, emissive, alpha/render state, planar reflectivity, and material
 texture transforms. Lighting-model buffers must contain only properties
 consumed by that lighting model. The former combined `ModelUniforms` layout is

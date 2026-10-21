@@ -113,12 +113,19 @@ export class WebGPUCommandEncoder implements ICommandEncoder {
 		this._renderPass?.setPipeline(getWebGPURenderPipeline(pipeline));
 	}
 
-	public setBindingGroup(index: number, group: IBindingGroup): void {
+	public setBindingGroup(
+		index: number,
+		group: IBindingGroup,
+		dynamicOffsets?: readonly number[],
+	): void {
 		const groupResource = getWebGPUBindGroup(group);
-		if (this._renderPass) {
-			this._renderPass.setBindGroup(index, groupResource);
-		} else if (this._computePass) {
-			this._computePass.setBindGroup(index, groupResource);
+		const pass = this._renderPass ?? this._computePass;
+		if (!pass) return;
+		// Omit absent offsets so native bindings do not convert undefined to a sequence.
+		if (dynamicOffsets === undefined) {
+			pass.setBindGroup(index, groupResource);
+		} else {
+			pass.setBindGroup(index, groupResource, dynamicOffsets);
 		}
 	}
 

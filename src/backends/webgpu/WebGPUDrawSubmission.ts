@@ -97,14 +97,22 @@ export async function submitWebGPUDraws(
 	}
 
 	let lastPipeline: IRenderPipeline | null = null;
-	const lastGroups = new Map<number, IBindingGroup>();
+	const lastGroups = new Map<number, {
+		group: IBindingGroup;
+		offsets: readonly number[] | undefined;
+	}>();
 	const lastVertexBuffers = new Map<number, IRenderBuffer>();
 	let lastIndexBuffer: IRenderBuffer | null = null;
 	let lastIndexFormat: IndexFormat | null = null;
-	const bindGroup = (slot: number, group: IBindingGroup): void => {
-		if (lastGroups.get(slot) === group) return;
-		request.encoder.setBindingGroup(slot, group);
-		lastGroups.set(slot, group);
+	const bindGroup = (
+		slot: number,
+		group: IBindingGroup,
+		offsets?: readonly number[],
+	): void => {
+		const last = lastGroups.get(slot);
+		if (last?.group === group && sameDynamicOffsets(last.offsets, offsets)) return;
+		request.encoder.setBindingGroup(slot, group, offsets);
+		lastGroups.set(slot, { group, offsets });
 	};
 
 	const submitPackets = async (
@@ -167,10 +175,12 @@ export async function submitWebGPUDraws(
 				}
 				if (request.resolveBindings) {
 					for (const binding of request.resolveBindings(draw, packet, rect)) {
-						bindGroup(binding.slot, binding.group);
+						bindGroup(binding.slot, binding.group, binding.dynamicOffsets);
 					}
 				} else {
-					for (const binding of draw.bindings) bindGroup(binding.slot, binding.group);
+					for (const binding of draw.bindings) {
+						bindGroup(binding.slot, binding.group, binding.dynamicOffsets);
+					}
 				}
 				const vertexBindings = draw.vertexBindings;
 				if (!vertexBindings) {
@@ -286,4 +296,16 @@ function createDrawOptionsKey(options: WebGPUDrawResourceOptions): string {
 		options.sampleCount,
 		options.deferredGBufferLayout ?? "extended",
 	].join("|");
+}
+
+function sameDynamicOffsets(
+	a: readonly number[] | undefined,
+	b: readonly number[] | undefined,
+): boolean {
+	if (a === b) return true;
+	if (!a || !b || a.length !== b.length) return false;
+	for (let index = 0; index < a.length; index++) {
+		if (a[index] !== b[index]) return false;
+	}
+	return true;
 }

@@ -111,10 +111,13 @@ Built-in WebGPU depth prepasses also evaluate current positions only. Their
 camera, geometry, and alpha-coverage bindings are prepared independently from
 scene lighting materials. `WebGPUDrawResourceCache` owns object transform history,
 scene and depth model bindings, material snapshots, and shared material buffers
-under one frame lifecycle. Each draw record owns its transform history, fixed
-solid/wireframe binding slots, and depth binding. They share one usage frame and
-whole-record eviction. Object updates compare current inputs with the packed
-uniform payload and retain only the previous transform as separate history.
+under one frame lifecycle. Each draw record owns its transform history, one
+aligned slot in a shared object-uniform arena, fixed solid/wireframe binding
+slots, and depth binding. Compatible scene bindings are shared by material
+snapshot, animation payload, morph buffers, and arena. They share one usage
+frame and whole-record eviction. Object updates compare current inputs with the
+packed uniform payload and retain only the previous transform as separate
+history.
 Each material record tracks revision refresh and its solid/wireframe snapshots;
 each resolved material record holds its snapshot inputs and lazy GPU buffer set.
 Scene and static bindings hold the record directly; the draw resource cache owns

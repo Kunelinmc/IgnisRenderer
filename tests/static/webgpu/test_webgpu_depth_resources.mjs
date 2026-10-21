@@ -20,7 +20,9 @@ function backendStub() {
 			this.buffers.push(buffer);
 			return buffer;
 		},
-		writeBuffer(buffer, data) { this.writes.push({ buffer, data: new Float32Array(data) }); },
+		writeBuffer(buffer, data, offset = 0) {
+			this.writes.push({ buffer, data: new Float32Array(data), offset });
+		},
 		createBindingGroup(desc) {
 			const group = { desc, destroys: 0, destroy() { this.destroys++; } };
 			this.groups.push(group);
@@ -108,14 +110,18 @@ async function testObjectSharingAndDepthBindings() {
 		const resolveScene = () => sceneGroup = cache.getMaterialBinding(packet, material, animation);
 		const resolveDepth = () => depthGroup = cache.getDepthBinding(packet, animation, null);
 		if (depthFirst) { resolveDepth(); resolveScene(); } else { resolveScene(); resolveDepth(); }
-		const object = depthGroup.desc.entries[0].resource;
-		assert.equal(object, sceneGroup.desc.entries[0].resource);
-		assert.equal(backend.writes.filter((write) => write.buffer === object).length, 1);
-		assert.deepEqual(depthGroup.desc.entries.map(({ binding }) => binding), [0, 34, 35, 36, 37, 40]);
+		const object = depthGroup.group.desc.entries[0].resource;
+		assert.equal(object.buffer, sceneGroup.group.desc.entries[0].resource.buffer);
+		assert.equal(object.offset, 0);
+		assert.equal(object.size, 208);
+		assert.deepEqual(sceneGroup.dynamicOffsets, [0]);
+		assert.deepEqual(depthGroup.dynamicOffsets, [0]);
+		assert.equal(backend.writes.filter((write) => write.buffer === object.buffer).length, 1);
+		assert.deepEqual(depthGroup.group.desc.entries.map(({ binding }) => binding), [0, 34, 35, 36, 37, 40]);
 		cache.destroy();
 		cache.destroy();
-		assert.equal(sceneGroup.destroys, 1);
-		assert.equal(depthGroup.destroys, 1);
+		assert.equal(sceneGroup.group.destroys, 1);
+		assert.equal(depthGroup.group.destroys, 1);
 		assert.ok(backend.buffers.every((buffer) => buffer.destroys === 1),
 			"one teardown releases every owned buffer exactly once");
 		const bufferCount = backend.buffers.length;
@@ -135,19 +141,20 @@ function testStaticBorrowingAndNativeInvalidation() {
 	cache.beginFrame();
 	const state = { objectBuffer: borrowed, instanceBuffer: borrowed };
 	const first = cache.getDepthBinding({ submission: { id: "a" } }, animation, null, state);
-	assert.equal(cache.getDepthBinding({ submission: { id: "b" } }, animation, null, state), first);
+	assert.equal(cache.getDepthBinding({ submission: { id: "b" } }, animation, null, state).group,
+		first.group);
 	assert.equal(backend.buffers.length, 0, "static depth borrows buffers without scene allocation");
 	animation.generation++;
-	assert.equal(cache.getDepthBinding({ submission: { id: "a" } }, animation, null, state), first,
-		"generation changes do not change the buffers bound by a depth draw");
+	assert.equal(cache.getDepthBinding({ submission: { id: "a" } }, animation, null, state).group,
+		first.group, "generation changes do not change the buffers bound by a depth draw");
 	borrowed._gpuResource = {};
 	const next = cache.getDepthBinding({ submission: { id: "a" } }, animation, null, state);
-	assert.notEqual(next, first);
-	assert.equal(first.destroys, 0);
+	assert.notEqual(next.group, first.group);
+	assert.equal(first.group.destroys, 0);
 	cache.beginFrame();
-	assert.equal(first.destroys, 1);
+	assert.equal(first.group.destroys, 1);
 	cache.destroy();
-	assert.equal(next.destroys, 1);
+	assert.equal(next.group.destroys, 1);
 }
 
 async function testSharedObjectFrameHistory() {
@@ -163,7 +170,9 @@ async function testSharedObjectFrameHistory() {
 	const packet = createTestDrawPacket({ id: "history", worldMatrix: world, normalMatrix: normal });
 	const scene = () => cache.getMaterialBinding(packet, material, animation);
 	const depth = () => cache.getDepthBinding(packet, animation, null);
-	const objectWrites = () => backend.writes.filter(({ buffer }) => buffer.label === "ObjectUniform_history");
+	const objectWrites = () => backend.writes.filter(
+		({ buffer }) => buffer.label?.startsWith("WebGPUObjectUniformArena"),
+	);
 	cache.beginFrame();
 	depth(); scene();
 	assert.equal(objectWrites().length, 1);
@@ -326,14 +335,19 @@ async function testActiveFrameDrawRecordsSurviveBudgetOverflow() {
 		const depthGroup = cache.getDepthBinding(packet, animation, null);
 		if (i === 0) { first = group; firstDepth = depthGroup; }
 	}
-	assert.equal(first.destroys, 0, "prepared scene binding cannot be evicted in its active frame");
-	assert.equal(firstDepth.destroys, 0, "prepared depth binding remains live above its budget");
-	assert.equal(first.desc.entries[0].resource.destroys, 0);
+	assert.equal(first.group.destroys, 0, "prepared scene binding cannot be evicted in its active frame");
+	assert.equal(firstDepth.group.destroys, 0, "prepared depth binding remains live above its budget");
+	assert.equal(first.group.desc.entries[0].resource.buffer.destroys, 0);
 	cache.beginFrame();
-	assert.equal(first.destroys, 1, "next frame can evict an inactive scene binding");
-	assert.equal(firstDepth.destroys, 1, "one frame boundary trims depth bindings too");
-	assert.equal(first.desc.entries[0].resource.destroys, 1);
+	assert.equal(firstDepth.group.destroys, 1, "one frame boundary trims the inactive depth binding");
+	assert.equal(first.group.destroys, 0,
+		"compatible draws keep the shared scene binding alive after one record is evicted");
+	assert.equal(first.group.desc.entries[0].resource.buffer.destroys, 0,
+		"eviction returns the arena slot without destroying the shared arena");
 	cache.destroy();
+	assert.equal(first.group.destroys, 1, "teardown releases the last shared scene reference");
+	assert.equal(first.group.desc.entries[0].resource.buffer.destroys, 1,
+		"teardown destroys the shared arena");
 	assert.ok(backend.buffers.every((buffer) => buffer.destroys === 1));
 }
 
@@ -350,7 +364,7 @@ async function testEitherPassRetainsTheWholeDrawRecord() {
 		cache.beginFrame();
 		const depth = cache.getDepthBinding(packet, animation, null);
 		const scene = cache.getMaterialBinding(packet, snapshot, animation);
-		const object = depth.desc.entries[0].resource;
+		const object = depth.group.desc.entries[0].resource;
 		cache.beginFrame();
 		if (useDepth) cache.getDepthBinding(packet, animation, null);
 		else cache.getMaterialBinding(packet, snapshot, animation);
@@ -358,15 +372,15 @@ async function testEitherPassRetainsTheWholeDrawRecord() {
 			const filler = createTestDrawPacket({ id: "filler:" + i });
 			cache.getDepthBinding(filler, animation, null);
 		}
-		assert.equal(depth.destroys, 0);
-		assert.equal(scene.destroys, 0, "using either pass retains the active draw as a unit");
-		assert.equal(object.destroys, 0);
+		assert.equal(depth.group.destroys, 0);
+		assert.equal(scene.group.destroys, 0, "using either pass retains the active draw as a unit");
+		assert.equal(object.buffer.destroys, 0);
 		cache.beginFrame();
-		assert.equal(depth.destroys, 1);
-		assert.equal(scene.destroys, 1, "inactive record eviction releases both bindings together");
-		assert.equal(object.destroys, 1);
+		assert.equal(depth.group.destroys, 1);
+		assert.equal(scene.group.destroys, 1, "inactive record eviction releases both bindings together");
+		assert.equal(object.buffer.destroys, 0, "the shared arena outlives individual draw records");
 		cache.destroy();
-		assert.equal(object.destroys, 1);
+		assert.equal(object.buffer.destroys, 1);
 	}
 }
 
@@ -385,7 +399,7 @@ async function testSceneSlotsReplaceObsoleteBindingsWithoutLosingObjectHistory()
 	const original = cache.getMaterialBinding(packet, solid, animation);
 	const wireframe = cache.getMaterialBinding(packet, wire, animation);
 	const depth = cache.getDepthBinding(packet, animation, null);
-	const object = depth.desc.entries[0].resource;
+	const object = depth.group.desc.entries[0].resource;
 	const maskedMaterial = new PBRMaterial();
 	maskedMaterial.alphaMode = AlphaMode.Mask;
 	const masked = await cache.resolveMaterial(maskedMaterial, false);
@@ -394,21 +408,21 @@ async function testSceneSlotsReplaceObsoleteBindingsWithoutLosingObjectHistory()
 	blendedMaterial.alphaMode = AlphaMode.Blend;
 	const blended = await cache.resolveMaterial(blendedMaterial, false);
 	const latest = cache.getMaterialBinding(packet, blended, animation);
-	assert.equal(original.destroys, 0, "replaced solid bindings survive prepared draws in this frame");
-	assert.equal(maskedBinding.destroys, 0);
-	assert.equal(cache.getMaterialBinding(packet, wire, animation), wireframe,
+	assert.equal(original.group.destroys, 0, "replaced solid bindings survive prepared draws in this frame");
+	assert.equal(maskedBinding.group.destroys, 0);
+	assert.equal(cache.getMaterialBinding(packet, wire, animation).group, wireframe.group,
 		"replacing the solid slot retains the wireframe slot");
 	cache.beginFrame();
-	assert.equal(original.destroys, 1);
-	assert.equal(maskedBinding.destroys, 1,
+	assert.equal(original.group.destroys, 1);
+	assert.equal(maskedBinding.group.destroys, 1,
 		"obsolete pipeline variants are released without a separate expiry policy");
 	for (let i = 0; i < 3; i++) {
 		cache.getDepthBinding(packet, animation, null);
 		cache.beginFrame();
 	}
-	assert.equal(cache.getMaterialBinding(packet, blended, animation), latest);
-	assert.equal(cache.getMaterialBinding(packet, wire, animation), wireframe);
-	assert.equal(object.destroys, 0, "scene slots share the draw's lifetime and transform history");
+	assert.equal(cache.getMaterialBinding(packet, blended, animation).group, latest.group);
+	assert.equal(cache.getMaterialBinding(packet, wire, animation).group, wireframe.group);
+	assert.equal(object.buffer.destroys, 0, "scene slots share the draw's lifetime and transform history");
 	cache.destroy();
 	assert.ok(backend.buffers.every((buffer) => buffer.destroys === 1));
 }
@@ -428,17 +442,17 @@ function testStaticArenaOwnsTheDepthBindingSlot() {
 		{ instanceBuffer: arena, objectBuffer: firstObject });
 	const replacement = cache.getDepthBinding(packet, animation, null,
 		{ instanceBuffer: arena, objectBuffer: secondObject });
-	assert.notEqual(first, replacement);
+	assert.notEqual(first.group, replacement.group);
 	const alias = { ...secondObject };
 	assert.equal(cache.getDepthBinding(packet, animation, null,
-		{ instanceBuffer: arena, objectBuffer: alias }), replacement,
+		{ instanceBuffer: arena, objectBuffer: alias }).group, replacement.group,
 		"another wrapper for the same native buffer does not change a binding");
 	cache.beginFrame();
-	assert.equal(first.destroys, 1, "one arena retains only its latest depth binding");
+	assert.equal(first.group.destroys, 1, "one arena retains only its latest depth binding");
 	alias.size += 16;
 	const resized = cache.getDepthBinding(packet, animation, null,
 		{ instanceBuffer: arena, objectBuffer: alias });
-	assert.notEqual(resized, replacement, "buffer size still participates in invalidation");
+	assert.notEqual(resized.group, replacement.group, "buffer size still participates in invalidation");
 	cache.destroy();
 }
 

@@ -72,7 +72,11 @@ export function createWebGPUPipelineLayouts(
 			{
 				binding: 0,
 				visibility: GPUShaderStage.VERTEX,
-				buffer: { type: "uniform", minBindingSize: WEBGPU_OBJECT_UNIFORM_BYTE_SIZE },
+				buffer: {
+					type: "uniform",
+					minBindingSize: WEBGPU_OBJECT_UNIFORM_BYTE_SIZE,
+					hasDynamicOffset: true,
+				},
 			},
 			{
 				binding: WEBGPU_MODEL_BINDING_ANIMATION_PARAMS,
@@ -419,6 +423,7 @@ export function createWebGPUPipelineLayouts(
 			buffer: {
 				type: "uniform",
 				minBindingSize: WEBGPU_OBJECT_UNIFORM_BYTE_SIZE,
+				hasDynamicOffset: true,
 			},
 		},
 	];

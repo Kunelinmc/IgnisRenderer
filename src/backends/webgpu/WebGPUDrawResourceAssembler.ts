@@ -32,6 +32,8 @@ import {
 import { resolveWebGPUPlanarReflectionPassDescriptor } from "./WebGPUPlanarReflectionPassDescriptor";
 import type { WebGPUStaticMeshBatcher } from "./WebGPUStaticMeshBatcher";
 
+const STATIC_MODEL_OFFSETS = [0] as const;
+
 interface SharedMaterialPreparation {
 	validatedEpoch: number;
 	readonly revision: number;
@@ -255,7 +257,7 @@ export class WebGPUDrawResourceAssembler {
 			pipeline,
 			bindings: [
 				{ slot: 0, group: frame.frameBinding },
-				{ slot: 1, group: draw.modelBinding },
+				{ slot: 1, group: draw.modelBinding, dynamicOffsets: STATIC_MODEL_OFFSETS },
 				{ slot: 2, group: frame.clusteredSceneBinding },
 			],
 			vertexBindings: geometry.vertexBindings,
@@ -318,7 +320,11 @@ export class WebGPUDrawResourceAssembler {
 			pipeline,
 			bindings: [
 				{ slot: 0, group: frame.depthFrameBinding },
-				{ slot: 1, group: modelBinding },
+				{
+					slot: 1,
+					group: modelBinding.group,
+					dynamicOffsets: modelBinding.dynamicOffsets,
+				},
 				{ slot: 2, group: depthMaterial.binding },
 			],
 			vertexBindings: geometry.vertexBindings,
@@ -385,18 +391,24 @@ export class WebGPUDrawResourceAssembler {
 			solidSnapshot,
 			drawMode,
 		);
-		const solidModelBinding = staticDraw?.modelBinding ?? this._resources.getMaterialBinding(
-			packet,
-			solidSnapshot,
-			animationPayload,
-			geometry.morphPositionBuffer,
-			geometry.morphNormalBuffer,
-		);
+		const solidModelBinding = staticDraw
+			? { group: staticDraw.modelBinding, dynamicOffsets: STATIC_MODEL_OFFSETS }
+			: this._resources.getMaterialBinding(
+				packet,
+				solidSnapshot,
+				animationPayload,
+				geometry.morphPositionBuffer,
+				geometry.morphNormalBuffer,
+			);
 		results.push({
 			pipeline: solidPipeline,
 			bindings: [
 				{ slot: 0, group: frameResources.frameBinding },
-				{ slot: 1, group: solidModelBinding },
+				{
+					slot: 1,
+					group: solidModelBinding.group,
+					dynamicOffsets: solidModelBinding.dynamicOffsets,
+				},
 				{ slot: 2, group: frameResources.clusteredSceneBinding },
 			],
 			vertexBindings: geometry.vertexBindings,
@@ -451,7 +463,11 @@ export class WebGPUDrawResourceAssembler {
 			pipeline: wirePipeline,
 			bindings: [
 				{ slot: 0, group: frameResources.frameBinding },
-				{ slot: 1, group: wireModelBinding },
+				{
+					slot: 1,
+					group: wireModelBinding.group,
+					dynamicOffsets: wireModelBinding.dynamicOffsets,
+				},
 				{ slot: 2, group: frameResources.clusteredSceneBinding },
 			],
 			vertexBindings: wireGeometry.vertexBindings,

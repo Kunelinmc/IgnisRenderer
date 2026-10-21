@@ -26,9 +26,9 @@ function createBackendStub() {
 				},
 			};
 		},
-		writeBuffer(buffer, data) {
+		writeBuffer(buffer, data, offset = 0) {
 			backend.writeBufferCalls++;
-			backend.writeCalls.push({ buffer, data });
+			backend.writeCalls.push({ buffer, data, offset });
 		},
 		createBindingGroup(desc) {
 			let destroyed = false;
@@ -93,7 +93,7 @@ async function testTextureRebindRetainsPreparedBindingUntilFrameEnd() {
 	cache.beginFrame();
 	const first = cache.getMaterialBinding(packet, snapshot, animation);
 	const second = cache.getMaterialBinding(packet, replacement, animation);
-	assert.notEqual(first, second);
+	assert.notEqual(first.group, second.group);
 	assert.equal(backend.bindingGroupDestroyCalls, 0, "prepared bindings survive the active frame");
 	cache.beginFrame();
 	assert.equal(backend.bindingGroupDestroyCalls, 1);
@@ -109,13 +109,38 @@ async function testSnapshotReuseDoesNotUploadOrRebind() {
 	cache.beginFrame();
 	const first = cache.getMaterialBinding(packet, snapshot, animation);
 	const writes = backend.writeBufferCalls;
-	assert.equal(cache.getMaterialBinding(packet, snapshot, animation), first);
+	const repeated = cache.getMaterialBinding(packet, snapshot, animation);
+	assert.equal(repeated.group, first.group);
+	assert.deepEqual(repeated.dynamicOffsets, first.dynamicOffsets);
 	assert.equal(backend.createBindingGroupCalls, 1);
 	assert.equal(backend.writeBufferCalls, writes);
 	assert.equal(getWriteCountForLabel(backend, "ModelJointMatrices_"), 0);
 	assert.equal(getWriteCountForLabel(backend, "ModelMorphWeights_"), 0);
 	assert.equal(getWriteCountForLabel(backend, "ModelAnimationParams_"), 0);
 	cache.destroy();
+}
+
+async function testCompatibleDrawsShareOneSceneBinding() {
+	const backend = createBackendStub();
+	const cache = createCache(backend);
+	const snapshot = await cache.resolveMaterial(new PBRMaterial(), false);
+	const animation = createAnimationState();
+	cache.beginFrame();
+	const first = cache.getMaterialBinding(createPacket("first"), snapshot, animation);
+	const second = cache.getMaterialBinding(createPacket("second"), snapshot, animation);
+	assert.equal(first.group, second.group, "compatible draws reuse one model group");
+	assert.deepEqual(first.dynamicOffsets, [0]);
+	assert.deepEqual(second.dynamicOffsets, [256]);
+	assert.equal(backend.createBindingGroupCalls, 1);
+	const objectWrites = backend.writeCalls.filter(
+		({ buffer }) => buffer.label?.startsWith("WebGPUObjectUniformArena"),
+	);
+	assert.deepEqual(objectWrites.map(({ offset }) => offset), [0, 256],
+		"each draw owns a distinct arena slot");
+	assert.deepEqual(cache.getDebugStats().materialBuffers, { entries: 1, references: 1 });
+	cache.destroy();
+	assert.equal(backend.bindingGroupDestroyCalls, 1);
+	assert.equal(snapshot.references, 0);
 }
 
 async function testMaterialSnapshotChangeRebindsWithoutObjectUpload() {
@@ -127,13 +152,13 @@ async function testMaterialSnapshotChangeRebindsWithoutObjectUpload() {
 	const animation = createAnimationState();
 	cache.beginFrame();
 	const first = cache.getMaterialBinding(packet, snapshot, animation);
-	const objectWrites = getWriteCountForLabel(backend, "ObjectUniform_");
+	const objectWrites = getWriteCountForLabel(backend, "WebGPUObjectUniformArena");
 	material.roughness = 0.2;
 	cache.beginFrame();
 	const next = await cache.resolveMaterial(material, false);
 	const second = cache.getMaterialBinding(packet, next, animation);
-	assert.notEqual(first, second);
-	assert.equal(getWriteCountForLabel(backend, "ObjectUniform_"), objectWrites);
+	assert.notEqual(first.group, second.group);
+	assert.equal(getWriteCountForLabel(backend, "WebGPUObjectUniformArena"), objectWrites);
 	assert.equal(backend.createBindingGroupCalls, 2);
 	cache.destroy();
 }
@@ -150,7 +175,7 @@ async function testPayloadGenerationRebuildsBindingWithoutOwningPayloadBuffers()
 	animation.generation++;
 	animation.jointMatricesBuffer = { destroy() { throw new Error("borrowed buffer"); } };
 	const second = cache.getMaterialBinding(packet, snapshot, animation);
-	assert.notEqual(first, second);
+	assert.notEqual(first.group, second.group);
 	assert.equal(backend.createBindingGroupCalls, 2);
 	assert.equal(backend.bufferDestroyCalls, destroyCount);
 	cache.destroy();
@@ -201,7 +226,7 @@ async function testShaderUniformsBelongToTheMaterialSnapshot() {
 	const animation = createAnimationState();
 	const first = cache.getMaterialBinding(createPacket("first"), snapshot, animation);
 	const second = cache.getMaterialBinding(createPacket("second"), snapshot, animation);
-	const uniform = (group) => group.desc.entries.find((entry) => entry.binding === 39).resource;
+	const uniform = (binding) => binding.group.desc.entries.find((entry) => entry.binding === 39).resource;
 	assert.equal(uniform(first), uniform(second), "draws share the snapshot's custom uniform buffer");
 	assert.equal(getWriteCountForLabel(backend, "ShaderMaterialUniform_"), 1);
 	material.setUniform("time", 2);
@@ -255,6 +280,7 @@ await testFailedBindingPreparationReleasesItsMaterialReference();
 await testBudgetedCacheRetainsModelBindingGroup();
 await testTextureRebindRetainsPreparedBindingUntilFrameEnd();
 await testSnapshotReuseDoesNotUploadOrRebind();
+await testCompatibleDrawsShareOneSceneBinding();
 await testMaterialSnapshotChangeRebindsWithoutObjectUpload();
 await testPayloadGenerationRebuildsBindingWithoutOwningPayloadBuffers();
 await testMaterialBuffersDestroyAfterLastReference();

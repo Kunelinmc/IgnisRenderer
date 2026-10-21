@@ -105,7 +105,7 @@ assert.ok(second);
 assert.equal(first.modelBinding, second.modelBinding);
 const dynamic = materialBuffers.getMaterialBinding(packets[0], snapshot, animations.getStaticScenePayload());
 const commonBuffer = snapshot.buffers.commonBuffer;
-assert.ok(dynamic.desc.entries.some(({ resource }) => resource === commonBuffer));
+assert.ok(dynamic.group.desc.entries.some(({ resource }) => resource === commonBuffer));
 assert.ok(first.modelBinding.desc.entries.some(({ resource }) => resource === commonBuffer));
 assert.deepEqual(materialBuffers.getDebugStats().materialBuffers, { entries: 1, references: 2 });
 assert.equal(first.batchKey, second.batchKey);

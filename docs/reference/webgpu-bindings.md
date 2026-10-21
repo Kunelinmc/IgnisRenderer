@@ -100,15 +100,18 @@ The following pipeline layouts must preserve these bind group roles:
 ### `modelBindGroupLayout` - `group(1)`
 
 `WebGPUDrawResourceCache` stores solid, wireframe, and depth model binding slots
-with their draw-owned object history. Bindings hold material resource records
-directly, and the cache manages references to shared common, lighting, and custom
-shader uniform buffers. A new material revision gets a
-distinct buffer set; replaced bindings retain the previous set until the next
+with their draw-owned object history. Compatible scene bindings are shared by
+material snapshot, animation payload, morph buffers, and object arena, with
+reference counting. Binding `0` is a dynamic uniform binding into a shared
+object arena; the submission supplies one dynamic offset per draw. Bindings hold
+material resource records directly, and the cache manages references to shared
+common, lighting, and custom shader uniform buffers. A new material revision gets
+a distinct buffer set; replaced bindings retain the previous set until the next
 frame boundary.
 
 | Binding | Shader name | Resource contract |
 | --- | --- | --- |
-| `0` | `object` | `ObjectUniforms` uniform buffer |
+| `0` | `object` | `ObjectUniforms` dynamic uniform offset into the shared object arena |
 | `1` | `baseColorTexture` | `texture_2d<f32>` |
 | `2` | `baseColorSampler` | Filtering sampler |
 | `3` | `metallicRoughnessTexture` | `texture_2d<f32>` |
@@ -173,14 +176,14 @@ draw binding they consume. Built-in Early-Z uses the independent layout below.
 The single `sceneDepthPrepassPipelineLayout` is shared across shading families.
 Its camera, object, animation, and static-instance buffers preserve the scene
 ABI offsets and storage strides while the depth shader reads current positions
-only. `WebGPUDrawResourceCache` shares dynamic object buffers between scene and
-depth bindings. `WebGPUStaticMeshBatcher` owns the static control uniform and
-instance arena independently of material bindings.
+only. `WebGPUDrawResourceCache` shares one dynamic object-arena slot between a
+draw's scene and depth bindings. `WebGPUStaticMeshBatcher` owns the static
+control uniform and instance arena independently of material bindings.
 
 | Group | Binding | Resource |
 | --- | --- | --- |
 | `0` | `0` | Shared `FrameCameraUniforms` camera buffer |
-| `1` | `0` | Shared `ObjectUniforms` draw or static control buffer |
+| `1` | `0` | Shared `ObjectUniforms` dynamic arena slot or static control buffer |
 | `1` | `34` | `AnimationParams` |
 | `1` | `35` | Joint matrices storage buffer |
 | `1` | `36` | Morph weights storage buffer |

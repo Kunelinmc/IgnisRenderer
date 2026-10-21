@@ -589,7 +589,11 @@ export class WebGLScopedRasterEncoder implements ICommandEncoder {
 		applyPipelineState(gl, customPipeline._webglDesc);
 	}
 
-	public setBindingGroup(_index: number, group: IBindingGroup): void {
+	public setBindingGroup(
+		_index: number,
+		group: IBindingGroup,
+		_dynamicOffsets?: readonly number[],
+	): void {
 		this._assertScopeResource(group);
 		const pipeline = this._requirePipeline();
 		const customGroup = group as WebGLCustomBindingGroup;

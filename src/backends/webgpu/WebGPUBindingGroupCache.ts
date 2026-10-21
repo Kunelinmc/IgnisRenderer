@@ -15,6 +15,7 @@ import {
 } from "./WebGPUResourceHandle";
 import type {
 	BindingGroupDesc,
+	BufferBindingRange,
 	IBindingGroup,
 	IComputePipeline,
 	IRenderPipeline,
@@ -197,6 +198,16 @@ export class WebGPUBindingGroupCache {
 		const buffer = tryGetWebGPUBuffer(resource);
 		if (buffer) {
 			return { buffer };
+		}
+
+		const range = resource as BufferBindingRange;
+		const rangeBuffer = range?.buffer ? tryGetWebGPUBuffer(range.buffer) : null;
+		if (rangeBuffer) {
+			return {
+				buffer: rangeBuffer,
+				offset: range.offset ?? 0,
+				size: range.size,
+			};
 		}
 
 		if (resource && typeof resource === "object") {
@@ -398,6 +409,19 @@ export class WebGPUBindingGroupCache {
 				secondaryId: 0,
 				offset: 0,
 				size: -1,
+			};
+		}
+
+		const range = resource as BufferBindingRange;
+		const rangeBuffer = range?.buffer ? tryGetWebGPUBuffer(range.buffer) : null;
+		if (rangeBuffer) {
+			return {
+				binding,
+				kind: 3,
+				primaryId: this._host.objectIdentity.getObjectId(rangeBuffer),
+				secondaryId: 0,
+				offset: Math.max(0, range.offset ?? 0),
+				size: Math.max(-1, range.size ?? -1),
 			};
 		}
 

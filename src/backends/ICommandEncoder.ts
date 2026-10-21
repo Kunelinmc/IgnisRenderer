@@ -19,8 +19,18 @@ export interface ICommandEncoder {
 	/** Set the active pipeline (state machine configuration) */
 	setPipeline(pipeline: IRenderPipeline): void;
 
-	/** Bind a set of resources (uniforms, textures) to a specific slot */
-	setBindingGroup(index: number, group: IBindingGroup): void;
+	/**
+	 * Bind a set of resources (uniforms, textures) to a specific slot.
+	 *
+	 * @param dynamicOffsets Ordered offsets for the layout's dynamic bindings.
+	 * Backends without dynamic offsets ignore the value. Omit it for layouts
+	 * that declare no dynamic bindings.
+	 */
+	setBindingGroup(
+		index: number,
+		group: IBindingGroup,
+		dynamicOffsets?: readonly number[],
+	): void;
 
 	/** Set vertex buffer for a specific slot */
 	setVertexBuffer(slot: number, buffer: IRenderBuffer): void;

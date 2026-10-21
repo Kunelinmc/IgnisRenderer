@@ -227,6 +227,13 @@ export interface BindingGroupDesc {
 	cache?: boolean;
 }
 
+/** A buffer sub-range used by layouts that declare dynamic or fixed offsets. */
+export interface BufferBindingRange {
+	readonly buffer: IRenderBuffer | GPUBuffer;
+	readonly offset?: number;
+	readonly size?: number;
+}
+
 export type BindingResource =
 	| IRenderBuffer
 	| IRenderTexture
@@ -234,6 +241,7 @@ export type BindingResource =
 	| GPUBindingResource
 	| GPUTexture
 	| GPUBuffer
+	| BufferBindingRange
 	| {
 			_gpuResource?: BackendResourceHandle;
 	  };

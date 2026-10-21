@@ -35,8 +35,10 @@ function createEncoder() {
 		setPipeline(pipeline) {
 			calls.push(["setPipeline", pipeline.id]);
 		},
-		setBindingGroup(slot, group) {
-			calls.push(["setBindingGroup", slot, group.id]);
+		setBindingGroup(slot, group, dynamicOffsets) {
+			calls.push(dynamicOffsets
+				? ["setBindingGroup", slot, group.id, [...dynamicOffsets]]
+				: ["setBindingGroup", slot, group.id]);
 		},
 		setVertexBuffer(slot, buffer) {
 			calls.push(["setVertexBuffer", slot, buffer.id]);
@@ -462,6 +464,11 @@ async function testSubmissionReusesPreparedResourcesAcrossDirtyRects() {
 		encoder.calls.filter((call) => call[0] === "setPipeline").length,
 		1
 	);
+	assert.equal(
+		encoder.calls.filter((call) => call[0] === "setBindingGroup" && call[1] === 1).length,
+		1,
+		"repeated dirty rects reuse the same model group and offset"
+	);
 }
 
 async function testEmptyDirtyRectsUseFullFramePreparation() {
@@ -487,6 +494,54 @@ async function testEmptyDirtyRectsUseFullFramePreparation() {
 
 	assert.equal(preparations, 1);
 	assert.equal(result.drawCount, 1);
+}
+
+async function testSharedModelGroupRebindsPerDynamicOffset() {
+	const encoder = createEncoder();
+	const frame = { id: "shared-frame" };
+	const model = { id: "shared-model" };
+	const clustered = { id: "shared-clustered" };
+	const packets = [drawPacket("slot-a"), drawPacket("slot-b")];
+	const resources = {
+		async getDrawResources(packet) {
+			return [{
+				pipeline: { id: "shared-pipeline" },
+				bindings: [
+					{ slot: 0, group: frame },
+					{
+						slot: 1,
+						group: model,
+						dynamicOffsets: [packet.submission.id === "slot-a" ? 0 : 256],
+					},
+					{ slot: 2, group: clustered },
+				],
+				vertexBuffer: { id: "shared-vertex" },
+				indexBuffer: { id: "shared-index" },
+				indexCount: 3,
+			}];
+		},
+	};
+	await submitWebGPUDraws({
+		encoder,
+		resources,
+		frameResources: createFrameResources(),
+		packets,
+		resolveDrawOptions: () => ({ sampleCount: 1 }),
+	});
+	assert.deepEqual(
+		encoder.calls.filter((call) => call[0] === "setBindingGroup" && call[1] === 1),
+		[
+			["setBindingGroup", 1, "shared-model", [0]],
+			["setBindingGroup", 1, "shared-model", [256]],
+		],
+		"shared model groups must rebind when the object-arena offset changes",
+	);
+	assert.equal(
+		encoder.calls.filter((call) =>
+			call[0] === "setBindingGroup" && call[2] === "shared-frame").length,
+		1,
+		"unchanged groups without dynamic offsets stay deduplicated",
+	);
 }
 
 function testScenePassDescriptorsExposePipelineStateKeyParts() {
@@ -537,5 +592,6 @@ await testStaticBatchSplitReasonsPreserveDrawCommands();
 await testStaticBatchSplitsAreLocalToEachDirtyRectangle();
 testDirtyRectSelectionPreservesCallerSubsetAndOrder();
 await testCopiedOpaqueDirtyRectsDoNotBatchExcludedInstances();
+await testSharedModelGroupRebindsPerDynamicOffset();
 testScenePassDescriptorsExposePipelineStateKeyParts();
 console.log("WebGPU draw submission tests passed");
