@@ -70,10 +70,12 @@ The loader must construct and clone textures with appropriate color spaces:
   - Clearcoat maps (`clearcoatTexture` / `clearcoatRoughnessTexture` / `clearcoatNormalTexture`)
   - Thickness maps (`thicknessTexture`)
 
-#### Primitive Topology & Modes
+#### Primitive Attributes
 
 Vertex colors (`COLOR_0`) are unsupported and must not be decoded or stored in
 primitive geometry.
+
+#### Primitive Topology & Modes
 
 The loader must parse glTF primitive modes and convert them to IgnisRenderer `PrimitiveDrawTopology` ("point-list", "line-list", or "triangle-list") as follows:
 - Mode `0` (`POINTS`) must yield `"point-list"`.

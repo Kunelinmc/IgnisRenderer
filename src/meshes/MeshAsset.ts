@@ -5,7 +5,6 @@ import type {
 	IPrimitiveGeometry,
 	IVertex,
 } from "../core/types";
-import type { RGBA } from "../foundation/Color";
 import { IdGenerator } from "../foundation/IdGenerator";
 import type { IVector3 } from "../maths/types";
 import { GeometryBuilder, type GeometryFace } from "./GeometryBuilder";
@@ -436,5 +435,4 @@ export type {
 	IPrimitive,
 	IVertex,
 	IVector3,
-	RGBA,
 };

@@ -42,6 +42,8 @@ See the [interaction guide](../public/interaction.md).
 Remove `IVertex.color` and `IPrimitiveGeometry.colors` from authored geometry.
 `MeshAsset.fromFaces()` ignores per-vertex color input, and `GLTFLoader` ignores
 `COLOR_0`. Use material colors or textures for surface color.
+`RGBA` is no longer re-exported by the mesh modules; import it from the package
+root instead.
 See the [geometry contract](../contracts/geometry.md) and
 [loader contract](../contracts/loaders.md).
 
