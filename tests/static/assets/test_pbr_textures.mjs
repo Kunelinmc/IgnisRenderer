@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { PBREvaluator } from "../../../src/shaders/software/PBREvaluator.ts";
 import {
 	PBRMaterial,
-	PBRMaterialFeature,
-	PBRMaterialTextureFeature,
+	resolvePBRMaterialFeatures as resolve,
 	UVChannel,
 } from "../../../src/materials/PBRMaterial.ts";
+import { Material, ShadingModel } from "../../../src/materials/Material.ts";
 import { Texture } from "../../../src/core/Texture.ts";
 import { Vector3 } from "../../../src/maths/Vector3.ts";
 
@@ -60,70 +60,86 @@ function assertVectorClose(actual, expected, tolerance = 0.001) {
 	);
 }
 
-function testStableFeatureMasks() {
-	console.log("Testing stable PBR feature masks...");
-	assert.equal(PBRMaterialFeature.BASE_COLOR_MAP, 1 << 0);
-	assert.equal(PBRMaterialFeature.TRANSMISSION, 1 << 9);
-	assert.equal(PBRMaterialTextureFeature.BASE_COLOR_MAP, 1 << 0);
-	assert.equal(PBRMaterialTextureFeature.ANISOTROPY_MAP, 1 << 16);
-
-	const material = new PBRMaterial();
-	assert.equal(material.featureMask, 0);
-	assert.equal(material.textureMask, 0);
-
+function testResolvedFeatures() {
 	const texture = create1x1Texture(255, 255, 255, 255, "Linear");
-	material.map = texture;
-	material.metallicRoughnessMap = texture;
-	material.normalMap = texture;
-	material.emissiveMap = texture;
-	material.occlusionMap = texture;
-	material.specularMap = texture;
-	material.specularColorMap = texture;
-	material.clearcoatMap = texture;
-	material.clearcoatRoughnessMap = texture;
-	material.clearcoatNormalMap = texture;
-	material.sheenColorMap = texture;
-	material.sheenRoughnessMap = texture;
-	material.transmissionMap = texture;
-	material.thicknessMap = texture;
-	material.iridescenceMap = texture;
-	material.iridescenceThicknessMap = texture;
-	material.anisotropyMap = texture;
-
-	const allTextureBits = (1 << 17) - 1;
-	assert.equal(material.textureMask, allTextureBits);
-	assert.equal(
-		material.featureMask,
-		PBRMaterialFeature.BASE_COLOR_MAP |
-			PBRMaterialFeature.METALLIC_ROUGHNESS_MAP |
-			PBRMaterialFeature.NORMAL_MAP |
-			PBRMaterialFeature.OCCLUSION_MAP |
-			PBRMaterialFeature.SPECULAR
-	);
-
+	const material = new PBRMaterial({
+		clearcoatMap: texture, sheenColorMap: texture, iridescenceMap: texture,
+		anisotropyMap: texture, transmissionMap: texture, specularMap: texture,
+	});
+	const inactive = resolve(material);
+	assert.equal(inactive.clearcoat, false);
+	assert.equal(inactive.textures.clearcoatMap, true);
+	assert.equal(inactive.activeTextures.clearcoatMap, false);
+	for (const name of ["sheen", "iridescence", "anisotropy", "transmission"]) {
+		assert.equal(inactive[name], false);
+	}
 	material.clearcoat = 1;
-	material.sheenColorFactor = { r: 255, g: 0, b: 0 };
+	material.sheenColorFactor.r = 255;
 	material.iridescenceFactor = 1;
 	material.anisotropyStrength = 1;
 	material.transmissionFactor = 1;
-	assert.equal(material.featureMask, (1 << 10) - 1);
-
+	material.map = texture;
+	const active = resolve(material);
+	for (const name of ["clearcoat", "sheen", "iridescence", "anisotropy", "transmission"]) {
+		assert.equal(active[name], true);
+	}
+	assert.equal(active.activeTextures.clearcoatMap, true);
+	assert.ok(resolve(material) === active, "unchanged semantics must reuse their snapshot");
+	assert.throws(() => { active.textures.clearcoatMap = false; }, TypeError);
+	assert.equal(active.textures.baseColorMap, true);
+	assert.equal(inactive.clearcoat, false, "published snapshots must not change");
+	material.specularColor.r = material.specularColor.g = material.specularColor.b = 0;
+	assert.equal(resolve(material).activeTextures.specularMap, false);
+	material.specularColor.r = 255;
+	assert.equal(resolve(material).activeTextures.specularMap, true);
+	material.specularFactor = 0;
+	assert.equal(resolve(material).specular, true);
+	assert.equal(resolve(material).activeTextures.specularMap, false);
+	material.clearcoat = -1;
+	material.anisotropyStrength = 0.000001;
+	assert.equal(resolve(material).clearcoat, false);
+	assert.equal(resolve(material).anisotropy, false);
 	material.map = null;
-	assert.equal(
-		material.textureMask & PBRMaterialTextureFeature.BASE_COLOR_MAP,
-		0
-	);
-	assert.equal(material.featureMask & PBRMaterialFeature.BASE_COLOR_MAP, 0);
-
-	const inactive = new PBRMaterial({
-		clearcoatMap: texture,
-		sheenColorMap: texture,
-		iridescenceMap: texture,
-		anisotropyMap: texture,
-		transmissionMap: texture,
+	assert.equal(resolve(material).textures.baseColorMap, false);
+	const allMaps = new PBRMaterial();
+	const mapProperties = [
+		"map", "metallicRoughnessMap", "normalMap", "emissiveMap", "occlusionMap",
+		"specularMap", "specularColorMap", "clearcoatMap", "clearcoatRoughnessMap",
+		"clearcoatNormalMap", "sheenColorMap", "sheenRoughnessMap", "transmissionMap",
+		"thicknessMap", "iridescenceMap", "iridescenceThicknessMap", "anisotropyMap",
+	];
+	for (const property of mapProperties) allMaps[property] = texture;
+	assert.ok(Object.values(resolve(allMaps).textures).every(Boolean));
+	Object.assign(allMaps, {
+		clearcoat: 1, sheenColorFactor: { r: 255, g: 0, b: 0 },
+		transmissionFactor: 1, iridescenceFactor: 1, anisotropyStrength: 1,
 	});
-	assert.notEqual(inactive.textureMask, 0);
-	assert.equal(inactive.featureMask, 0);
+	assert.ok(Object.values(resolve(allMaps).activeTextures).every(Boolean));
+	for (const property of mapProperties) allMaps[property] = null;
+	assert.ok(Object.values(resolve(allMaps).textures).every(value => !value));
+	for (const property of mapProperties) {
+		const key = property === "map" ? "baseColorMap" : property;
+		const absent = resolve(allMaps);
+		allMaps[property] = texture;
+		const present = resolve(allMaps);
+		assert.notStrictEqual(present, absent, `${property} must refresh presence`);
+		assert.equal(present.textures[key], true);
+		assert.equal(present.activeTextures[key], true);
+		assert.equal(absent.textures[key], false);
+		// Texture identity belongs to backend resources, not boolean semantics.
+		allMaps[property] = create1x1Texture(0, 0, 0, 255, "Linear");
+		assert.strictEqual(resolve(allMaps), present);
+		allMaps[property] = null;
+		assert.equal(resolve(allMaps).textures[key], false);
+	}
+
+	const generic = new Material({ shading: ShadingModel.PBR });
+	generic.clearcoatMap = texture;
+	generic.specularColorFactor = { r: 0, g: 0, b: 0 };
+	generic.specularMap = texture;
+	assert.equal(resolve(generic).clearcoat, false);
+	assert.equal(resolve(generic).specular, true);
+	assert.equal(resolve(generic).activeTextures.specularMap, false);
 }
 
 function testAlbedoMap() {
@@ -445,7 +461,7 @@ function testUV3ChannelUsesFourthUVSet() {
 function run() {
 	try {
 		console.log("Starting PBR Texture Maps Tests...");
-		testStableFeatureMasks();
+		testResolvedFeatures();
 		testAlbedoMap();
 		testMetallicRoughnessMap();
 		testEmissiveMap();

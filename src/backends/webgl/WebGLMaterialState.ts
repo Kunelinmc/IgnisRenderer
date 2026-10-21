@@ -9,9 +9,9 @@ import {
 	type TextureLike,
 } from "../../materials/Material";
 import {
-	PBRMaterial,
-	PBRMaterialFeature,
-	PBRMaterialTextureFeature,
+	type PBRMaterial,
+	resolvePBRMaterialFeatures,
+	type ResolvedPBRMaterialFeatures,
 } from "../../materials/PBRMaterial";
 import { getMaterialTransmissionFactor } from "../../materials/transparency";
 import { resolveTextureUVTransform } from "./WebGLMaterialUniformResolver";
@@ -64,8 +64,7 @@ export interface WebGLPBRMaterialState {
 	readonly attenuationColor: Readonly<Vec4Tuple>;
 	readonly anisotropy: Readonly<Vec4Tuple>;
 	readonly scales: Readonly<Vec4Tuple>;
-	readonly featureMask: number;
-	readonly textureMask: number;
+	readonly features: ResolvedPBRMaterialFeatures;
 	readonly textures: Readonly<Record<WebGLPBRTextureSlotName, WebGLMaterialTextureState>>;
 }
 
@@ -255,8 +254,7 @@ function resolvePBRState(material: WebGLPBRMaterial): WebGLPBRMaterialState {
 			0,
 			0,
 		],
-		featureMask: material instanceof PBRMaterial ? material.featureMask : resolveCompatibilityFeatureMask(material),
-		textureMask: material instanceof PBRMaterial ? material.textureMask : resolveCompatibilityTextureMask(material),
+		features: resolvePBRMaterialFeatures(material),
 		textures,
 	};
 }
@@ -301,53 +299,4 @@ function normalizedColor(color: RGB): Vec3Tuple {
 function linearLegacyColor(color: RGB): Vec3Tuple {
 	const normalized = normalizedColor(color);
 	return [sRGBToLinear(normalized[0]), sRGBToLinear(normalized[1]), sRGBToLinear(normalized[2])];
-}
-
-function resolveCompatibilityTextureMask(material: WebGLPBRMaterial): number {
-	let mask = 0;
-	const entries: readonly [TextureLike, PBRMaterialTextureFeature][] = [
-		[material.map, PBRMaterialTextureFeature.BASE_COLOR_MAP],
-		[material.metallicRoughnessMap, PBRMaterialTextureFeature.METALLIC_ROUGHNESS_MAP],
-		[material.normalMap, PBRMaterialTextureFeature.NORMAL_MAP],
-		[material.emissiveMap, PBRMaterialTextureFeature.EMISSIVE_MAP],
-		[material.occlusionMap, PBRMaterialTextureFeature.OCCLUSION_MAP],
-		[material.specularMap, PBRMaterialTextureFeature.SPECULAR_MAP],
-		[material.specularColorMap, PBRMaterialTextureFeature.SPECULAR_COLOR_MAP],
-		[material.clearcoatMap, PBRMaterialTextureFeature.CLEARCOAT_MAP],
-		[material.clearcoatRoughnessMap, PBRMaterialTextureFeature.CLEARCOAT_ROUGHNESS_MAP],
-		[material.clearcoatNormalMap, PBRMaterialTextureFeature.CLEARCOAT_NORMAL_MAP],
-		[material.sheenColorMap, PBRMaterialTextureFeature.SHEEN_COLOR_MAP],
-		[material.sheenRoughnessMap, PBRMaterialTextureFeature.SHEEN_ROUGHNESS_MAP],
-		[material.transmissionMap, PBRMaterialTextureFeature.TRANSMISSION_MAP],
-		[material.thicknessMap, PBRMaterialTextureFeature.THICKNESS_MAP],
-		[material.iridescenceMap, PBRMaterialTextureFeature.IRIDESCENCE_MAP],
-		[material.iridescenceThicknessMap, PBRMaterialTextureFeature.IRIDESCENCE_THICKNESS_MAP],
-		[material.anisotropyMap, PBRMaterialTextureFeature.ANISOTROPY_MAP],
-	];
-	for (const [texture, bit] of entries) if (texture) mask |= bit;
-	return mask;
-}
-
-function resolveCompatibilityFeatureMask(material: WebGLPBRMaterial): number {
-	const textureMask = resolveCompatibilityTextureMask(material);
-	let mask = 0;
-	if (textureMask & PBRMaterialTextureFeature.BASE_COLOR_MAP) {
-		mask |= PBRMaterialFeature.BASE_COLOR_MAP;
-	}
-	if (textureMask & PBRMaterialTextureFeature.METALLIC_ROUGHNESS_MAP) {
-		mask |= PBRMaterialFeature.METALLIC_ROUGHNESS_MAP;
-	}
-	if (textureMask & PBRMaterialTextureFeature.NORMAL_MAP) {
-		mask |= PBRMaterialFeature.NORMAL_MAP;
-	}
-	if (textureMask & PBRMaterialTextureFeature.OCCLUSION_MAP) {
-		mask |= PBRMaterialFeature.OCCLUSION_MAP;
-	}
-	if ((material.clearcoat ?? 0) > 0 || material.clearcoatMap) mask |= PBRMaterialFeature.CLEARCOAT;
-	if (material.sheenColorMap || material.sheenRoughnessMap) mask |= PBRMaterialFeature.SHEEN;
-	if (getMaterialTransmissionFactor(material) > 0 || material.transmissionMap) mask |= PBRMaterialFeature.TRANSMISSION;
-	if ((material.iridescenceFactor ?? 0) > 0 || material.iridescenceMap) mask |= PBRMaterialFeature.IRIDESCENCE;
-	if ((material.anisotropyStrength ?? 0) > 0 || material.anisotropyMap) mask |= PBRMaterialFeature.ANISOTROPY;
-	if (material.specularMap || material.specularColorMap) mask |= PBRMaterialFeature.SPECULAR;
-	return mask;
 }

@@ -14,46 +14,6 @@ export enum UVChannel {
 	UV3 = 3,
 }
 
-/**
- * Stable, append-only feature bits exposed by {@link PBRMaterial.featureMask}.
- */
-export enum PBRMaterialFeature {
-	BASE_COLOR_MAP = 1 << 0,
-	METALLIC_ROUGHNESS_MAP = 1 << 1,
-	NORMAL_MAP = 1 << 2,
-	OCCLUSION_MAP = 1 << 3,
-	SPECULAR = 1 << 4,
-	CLEARCOAT = 1 << 5,
-	SHEEN = 1 << 6,
-	IRIDESCENCE = 1 << 7,
-	ANISOTROPY = 1 << 8,
-	TRANSMISSION = 1 << 9,
-}
-
-/**
- * Stable, append-only texture-presence bits exposed by
- * {@link PBRMaterial.textureMask}.
- */
-export enum PBRMaterialTextureFeature {
-	BASE_COLOR_MAP = 1 << 0,
-	METALLIC_ROUGHNESS_MAP = 1 << 1,
-	NORMAL_MAP = 1 << 2,
-	EMISSIVE_MAP = 1 << 3,
-	OCCLUSION_MAP = 1 << 4,
-	SPECULAR_MAP = 1 << 5,
-	SPECULAR_COLOR_MAP = 1 << 6,
-	CLEARCOAT_MAP = 1 << 7,
-	CLEARCOAT_ROUGHNESS_MAP = 1 << 8,
-	CLEARCOAT_NORMAL_MAP = 1 << 9,
-	SHEEN_COLOR_MAP = 1 << 10,
-	SHEEN_ROUGHNESS_MAP = 1 << 11,
-	TRANSMISSION_MAP = 1 << 12,
-	THICKNESS_MAP = 1 << 13,
-	IRIDESCENCE_MAP = 1 << 14,
-	IRIDESCENCE_THICKNESS_MAP = 1 << 15,
-	ANISOTROPY_MAP = 1 << 16,
-}
-
 const PBR_FEATURE_EPSILON = 0.000001;
 
 function normalizeUVChannel(uv: number | undefined): UVChannel {
@@ -312,121 +272,6 @@ export class PBRMaterial extends Material {
 	public attenuationColor: RGB;
 
 	/**
-	 * Returns the current resolved PBR feature mask.
-	 *
-	 * The value is computed on access so direct factor or texture mutations are
-	 * reflected without an explicit update call.
-	 */
-	public get featureMask(): number {
-		const textureMask = this.textureMask;
-		let mask = 0;
-		if (textureMask & PBRMaterialTextureFeature.BASE_COLOR_MAP) {
-			mask |= PBRMaterialFeature.BASE_COLOR_MAP;
-		}
-		if (textureMask & PBRMaterialTextureFeature.METALLIC_ROUGHNESS_MAP) {
-			mask |= PBRMaterialFeature.METALLIC_ROUGHNESS_MAP;
-		}
-		if (textureMask & PBRMaterialTextureFeature.NORMAL_MAP) {
-			mask |= PBRMaterialFeature.NORMAL_MAP;
-		}
-		if (textureMask & PBRMaterialTextureFeature.OCCLUSION_MAP) {
-			mask |= PBRMaterialFeature.OCCLUSION_MAP;
-		}
-
-		const specularFactor = clamp(this.specularFactor, 0, 1);
-		const specularR = clamp(this.specularColor.r, 0, 255) / 255;
-		const specularG = clamp(this.specularColor.g, 0, 255) / 255;
-		const specularB = clamp(this.specularColor.b, 0, 255) / 255;
-		const hasSpecularCustomization =
-			Math.abs(specularFactor - 1) > PBR_FEATURE_EPSILON ||
-			Math.abs(specularR - 1) > PBR_FEATURE_EPSILON ||
-			Math.abs(specularG - 1) > PBR_FEATURE_EPSILON ||
-			Math.abs(specularB - 1) > PBR_FEATURE_EPSILON ||
-			(
-				specularFactor > PBR_FEATURE_EPSILON &&
-				!!(textureMask & PBRMaterialTextureFeature.SPECULAR_MAP)
-			) ||
-			(
-				specularFactor > PBR_FEATURE_EPSILON &&
-				Math.max(specularR, specularG, specularB) > PBR_FEATURE_EPSILON &&
-				!!(textureMask & PBRMaterialTextureFeature.SPECULAR_COLOR_MAP)
-			);
-		if (hasSpecularCustomization) {
-			mask |= PBRMaterialFeature.SPECULAR;
-		}
-
-		if (clamp(this.clearcoat, 0, 1) > PBR_FEATURE_EPSILON) {
-			mask |= PBRMaterialFeature.CLEARCOAT;
-		}
-		if (
-			Math.max(
-				clamp(this.sheenColorFactor.r, 0, 255),
-				clamp(this.sheenColorFactor.g, 0, 255),
-				clamp(this.sheenColorFactor.b, 0, 255)
-			) / 255 > PBR_FEATURE_EPSILON
-		) {
-			mask |= PBRMaterialFeature.SHEEN;
-		}
-		if (clamp(this.iridescenceFactor, 0, 1) > PBR_FEATURE_EPSILON) {
-			mask |= PBRMaterialFeature.IRIDESCENCE;
-		}
-		if (clamp(this.anisotropyStrength, 0, 1) > PBR_FEATURE_EPSILON) {
-			mask |= PBRMaterialFeature.ANISOTROPY;
-		}
-		if (clamp(this.transmissionFactor, 0, 1) > PBR_FEATURE_EPSILON) {
-			mask |= PBRMaterialFeature.TRANSMISSION;
-		}
-		return mask >>> 0;
-	}
-
-	/**
-	 * Returns the current PBR texture-presence mask.
-	 *
-	 * Presence is independent of whether the texture's parent lobe is active.
-	 */
-	public get textureMask(): number {
-		let mask = 0;
-		if (this.map) mask |= PBRMaterialTextureFeature.BASE_COLOR_MAP;
-		if (this.metallicRoughnessMap) {
-			mask |= PBRMaterialTextureFeature.METALLIC_ROUGHNESS_MAP;
-		}
-		if (this.normalMap) mask |= PBRMaterialTextureFeature.NORMAL_MAP;
-		if (this.emissiveMap) mask |= PBRMaterialTextureFeature.EMISSIVE_MAP;
-		if (this.occlusionMap) mask |= PBRMaterialTextureFeature.OCCLUSION_MAP;
-		if (this.specularMap) mask |= PBRMaterialTextureFeature.SPECULAR_MAP;
-		if (this.specularColorMap) {
-			mask |= PBRMaterialTextureFeature.SPECULAR_COLOR_MAP;
-		}
-		if (this.clearcoatMap) mask |= PBRMaterialTextureFeature.CLEARCOAT_MAP;
-		if (this.clearcoatRoughnessMap) {
-			mask |= PBRMaterialTextureFeature.CLEARCOAT_ROUGHNESS_MAP;
-		}
-		if (this.clearcoatNormalMap) {
-			mask |= PBRMaterialTextureFeature.CLEARCOAT_NORMAL_MAP;
-		}
-		if (this.sheenColorMap) {
-			mask |= PBRMaterialTextureFeature.SHEEN_COLOR_MAP;
-		}
-		if (this.sheenRoughnessMap) {
-			mask |= PBRMaterialTextureFeature.SHEEN_ROUGHNESS_MAP;
-		}
-		if (this.transmissionMap) {
-			mask |= PBRMaterialTextureFeature.TRANSMISSION_MAP;
-		}
-		if (this.thicknessMap) mask |= PBRMaterialTextureFeature.THICKNESS_MAP;
-		if (this.iridescenceMap) {
-			mask |= PBRMaterialTextureFeature.IRIDESCENCE_MAP;
-		}
-		if (this.iridescenceThicknessMap) {
-			mask |= PBRMaterialTextureFeature.IRIDESCENCE_THICKNESS_MAP;
-		}
-		if (this.anisotropyMap) {
-			mask |= PBRMaterialTextureFeature.ANISOTROPY_MAP;
-		}
-		return mask >>> 0;
-	}
-
-	/**
 	 * Converts legacy sRGB F0 color to a physical reflectance value.
 	 * Clamp minimum to 0.04 (typical dielectric) to prevent non-physical dark spots.
 	 */
@@ -568,4 +413,155 @@ export class PBRMaterial extends Material {
 		// In PBR, we use reflectance/metalness. Base Material's reflectivity is disabled here.
 		this.reflectivity = 0;
 	}
+}
+
+/** @internal Material-subsystem texture presence; author textures through `PBRMaterial`. */
+export interface PBRMaterialTexturePresence {
+	readonly baseColorMap: boolean;
+	readonly metallicRoughnessMap: boolean;
+	readonly normalMap: boolean;
+	readonly emissiveMap: boolean;
+	readonly occlusionMap: boolean;
+	readonly specularMap: boolean;
+	readonly specularColorMap: boolean;
+	readonly clearcoatMap: boolean;
+	readonly clearcoatRoughnessMap: boolean;
+	readonly clearcoatNormalMap: boolean;
+	readonly sheenColorMap: boolean;
+	readonly sheenRoughnessMap: boolean;
+	readonly transmissionMap: boolean;
+	readonly thicknessMap: boolean;
+	readonly iridescenceMap: boolean;
+	readonly iridescenceThicknessMap: boolean;
+	readonly anisotropyMap: boolean;
+}
+
+/** @internal Material-subsystem snapshot; author factors through `PBRMaterial`. */
+export interface ResolvedPBRMaterialFeatures {
+	readonly specular: boolean;
+	readonly clearcoat: boolean;
+	readonly sheen: boolean;
+	readonly iridescence: boolean;
+	readonly anisotropy: boolean;
+	readonly transmission: boolean;
+	/** Authored references, including maps belonging to inactive lobes. */
+	readonly textures: PBRMaterialTexturePresence;
+	/** Maps that can contribute after lobe and multiplier resolution. */
+	readonly activeTextures: PBRMaterialTexturePresence;
+}
+
+type PBRFeatureInput = Partial<PBRMaterialParams> & { specularColorFactor?: RGB };
+
+const PBR_FEATURE_SNAPSHOTS = new WeakMap<Material, ResolvedPBRMaterialFeatures>();
+
+/**
+ * Resolves current PBR activation directly from factors and texture references.
+ * Returns an immutable snapshot reflecting direct and nested mutations.
+ * Unchanged semantics reuse the previous snapshot without allocating.
+ *
+ * @param material Material using PBR shading, including generic PBR materials.
+ * @internal Owned by material semantics for backend snapshot creation; applications
+ * should author `PBRMaterial` factors and textures instead.
+ */
+export function resolvePBRMaterialFeatures(material: Material): ResolvedPBRMaterialFeatures {
+	const input = material as PBRFeatureInput;
+	const color = input.specularColor ?? input.specularColorFactor;
+	const specularFactor = clamp(input.specularFactor ?? 1, 0, 1);
+	const specularR = clamp(color?.r ?? 255, 0, 255) / 255;
+	const specularG = clamp(color?.g ?? 255, 0, 255) / 255;
+	const specularB = clamp(color?.b ?? 255, 0, 255) / 255;
+	const specularColorMax = Math.max(specularR, specularG, specularB);
+	const specular =
+		Math.abs(specularFactor - 1) > PBR_FEATURE_EPSILON ||
+		Math.abs(specularR - 1) > PBR_FEATURE_EPSILON ||
+		Math.abs(specularG - 1) > PBR_FEATURE_EPSILON ||
+		Math.abs(specularB - 1) > PBR_FEATURE_EPSILON ||
+		(specularFactor > PBR_FEATURE_EPSILON && !!input.specularMap) ||
+		(specularFactor > PBR_FEATURE_EPSILON &&
+			specularColorMax > PBR_FEATURE_EPSILON && !!input.specularColorMap);
+	const clearcoat = clamp(input.clearcoat ?? 0, 0, 1) > PBR_FEATURE_EPSILON;
+	const sheen = Math.max(
+		clamp(input.sheenColorFactor?.r ?? 0, 0, 255),
+		clamp(input.sheenColorFactor?.g ?? 0, 0, 255),
+		clamp(input.sheenColorFactor?.b ?? 0, 0, 255),
+	) / 255 > PBR_FEATURE_EPSILON;
+	const iridescence = clamp(input.iridescenceFactor ?? 0, 0, 1) > PBR_FEATURE_EPSILON;
+	const anisotropy = clamp(input.anisotropyStrength ?? 0, 0, 1) > PBR_FEATURE_EPSILON;
+	const transmission = clamp(input.transmissionFactor ?? 0, 0, 1) > PBR_FEATURE_EPSILON;
+	const specularMaps = specular && specularFactor > PBR_FEATURE_EPSILON &&
+		specularColorMax > PBR_FEATURE_EPSILON;
+	const cached = PBR_FEATURE_SNAPSHOTS.get(material);
+	// Compare named semantics without allocating a candidate snapshot on cache hits.
+	if (cached &&
+		cached.specular === specular &&
+		cached.clearcoat === clearcoat &&
+		cached.sheen === sheen &&
+		cached.iridescence === iridescence &&
+		cached.anisotropy === anisotropy &&
+		cached.transmission === transmission &&
+		cached.textures.baseColorMap === !!input.map &&
+		cached.textures.metallicRoughnessMap === !!input.metallicRoughnessMap &&
+		cached.textures.normalMap === !!input.normalMap &&
+		cached.textures.emissiveMap === !!input.emissiveMap &&
+		cached.textures.occlusionMap === !!input.occlusionMap &&
+		cached.textures.specularMap === !!input.specularMap &&
+		cached.textures.specularColorMap === !!input.specularColorMap &&
+		cached.textures.clearcoatMap === !!input.clearcoatMap &&
+		cached.textures.clearcoatRoughnessMap === !!input.clearcoatRoughnessMap &&
+		cached.textures.clearcoatNormalMap === !!input.clearcoatNormalMap &&
+		cached.textures.sheenColorMap === !!input.sheenColorMap &&
+		cached.textures.sheenRoughnessMap === !!input.sheenRoughnessMap &&
+		cached.textures.transmissionMap === !!input.transmissionMap &&
+		cached.textures.thicknessMap === !!input.thicknessMap &&
+		cached.textures.iridescenceMap === !!input.iridescenceMap &&
+		cached.textures.iridescenceThicknessMap === !!input.iridescenceThicknessMap &&
+		cached.textures.anisotropyMap === !!input.anisotropyMap &&
+		cached.activeTextures.specularMap === (specularMaps && !!input.specularMap) &&
+		cached.activeTextures.specularColorMap === (specularMaps && !!input.specularColorMap)) {
+		return cached;
+	}
+	const textures: PBRMaterialTexturePresence = {
+		baseColorMap: !!input.map,
+		metallicRoughnessMap: !!input.metallicRoughnessMap,
+		normalMap: !!input.normalMap,
+		emissiveMap: !!input.emissiveMap,
+		occlusionMap: !!input.occlusionMap,
+		specularMap: !!input.specularMap,
+		specularColorMap: !!input.specularColorMap,
+		clearcoatMap: !!input.clearcoatMap,
+		clearcoatRoughnessMap: !!input.clearcoatRoughnessMap,
+		clearcoatNormalMap: !!input.clearcoatNormalMap,
+		sheenColorMap: !!input.sheenColorMap,
+		sheenRoughnessMap: !!input.sheenRoughnessMap,
+		transmissionMap: !!input.transmissionMap,
+		thicknessMap: !!input.thicknessMap,
+		iridescenceMap: !!input.iridescenceMap,
+		iridescenceThicknessMap: !!input.iridescenceThicknessMap,
+		anisotropyMap: !!input.anisotropyMap,
+	};
+	const features: ResolvedPBRMaterialFeatures = {
+		specular, clearcoat, sheen, iridescence, anisotropy, transmission,
+		textures,
+		activeTextures: {
+			...textures,
+			specularMap: specularMaps && textures.specularMap,
+			specularColorMap: specularMaps && textures.specularColorMap,
+			clearcoatMap: clearcoat && textures.clearcoatMap,
+			clearcoatRoughnessMap: clearcoat && textures.clearcoatRoughnessMap,
+			clearcoatNormalMap: clearcoat && textures.clearcoatNormalMap,
+			sheenColorMap: sheen && textures.sheenColorMap,
+			sheenRoughnessMap: sheen && textures.sheenRoughnessMap,
+			transmissionMap: transmission && textures.transmissionMap,
+			thicknessMap: transmission && textures.thicknessMap,
+			iridescenceMap: iridescence && textures.iridescenceMap,
+			iridescenceThicknessMap: iridescence && textures.iridescenceThicknessMap,
+			anisotropyMap: anisotropy && textures.anisotropyMap,
+		},
+	};
+	// Shared snapshots must not be mutable through backend or JavaScript consumers.
+	Object.freeze(features.textures);
+	Object.freeze(features.activeTextures);
+	Object.freeze(features);
+	PBR_FEATURE_SNAPSHOTS.set(material, features);
+	return features;
 }

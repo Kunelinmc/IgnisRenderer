@@ -14,6 +14,7 @@ import { WEBGPU_TEST_PROFILE } from "../shaders/shaderDirectiveTestProfiles.mjs"
 import {
 	createWebGPUMaterialUniformData,
 	materialSupportsWebGPUDeferredLighting,
+	materialRequiresExtendedWebGPUGBuffer,
 	packMatrix4ForWGSL,
 	remapClipSpaceDepth
 } from "../../../src/backends/webgpu/index.ts";
@@ -44,9 +45,7 @@ import {
 	Matrix4
 } from "../../../src/maths/Matrix4.ts";
 import {
-	PBRMaterial,
-	PBRMaterialFeature,
-	PBRMaterialTextureFeature
+	PBRMaterial
 } from "../../../src/materials/PBRMaterial.ts";
 import {
 	Material,
@@ -308,11 +307,11 @@ function testMaterialAdaptation() {
 	);
 	assert.equal(
 		pbrAnisotropyData.lighting.pbrMasks[0],
-		PBRMaterialFeature.ANISOTROPY
+		1 << 8
 	);
 	assert.equal(
 		pbrAnisotropyData.lighting.pbrMasks[1],
-		PBRMaterialTextureFeature.ANISOTROPY_MAP
+		1 << 16
 	);
 	assert.equal(pbrAnisotropyData.pipelineKey, pbrData.pipelineKey);
 	assert.equal(materialSupportsWebGPUDeferredLighting(pbr), true);
@@ -327,7 +326,39 @@ function testMaterialAdaptation() {
 	});
 	const genericPBRData = createWebGPUMaterialUniformData(genericPBR);
 	assert.deepEqual(genericPBRData.lighting.pbrMasks, [1, 1, 0, 0]);
+	genericPBR.clearcoatMap = genericPBR.map;
+	genericPBR.clearcoat = 0;
+	let genericFeatures = createWebGPUMaterialUniformData(genericPBR).lighting.pbrMasks;
+	assert.equal(genericFeatures[0] & (1 << 5), 0);
+	assert.equal(materialRequiresExtendedWebGPUGBuffer(genericPBR), false);
+	assert.notEqual(genericFeatures[1] & (1 << 7), 0);
+	genericPBR.clearcoat = 1;
+	genericFeatures = createWebGPUMaterialUniformData(genericPBR).lighting.pbrMasks;
+	assert.notEqual(genericFeatures[0] & (1 << 5), 0);
+	const pbrEquivalent = new PBRMaterial({
+		map: genericPBR.map, clearcoatMap: genericPBR.map, clearcoat: 1,
+	});
+	assert.deepEqual(
+		genericFeatures, createWebGPUMaterialUniformData(pbrEquivalent).lighting.pbrMasks,
+		"generic PBR and PBRMaterial must encode the same semantics",
+	);
 
+
+	const allFeatures = new PBRMaterial({
+		clearcoat: 1, sheenColorFactor: { r: 255, g: 0, b: 0 },
+		transmissionFactor: 1, iridescenceFactor: 1, anisotropyStrength: 1,
+	});
+	for (const property of [
+		"map", "metallicRoughnessMap", "normalMap", "emissiveMap", "occlusionMap",
+		"specularMap", "specularColorMap", "clearcoatMap", "clearcoatRoughnessMap",
+		"clearcoatNormalMap", "sheenColorMap", "sheenRoughnessMap", "transmissionMap",
+		"thicknessMap", "iridescenceMap", "iridescenceThicknessMap", "anisotropyMap",
+	]) allFeatures[property] = genericPBR.map;
+	// Validate the backend-private WGSL ABI independently of material encodings.
+	assert.deepEqual(
+		createWebGPUMaterialUniformData(allFeatures).lighting.pbrMasks,
+		[(1 << 10) - 1, (1 << 17) - 1, 0, 0],
+	);
 	const transmissivePBR = new PBRMaterial({ transmissionFactor: 1 });
 	assert.equal(materialSupportsWebGPUDeferredLighting(transmissivePBR), false);
 

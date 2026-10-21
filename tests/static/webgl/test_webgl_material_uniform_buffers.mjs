@@ -41,6 +41,41 @@ function testMaterialFamiliesAreSeparated() {
 	assert.equal(unlit.lighting, null);
 }
 
+function testResolvedFeaturesDriveVariantsAndSnapshots() {
+	const snapshots = new WebGLMaterialSnapshotCache();
+	for (const material of [new PBRMaterial(), new Material({ shading: ShadingModel.PBR })]) {
+		material.clearcoatMap = {};
+		material.sheenColorMap = {};
+		material.specularMap = {};
+		snapshots.beginFrame();
+		const inactive = snapshots.resolve(material);
+		assert.strictEqual(inactive, snapshots.resolve(material));
+		assert.equal(inactive.data.lighting.features.textures.clearcoatMap, true);
+		assert.equal(inactive.materialVariant.clearcoat, false);
+		assert.equal(inactive.materialVariant.clearcoatMap, false);
+		assert.equal(inactive.materialVariant.sheenColorMap, false);
+		material.clearcoat = 1;
+		material.sheenColorFactor = { r: 255, g: 0, b: 0 };
+		material.specularColor = { r: 0, g: 0, b: 0 };
+		snapshots.beginFrame();
+		const active = snapshots.resolve(material);
+		assert.notStrictEqual(active, inactive);
+		assert.equal(active.materialVariant.clearcoatMap, true);
+		assert.equal(active.materialVariant.sheenColorMap, true);
+		assert.equal(active.materialVariant.specularMap, false);
+		assert.equal(inactive.materialVariant.clearcoatMap, false);
+		material.sheenColorFactor.r = 0;
+		material.specularColor.g = 255;
+		snapshots.beginFrame();
+		const nested = snapshots.resolve(material);
+		assert.equal(nested.materialVariant.sheenColorMap, false);
+		assert.equal(nested.materialVariant.specularMap, true);
+		material.specularMap = null;
+		snapshots.beginFrame();
+		assert.equal(snapshots.resolve(material).materialVariant.specularMap, false);
+	}
+}
+
 function testStd140PackingUsesOnlyActiveTransformSlots() {
 	const normalMap = {
 		repeat: { x: 2, y: 3 },
@@ -319,6 +354,7 @@ async function testExactAndCompatibilityShaderABIsRemainDistinct() {
 }
 
 testMaterialFamiliesAreSeparated();
+testResolvedFeaturesDriveVariantsAndSnapshots();
 testStd140PackingUsesOnlyActiveTransformSlots();
 testRevisionCacheAndUniformBuffersAreReused();
 testAllocationFailureReleasesPartialResources();

@@ -363,11 +363,12 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   `material-uniform-buffer-unavailable`. WebGL must not silently fall back to a
   second built-in individual-uniform path.
 - Built-in PBR scene variants and their exact sampler layouts must be derived
-  from `PBRMaterial.featureMask` and `PBRMaterial.textureMask`. A texture with a
-  set presence bit must still be omitted when its parent extension feature is
-  inactive, including extension maps annihilated by a zero resolved factor.
+  from the named flags returned by `resolvePBRMaterialFeatures`. Effective
+  texture flags must control sampler pruning, including extension maps
+  annihilated by a zero resolved factor. WebGL snapshots must not retain or
+  interpret material feature or texture masks.
 - The full compatibility scene specialization must remain available to
-  explicit `ShaderSource` callers; mask-derived pruning applies to exact built-in material
+  explicit `ShaderSource` callers; semantic feature pruning applies to exact built-in material
   variants used for rendering and warmup.
 - Scene programs must own one variant-aware `WebGLSceneSamplerLayout` shared by
   warmup and all binders. If an exact collision-free layout cannot fit the

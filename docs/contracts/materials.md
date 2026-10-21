@@ -122,37 +122,34 @@ const texture = new Texture({
   must prevent quantization from producing a back-facing shading normal.
   Normal comparisons after G-buffer decoding may include its encoding error.
 
-#### Stable feature masks
+#### Resolved PBR features
 
-- `PBRMaterialFeature` must define append-only unsigned feature bits with the
-  following fixed assignments: `BASE_COLOR_MAP` bit 0,
-  `METALLIC_ROUGHNESS_MAP` bit 1, `NORMAL_MAP` bit 2, `OCCLUSION_MAP` bit 3,
-  `SPECULAR` bit 4, `CLEARCOAT` bit 5, `SHEEN` bit 6, `IRIDESCENCE` bit 7,
-  `ANISOTROPY` bit 8, and `TRANSMISSION` bit 9. Existing assignments must not
-  be reordered or reused.
-- `PBRMaterialTextureFeature` must define append-only unsigned texture-presence
-  bits with the following fixed assignments: `BASE_COLOR_MAP` bit 0,
-  `METALLIC_ROUGHNESS_MAP` bit 1, `NORMAL_MAP` bit 2, `EMISSIVE_MAP` bit 3,
-  `OCCLUSION_MAP` bit 4, `SPECULAR_MAP` bit 5, `SPECULAR_COLOR_MAP` bit 6,
-  `CLEARCOAT_MAP` bit 7, `CLEARCOAT_ROUGHNESS_MAP` bit 8,
-  `CLEARCOAT_NORMAL_MAP` bit 9, `SHEEN_COLOR_MAP` bit 10,
-  `SHEEN_ROUGHNESS_MAP` bit 11, `TRANSMISSION_MAP` bit 12,
-  `THICKNESS_MAP` bit 13, `IRIDESCENCE_MAP` bit 14,
-  `IRIDESCENCE_THICKNESS_MAP` bit 15, and `ANISOTROPY_MAP` bit 16.
-- `PBRMaterial.featureMask` and `PBRMaterial.textureMask` must be readonly
-  computed properties. They must reflect direct material-field mutation without
-  requiring a dirty flag or explicit update call.
-- `textureMask` must report non-null texture references independently of whether
-  the parent material lobe currently contributes to the resolved result.
-- The base-color, metallic-roughness, normal, and occlusion feature bits must
-  mirror their texture-presence bits. `SPECULAR` must identify a resolved
-  `KHR_materials_specular` customization rather than the base PBR Fresnel lobe.
-  It must be enabled when the resolved factor or color differs from its neutral
-  default, or when a non-annihilated specular texture can affect the result.
-- `CLEARCOAT`, `SHEEN`, `IRIDESCENCE`, `ANISOTROPY`, and `TRANSMISSION` must be
-  enabled only when the resolved lobe multiplier is greater than the material
-  epsilon. A parent feature with a zero multiplier must remain disabled even
-  when one of its texture-presence bits is set.
+- The material subsystem must resolve feature and texture flags directly from
+  authored fields. It must not construct or expose numeric feature masks,
+  texture masks, or bit assignments.
+- `resolvePBRMaterialFeatures` is an internal material-subsystem operation.
+  It must return named lobe flags, texture-presence flags, and effective
+  texture flags. Backends must consume these semantics and must not duplicate
+  the material activation rules.
+- Resolution must reflect direct factor, nested color, and texture mutations
+  without requiring a dirty flag or explicit update call. Published feature
+  snapshots must retain their values after later authoring mutations. The
+  resolver should reuse immutable snapshots when resolved semantics are unchanged.
+- Texture presence must report non-null references independently of whether
+  the parent lobe contributes. Effective texture flags must exclude maps whose
+  parent lobe is inactive.
+- Specular customization must be active when the clamped factor or color
+  differs from its neutral default by more than `0.000001`, or when a
+  non-annihilated specular texture can affect the result. Effective specular
+  maps require both the resolved factor and maximum color component to exceed
+  that epsilon. This flag must not represent the base PBR Fresnel lobe.
+- Clearcoat, sheen, iridescence, anisotropy, and transmission must be active
+  only when their clamped lobe multiplier exceeds `0.000001`.
+- Generic materials using PBR shading must use the same resolver and neutral
+  defaults as `PBRMaterial`. The legacy `specularColorFactor` alias may supply
+  the specular color when `specularColor` is absent.
+- Backends may encode resolved semantics in private shader flags. Such packing
+  must not establish a material-owned shader ABI.
 
 - `GLTFLoader.parseMaterials` must parse `KHR_materials_iridescence` and
   `KHR_materials_anisotropy` on PBR materials.
@@ -188,9 +185,9 @@ const texture = new Texture({
 - The WebGPU compact deferred payload must preserve `PhongMaterial.shininess`
   as an unclamped FP16 value. The same channel may store the normalized PBR
   specular factor only when the packed shading model is `PBR`.
-- WebGPU deferred material feature bits must be derived from resolved material
-  values. Missing feature bits must select the documented neutral defaults and
-  must not trigger extension texture loads.
+- WebGPU deferred material feature bits must be derived from
+  `resolvePBRMaterialFeatures` semantics. Missing feature bits must select the
+  documented neutral defaults and must not trigger extension texture loads.
 
 ### Depth writes
 

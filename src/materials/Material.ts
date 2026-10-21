@@ -122,15 +122,11 @@ export class Material {
 		}
 		const extended = this as Material & {
 			ior?: unknown;
-			featureMask?: unknown;
-			textureMask?: unknown;
 			shaderRevision?: unknown;
 			uniformValueRevision?: unknown;
 		};
 		for (const value of [
 			extended.ior,
-			extended.featureMask,
-			extended.textureMask,
 			extended.shaderRevision,
 			extended.uniformValueRevision,
 		]) mixRenderValue(state, value, 0);

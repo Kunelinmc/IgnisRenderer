@@ -138,6 +138,12 @@ feature runtimes consume them. Clustered lighting, probes, shadows, materials,
 and environment IBL retain separate state owners while sharing explicit scene
 and shader data contracts.
 
+The material subsystem resolves PBR lobe activation, authored texture presence,
+and effective texture use into named semantics. Backend snapshots consume that
+result. WebGL specializes programs from effective features; WebGPU packs its
+own shader flags. Material flags are derived directly from factors and texture
+references; numeric bit encodings belong to backend packing.
+
 Reflection probes own their derived caches. Frame transform synchronization
 and warmup preparation share the lighting runtime's cache refresh function;
 the renderer facade does not expose this subsystem operation.

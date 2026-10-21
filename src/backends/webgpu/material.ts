@@ -7,9 +7,9 @@ import {
 	AlphaMode,
 } from "../../materials/Material";
 import {
-	PBRMaterial,
-	PBRMaterialFeature,
-	PBRMaterialTextureFeature,
+	resolvePBRMaterialFeatures,
+	type PBRMaterialTexturePresence,
+	type ResolvedPBRMaterialFeatures,
 } from "../../materials/PBRMaterial";
 import {
 	isMaterialTransparentPass,
@@ -38,6 +38,53 @@ import type {
 	WebGPUTextureSlotData,
 	WebGPUWarning,
 } from "./types";
+
+// WebGPU-private ABI matching PBR_FEATURE_* in common/constants.wgsl.
+const PBR_LOBE_FLAGS = [
+	["specular", 1 << 4],
+	["clearcoat", 1 << 5],
+	["sheen", 1 << 6],
+	["iridescence", 1 << 7],
+	["anisotropy", 1 << 8],
+	["transmission", 1 << 9],
+] as const;
+
+// Texture-presence bits follow WebGPU texture slots, independently of material encoding.
+const PBR_TEXTURE_SLOTS: ReadonlyArray<readonly [keyof PBRMaterialTexturePresence, number]> = [
+	["baseColorMap", WEBGPU_TEXTURE_SLOT.BASE_COLOR],
+	["metallicRoughnessMap", WEBGPU_TEXTURE_SLOT.METALLIC_ROUGHNESS],
+	["normalMap", WEBGPU_TEXTURE_SLOT.NORMAL],
+	["emissiveMap", WEBGPU_TEXTURE_SLOT.EMISSIVE],
+	["occlusionMap", WEBGPU_TEXTURE_SLOT.OCCLUSION],
+	["specularMap", WEBGPU_TEXTURE_SLOT.SPECULAR],
+	["specularColorMap", WEBGPU_TEXTURE_SLOT.SPECULAR_COLOR],
+	["clearcoatMap", WEBGPU_TEXTURE_SLOT.CLEARCOAT],
+	["clearcoatRoughnessMap", WEBGPU_TEXTURE_SLOT.CLEARCOAT_ROUGHNESS],
+	["clearcoatNormalMap", WEBGPU_TEXTURE_SLOT.CLEARCOAT_NORMAL],
+	["sheenColorMap", WEBGPU_TEXTURE_SLOT.SHEEN_COLOR],
+	["sheenRoughnessMap", WEBGPU_TEXTURE_SLOT.SHEEN_ROUGHNESS],
+	["transmissionMap", WEBGPU_TEXTURE_SLOT.TRANSMISSION],
+	["thicknessMap", WEBGPU_TEXTURE_SLOT.THICKNESS],
+	["iridescenceMap", WEBGPU_TEXTURE_SLOT.IRIDESCENCE],
+	["iridescenceThicknessMap", WEBGPU_TEXTURE_SLOT.IRIDESCENCE_THICKNESS],
+	["anisotropyMap", WEBGPU_TEXTURE_SLOT.ANISOTROPY],
+];
+
+function packPBRShaderFlags(features: ResolvedPBRMaterialFeatures): Vec4Tuple {
+	const textures = features.textures;
+	let featureMask = (textures.baseColorMap ? 1 << 0 : 0) |
+		(textures.metallicRoughnessMap ? 1 << 1 : 0) |
+		(textures.normalMap ? 1 << 2 : 0) |
+		(textures.occlusionMap ? 1 << 3 : 0);
+	for (const [name, flag] of PBR_LOBE_FLAGS) {
+		if (features[name]) featureMask |= flag;
+	}
+	let textureMask = 0;
+	for (const [name, slot] of PBR_TEXTURE_SLOTS) {
+		if (textures[name]) textureMask |= 1 << slot;
+	}
+	return [featureMask >>> 0, textureMask >>> 0, 0, 0];
+}
 
 export function createWebGPUMaterialUniformData(
 	material: Material,
@@ -87,7 +134,7 @@ export function createWebGPUMaterialUniformData(
 		Number.isFinite(mat.anisotropyRotation) ? mat.anisotropyRotation : 0;
 
 	const specularColor = getPBRLinearColor(
-		mat.specularColor ?? { r: 255, g: 255, b: 255 }
+		mat.specularColor ?? mat.specularColorFactor ?? { r: 255, g: 255, b: 255 }
 	);
 	const sheenColor = getPBRLinearColor(
 		mat.sheenColorFactor ?? { r: 0, g: 0, b: 0 }
@@ -104,17 +151,8 @@ export function createWebGPUMaterialUniformData(
 	const phongShininess = Math.max(mat.shininess ?? 32, 0);
 	const emissiveIntensity = clamp(mat.emissiveIntensity ?? 1, 0, 64);
 	const textureSlots = createMaterialTextureSlots(material);
-	const pbrMasks: Vec4Tuple =
-		material instanceof PBRMaterial ?
-			[material.featureMask, material.textureMask, 0, 0]
-		: isPBR && material.map ?
-			[
-				PBRMaterialFeature.BASE_COLOR_MAP,
-				PBRMaterialTextureFeature.BASE_COLOR_MAP,
-				0,
-				0,
-			]
-		: [0, 0, 0, 0];
+	const pbrMasks: Vec4Tuple = isPBR ?
+		packPBRShaderFlags(resolvePBRMaterialFeatures(material)) : [0, 0, 0, 0];
 	const shaderUniforms = createShaderUniformData(material);
 
 	pushMaterialWarnings(material, warnings);
@@ -265,32 +303,11 @@ export function materialRequiresExtendedWebGPUGBuffer(
 	if (shadingFamily !== "pbr") {
 		return false;
 	}
-	const mat = material as any;
-	const specularColor = mat.specularColor ?? { r: 255, g: 255, b: 255 };
-	const sheenColor = mat.sheenColorFactor ?? { r: 0, g: 0, b: 0 };
-	return (
-		Math.abs((mat.clearcoat ?? 0)) > 1e-6 ||
-		!!mat.clearcoatMap ||
-		!!mat.clearcoatRoughnessMap ||
-		!!mat.clearcoatNormalMap ||
-		Math.abs(sheenColor.r) > 1e-6 ||
-		Math.abs(sheenColor.g) > 1e-6 ||
-		Math.abs(sheenColor.b) > 1e-6 ||
-		!!mat.sheenColorMap ||
-		!!mat.sheenRoughnessMap ||
-		Math.abs((mat.iridescenceFactor ?? 0)) > 1e-6 ||
-		!!mat.iridescenceMap ||
-		!!mat.iridescenceThicknessMap ||
-		Math.abs((mat.anisotropyStrength ?? 0)) > 1e-6 ||
-		!!mat.anisotropyMap ||
-		Math.abs((mat.specularFactor ?? 1) - 1) > 1e-6 ||
-		Math.abs(specularColor.r - 255) > 1e-6 ||
-		Math.abs(specularColor.g - 255) > 1e-6 ||
-		Math.abs(specularColor.b - 255) > 1e-6 ||
-		!!mat.specularMap ||
-		!!mat.specularColorMap ||
-		Math.abs((mat.reflectance ?? 0.5) - 0.5) > 1e-6
-	);
+	const features = resolvePBRMaterialFeatures(material);
+	const reflectance = (material as Material & { reflectance?: number }).reflectance ?? 0.5;
+	// The compact G-buffer assumes neutral reflectance; layout selection stays backend-owned.
+	return features.clearcoat || features.sheen || features.iridescence ||
+		features.anisotropy || features.specular || Math.abs(reflectance - 0.5) > 1e-6;
 }
 
 function createMaterialTextureSlots(

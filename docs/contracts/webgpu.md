@@ -464,8 +464,8 @@ lighting, presentation configuration, reflections, and structured buffer packing
 - Scene color, G-buffer, and reflection draws must use the model bind-group and
   pipeline layouts of their shading family. Their pipeline, shader-module,
   warmup, and binding cache identity must include the resolved shading family.
-  Public PBR feature and texture masks must remain runtime uniform data and
-  must not enter pipeline identity.
+  WebGPU-private PBR feature and texture flags must remain runtime uniform
+  data and must not enter pipeline identity.
 - Built-in Early-Z draws must use one family-independent pipeline layout with
   camera bindings in group `0`, object and current-position deformation
   bindings in group `1`, and alpha-mask material bindings in group `2`.
@@ -646,12 +646,14 @@ lighting, presentation configuration, reflections, and structured buffer packing
 	  three-dimensional workgroup id so large valid frame grids do not exceed
 	  `maxComputeWorkgroupsPerDimension` in a single dimension.
 - G-buffer contract:
-	- Built-in `PBRMaterial` draws must upload the public feature and texture
-	  masks in a draw-uniform `pbrMasks` field. These masks must not participate
-	  in shader-module or render-pipeline cache keys.
+	- Built-in PBR draws, including generic materials using PBR shading, must
+	  upload WebGPU-private feature and texture flags in a draw-uniform
+	  `pbrMasks` field. WebGPU must construct these flags from
+	  `resolvePBRMaterialFeatures` semantics. They must not participate in
+	  shader-module or render-pipeline cache keys.
 	- Built-in WGSL asset composition and directive-profile inputs must be
 	  declared by the WebGPU shader manifest. The shared manifest mechanism must
-	  not turn material masks into source specializations.
+	  not turn material feature flags into source specializations.
 	- Built-in PBR shaders must use uniform `if` control flow to sample a material
 	  texture only when its texture-presence bit is set. Extension texture samples
 	  must additionally require an active parent feature; `select` must not be
@@ -987,6 +989,15 @@ before temporal advancement or GPU writes. `TemporalFrameState` must remain
 the history owner; aborted frames and secondary captures must not advance
 main-view history.
 Post-process enablement must remain owned by the post-process runtime.
+
+PBR material packing must consume the named semantics returned by
+`resolvePBRMaterialFeatures`. `pbrMasks` and the matching WGSL constants are
+private WebGPU shader ABI encodings; they must be constructed by WebGPU from
+those semantics and must not depend on material-owned bit assignments.
+Generic PBR materials must use the same semantic resolution as `PBRMaterial`.
+Extended G-buffer selection must use resolved lobe activation; an inactive
+extension texture alone must not require the extended layout. Non-default
+reflectance must continue to require the extended layout.
 
 Scene material packing must use these `group(1)` uniform bindings:
 
