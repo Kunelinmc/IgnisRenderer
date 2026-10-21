@@ -10,8 +10,9 @@ selection, and constructive solid geometry behavior.
 - `GeometryFace` and its `MeshFace` alias must use `material` for surface color
   and double-sidedness. Separate face-level `color` and `doubleSided` overrides
   are not supported.
-- Per-vertex `color` must remain a geometry attribute and must be preserved by
-  `GeometryBuilder.buildPrimitivesFromFaces` and `MeshAsset.fromFaces`.
+- `IVertex` and `IPrimitiveGeometry` must not expose vertex colors.
+  `GeometryBuilder.buildPrimitivesFromFaces` and `MeshAsset.fromFaces` must
+  ignore per-vertex color input.
 
 ### Mesh morph weights
 
@@ -196,7 +197,7 @@ must fail with diagnostics.
 - CSG inputs must be closed manifold meshes; non-closed inputs must fail with
 diagnostics.
 - CSG must preserve `position`, `normal`, and `uv0`.
-- CSG may drop `uv1`, `uv2`, `uv3`, vertex colors, skinning, and morph data;
+- CSG may drop `uv1`, `uv2`, `uv3`, skinning, and morph data;
   when dropped, the implementation should emit diagnostics.
 - Output triangles must be capped by `maxOutputTriangles` (default `200000`).
 - Solver preference `auto` must prefer registered wasm solver and must fall back

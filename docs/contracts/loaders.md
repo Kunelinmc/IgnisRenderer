@@ -72,6 +72,9 @@ The loader must construct and clone textures with appropriate color spaces:
 
 #### Primitive Topology & Modes
 
+Vertex colors (`COLOR_0`) are unsupported and must not be decoded or stored in
+primitive geometry.
+
 The loader must parse glTF primitive modes and convert them to IgnisRenderer `PrimitiveDrawTopology` ("point-list", "line-list", or "triangle-list") as follows:
 - Mode `0` (`POINTS`) must yield `"point-list"`.
 - Mode `1` (`LINES`), `2` (`LINE_LOOP`), and `3` (`LINE_STRIP`) must yield `"line-list"`.

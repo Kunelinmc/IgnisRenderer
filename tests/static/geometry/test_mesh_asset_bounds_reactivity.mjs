@@ -19,6 +19,45 @@ function createTrianglePrimitive(offsetX = 0, size = 1) {
 	])[0];
 }
 
+function testFaceConstructionIgnoresVertexColors() {
+	const material = new Material();
+	const vertices = [
+		{ x: 0, y: 0, z: 0, u: 0, v: 0, normal: { x: 0, y: 0, z: 1 } },
+		{ x: 1, y: 0, z: 0, u: 1, v: 0, normal: { x: 0, y: 0, z: 1 } },
+		{ x: 0, y: 1, z: 0, u: 0, v: 1, normal: { x: 0, y: 0, z: 1 } },
+	];
+	const expected = MeshAsset.fromFaces([{ material, vertices }]);
+	const actual = MeshAsset.fromFaces([{
+		material,
+		vertices: vertices.map((vertex, index) => ({
+			...vertex,
+			color: { r: index * 100, g: 255, b: 0, a: 0.5 },
+		})),
+	}]);
+
+	assert.deepEqual(actual.primitives[0].geometry, expected.primitives[0].geometry);
+	assert.equal(actual.primitives[0].material, material);
+	assert.deepEqual(actual.boundingBox, expected.boundingBox);
+	assert.deepEqual(actual.boundingSphere, expected.boundingSphere);
+}
+
+function testTriangleExtractionIgnoresVertexColors() {
+	const geometry = createTrianglePrimitive().geometry;
+	const expected = GeometryBuilder.createVerticesForTriangle(geometry, 0);
+	const legacyGeometry = {
+		...geometry,
+		colors: new Float32Array([1, 0, 0, 0.25, 0, 1, 0, 0.5, 0, 0, 1, 0.75]),
+	};
+	assert.deepEqual(
+		GeometryBuilder.createVerticesForTriangle(legacyGeometry, 0),
+		expected
+	);
+	assert.deepEqual(
+		GeometryBuilder.createVerticesForTriangle(geometry, 0, legacyGeometry),
+		expected
+	);
+}
+
 function testArrayMutationRefreshesMeshBounds() {
 	const mesh = new MeshAsset([createTrianglePrimitive(0, 1)]);
 	assert.equal(mesh.boundingBox.max.x, 1);
@@ -211,6 +250,8 @@ function testAffineWorldBoundsMatchCornerReference() {
 }
 
 function run() {
+	testFaceConstructionIgnoresVertexColors();
+	testTriangleExtractionIgnoresVertexColors();
 	testArrayMutationRefreshesMeshBounds();
 	testPrimitiveReplacementRefreshesMeshBounds();
 	testConstructorCopiesPrimitiveArray();

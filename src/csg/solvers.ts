@@ -921,7 +921,6 @@ function hasDroppedAttributes(
 		(geometry.uv1?.length ?? 0) > 0 ||
 		(geometry.uv2?.length ?? 0) > 0 ||
 		(geometry.uv3?.length ?? 0) > 0 ||
-		(geometry.colors?.length ?? 0) > 0 ||
 		(geometry.joints0?.length ?? 0) > 0 ||
 		(geometry.weights0?.length ?? 0) > 0 ||
 		(geometry.joints1?.length ?? 0) > 0 ||

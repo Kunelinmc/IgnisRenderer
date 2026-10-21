@@ -1187,10 +1187,6 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 			attrs.TEXCOORD_3 !== undefined ?
 				toFloat32Array(this.getAccessorData(json, buffers, attrs.TEXCOORD_3))
 			:	null;
-		const colors =
-			attrs.COLOR_0 !== undefined ?
-				toFloat32Array(this.getAccessorData(json, buffers, attrs.COLOR_0))
-			:	null;
 		const joints0 =
 			attrs.JOINTS_0 !== undefined ?
 				toJointArray(this.getAccessorData(json, buffers, attrs.JOINTS_0))
@@ -1230,7 +1226,6 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 			uv1,
 			uv2,
 			uv3,
-			colors,
 			joints0,
 			weights0,
 			joints1,
@@ -2091,11 +2086,6 @@ function generateFlatTriangleNormals(
 		),
 		uv3: expandFloatVertexAttribute(
 			geometry.uv3,
-			sourceVertexCount,
-			indices
-		),
-		colors: expandFloatVertexAttribute(
-			geometry.colors,
 			sourceVertexCount,
 			indices
 		),

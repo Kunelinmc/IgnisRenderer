@@ -121,7 +121,6 @@ export class Projector {
 					v4: vertex.v4,
 					normal: worldNormal,
 					tangent: worldTangent,
-					color: vertex.color,
 				};
 				worldVerts.push(worldVertex);
 				previousWorldVerts.push({
@@ -138,7 +137,6 @@ export class Projector {
 					v4: vertex.v4,
 					normal: worldNormal,
 					tangent: worldTangent,
-					color: vertex.color,
 				});
 
 				const viewPoint = Matrix4.transformPoint(viewMatrix, worldVertex);
@@ -156,7 +154,6 @@ export class Projector {
 					v4: vertex.v4,
 					normal: worldNormal,
 					tangent: worldTangent,
-					color: vertex.color,
 				});
 			}
 
@@ -498,7 +495,6 @@ function interpolateVertex(
 		v4: interpolateNumber(from.v4, to.v4, t),
 		normal: interpolateNormal(from.normal, to.normal, t),
 		tangent: interpolateTangent(from.tangent, to.tangent, t),
-		color: from.color ?? to.color,
 	};
 }
 

@@ -1,6 +1,5 @@
 import type { Vec4Tuple } from "../maths/Vector4";
 import type { IVector3, IVector4 } from "../maths/types";
-import type { RGBA } from "../foundation/Color";
 import type { Material } from "../materials/Material";
 
 export type PrimitiveDrawTopology =
@@ -22,7 +21,6 @@ export interface IVertex extends IVector3 {
 	v4?: number;
 	normal?: IVector3 | null;
 	tangent?: IVector4 | null;
-	color?: RGBA;
 	joints0?: Vec4Tuple;
 	weights0?: Vec4Tuple;
 	joints1?: Vec4Tuple;
@@ -43,7 +41,6 @@ export interface IPrimitiveGeometry {
 	uv1?: Float32Array | null;
 	uv2?: Float32Array | null;
 	uv3?: Float32Array | null;
-	colors?: Float32Array | null;
 	joints0?: Uint16Array | Uint32Array | null;
 	weights0?: Float32Array | null;
 	joints1?: Uint16Array | Uint32Array | null;

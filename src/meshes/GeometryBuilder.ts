@@ -198,7 +198,6 @@ export class GeometryBuilder {
 		const uv1: number[] = [];
 		const uv2: number[] = [];
 		const uv3: number[] = [];
-		const colors: number[] = [];
 		const indices: number[] = [];
 
 		let hasNormals = false;
@@ -207,7 +206,6 @@ export class GeometryBuilder {
 		let hasUv1 = false;
 		let hasUv2 = false;
 		let hasUv3 = false;
-		let hasColors = false;
 		let vertexIndex = 0;
 
 		for (const face of group.faces) {
@@ -262,18 +260,6 @@ export class GeometryBuilder {
 					}
 					uv3.push(vertex.u4 ?? 0, vertex.v4 ?? 0);
 
-					if (vertex.color) {
-						hasColors = true;
-						colors.push(
-							vertex.color.r / 255,
-							vertex.color.g / 255,
-							vertex.color.b / 255,
-							vertex.color.a ?? 1
-						);
-					} else {
-						colors.push(1, 1, 1, 1);
-					}
-
 					indices.push(vertexIndex++);
 				}
 			}
@@ -288,7 +274,6 @@ export class GeometryBuilder {
 			uv1: hasUv1 ? new Float32Array(uv1) : null,
 			uv2: hasUv2 ? new Float32Array(uv2) : null,
 			uv3: hasUv3 ? new Float32Array(uv3) : null,
-			colors: hasColors ? new Float32Array(colors) : null,
 		};
 
 		const boundingBox = this.computeBoundingBox(geometry);
@@ -422,7 +407,6 @@ export class GeometryBuilder {
 		const positionOffset = index * 3;
 		const uvOffset = index * 2;
 		const tangentOffset = index * 4;
-		const colorOffset = index * 4;
 
 		const vertex: IVertex = {
 			x: geometry.positions[positionOffset],
@@ -465,15 +449,6 @@ export class GeometryBuilder {
 		if (geometry.uv3) {
 			vertex.u4 = geometry.uv3[uvOffset];
 			vertex.v4 = geometry.uv3[uvOffset + 1];
-		}
-
-		if (geometry.colors) {
-			vertex.color = {
-				r: Math.round(geometry.colors[colorOffset] * 255),
-				g: Math.round(geometry.colors[colorOffset + 1] * 255),
-				b: Math.round(geometry.colors[colorOffset + 2] * 255),
-				a: geometry.colors[colorOffset + 3],
-			};
 		}
 
 		if (geometry.joints0) {
@@ -533,7 +508,6 @@ function mergeGeometry(
 		uv1: override.uv1 ?? base.uv1,
 		uv2: override.uv2 ?? base.uv2,
 		uv3: override.uv3 ?? base.uv3,
-		colors: override.colors ?? base.colors,
 		joints0: override.joints0 ?? base.joints0,
 		weights0: override.weights0 ?? base.weights0,
 		joints1: override.joints1 ?? base.joints1,

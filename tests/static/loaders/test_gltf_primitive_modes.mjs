@@ -237,6 +237,45 @@ function testMissingNormalsGenerateIndependentFlatFaces() {
 	]);
 }
 
+function testVertexColorsAreIgnored() {
+	for (const source of [
+		buildPrimitiveSource([0, 1, 2, 2, 3, 0]),
+		buildMissingNormalSource(),
+	]) {
+		const loader = new GLTFLoader();
+		const expected = loader.parsePrimitive(
+			source.json, source.primitive, source.buffers, []
+		);
+		const colors = new Float32Array([
+			1, 0, 0, 0.25,
+			0, 1, 0, 0.5,
+			0, 0, 1, 0.75,
+			1, 1, 1, 1,
+		]);
+		source.primitive.attributes.COLOR_0 = source.json.accessors.length;
+		source.json.accessors.push({
+			bufferView: source.json.bufferViews.length,
+			componentType: COMPONENT_TYPE_FLOAT,
+			count: 4,
+			type: "VEC4",
+		});
+		source.json.bufferViews.push({
+			buffer: source.buffers.length,
+			byteOffset: 0,
+			byteLength: colors.byteLength,
+		});
+		source.buffers.push(new Uint8Array(colors.buffer));
+		const actual = loader.parsePrimitive(
+			source.json, source.primitive, source.buffers, []
+		);
+		assert.ok(actual);
+		assert.ok(expected);
+		assert.deepEqual(actual.geometry, expected.geometry);
+		assert.deepEqual(actual.boundingBox, expected.boundingBox);
+		assert.deepEqual(actual.boundingSphere, expected.boundingSphere);
+	}
+}
+
 function testUnsupportedModeThrows() {
 	const loader = new GLTFLoader();
 	const source = buildPrimitiveSource([0, 1, 2]);
@@ -265,6 +304,7 @@ function run() {
 		testTriangleFan();
 		testDefaultModeIsTriangles();
 		testMissingNormalsGenerateIndependentFlatFaces();
+		testVertexColorsAreIgnored();
 		testUnsupportedModeThrows();
 		console.log("glTF primitive mode tests passed");
 	} catch (error) {

@@ -37,6 +37,14 @@ Use `getSelection()` for the primary node, `getSelectedNodes()` for the full
 selection, and `InteractionState` for outlines, drag rectangles, and gizmo UI.
 See the [interaction guide](../public/interaction.md).
 
+## Mesh Vertex Colors
+
+Remove `IVertex.color` and `IPrimitiveGeometry.colors` from authored geometry.
+`MeshAsset.fromFaces()` ignores per-vertex color input, and `GLTFLoader` ignores
+`COLOR_0`. Use material colors or textures for surface color.
+See the [geometry contract](../contracts/geometry.md) and
+[loader contract](../contracts/loaders.md).
+
 ## Mesh Morph Weights
 
 `MeshAsset.defaultMorphWeights` and the second `MeshAsset` constructor argument
