@@ -29,10 +29,6 @@ export class WebGPUFrameFeatureDataStore {
 	public get<TValue>(key: WebGPUFrameFeatureKey<TValue>): TValue | undefined {
 		return this._values.get(key.id) as TValue | undefined;
 	}
-
-	public has<TValue>(key: WebGPUFrameFeatureKey<TValue>): boolean {
-		return this._values.has(key.id);
-	}
 }
 
 export interface WebGPUFrameFeatureContext {

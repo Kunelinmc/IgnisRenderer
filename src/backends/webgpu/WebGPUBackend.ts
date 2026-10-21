@@ -637,7 +637,7 @@ export class WebGPUBackend implements IRenderBackend {
 		});
 		this._frameOrchestrator = new WebGPUFrameOrchestrator(
 			this._frameHost,
-			this._resources.createFrameScope("main"),
+			this._resources.createFrameScope(),
 			this._sampleCountResolver,
 			this._requestedSampleCount,
 			this._frameRuntime.modules,

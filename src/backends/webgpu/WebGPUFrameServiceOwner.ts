@@ -70,7 +70,6 @@ import type {
 	WebGPUEnvironmentDrawResources,
 	WebGPUEnvironmentResourceOptions,
 	WebGPUFrameResourceScope as WebGPUFrameResourceScopeContract,
-	WebGPUFrameScopeRole,
 	WebGPUFrameScopePrepareOptions,
 	WebGPUParticleBillboardRenderer,
 	WebGPUPreparedFrameResources as WebGPUPreparedFrameResourcesContract,
@@ -86,7 +85,6 @@ import {
 
 interface WebGPUFrameServicePrepareOptions extends WebGPUFrameScopePrepareOptions {
 	readonly scopeKey: string;
-	readonly scopeRole: WebGPUFrameScopeRole;
 }
 
 export interface WebGPUFrameServiceWarmupRuntimeOptions {
@@ -112,7 +110,6 @@ class WebGPUFrameResourceScopeHandle implements WebGPUFrameResourceScopeContract
 	constructor(
 		private readonly _owner: WebGPUFrameServiceOwner,
 		private readonly _scopeKey: string,
-		private readonly _scopeRole: WebGPUFrameScopeRole,
 	) {}
 
 	public prepare(
@@ -125,7 +122,6 @@ class WebGPUFrameResourceScopeHandle implements WebGPUFrameResourceScopeContract
 		this._prepared = this._owner.prepareFrame(context, {
 			...options,
 			scopeKey: this._scopeKey,
-			scopeRole: this._scopeRole,
 		});
 		return this._prepared;
 	}
@@ -243,9 +239,7 @@ export class WebGPUFrameServiceOwner {
 	}
 
 	/** @internal Creates an isolated frame-binding ownership scope. */
-	public createFrameScope(
-		role: WebGPUFrameScopeRole = "auxiliary",
-	): WebGPUFrameResourceScopeContract {
+	public createFrameScope(): WebGPUFrameResourceScopeContract {
 		if (this._destroyed) {
 			throw new Error("WebGPU frame service owner has been destroyed.");
 		}
@@ -253,7 +247,6 @@ export class WebGPUFrameServiceOwner {
 		return new WebGPUFrameResourceScopeHandle(
 			this,
 			`frame-scope-${this._nextFrameScopeId}`,
-			role,
 		);
 	}
 
@@ -740,11 +733,6 @@ export class WebGPUFrameServiceOwner {
 		}
 	}
 
-	/** @internal Owned by the WebGPU deferred frame runtime. */
-	public invalidateDeferredRuntimeResources(): void {
-		this._deferredResources.onShaderRuntimeChanged();
-	}
-
 	/** @internal Owned by the WebGPU shadow frame runtime. */
 	public onShadowRuntimeShaderChanged(): void {
 		if (this._shadowRuntimeDestroyed) {
@@ -862,7 +850,6 @@ export class WebGPUFrameServiceOwner {
 		}
 		return {
 			scopeKey: options.scopeKey,
-			scopeRole: options.scopeRole,
 			sceneTargetMode: options.sceneTargetMode,
 			framePackets: options.framePackets ?? createBaselineFramePacketSet(context),
 			temporalStateMode: options?.temporalStateMode,

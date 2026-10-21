@@ -224,12 +224,9 @@ export interface WebGPUFrameResourceScope {
 	destroy(): void;
 }
 
-/** @internal Controls which scoped bindings may expose main-view experiments. */
-export type WebGPUFrameScopeRole = "main" | "auxiliary";
-
 /** @internal Frame preparation and scoped binding ownership. */
 export interface WebGPUFrameResourceProvider {
-	createFrameScope(role?: WebGPUFrameScopeRole): WebGPUFrameResourceScope;
+	createFrameScope(): WebGPUFrameResourceScope;
 }
 
 /** @internal Scene pipeline, environment, and clustered-lighting capability. */
