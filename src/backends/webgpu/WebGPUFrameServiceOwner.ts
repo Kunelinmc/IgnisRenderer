@@ -557,6 +557,7 @@ export class WebGPUFrameServiceOwner {
 			sceneTargetMode: resolvedOptions.sceneTargetMode,
 			staticBatchingStats: this._staticBatchingStats,
 			frameBinding: scope.frameBindings.getSceneBinding(),
+			particleFrameBinding: scope.frameBindings.getParticleFrameBinding(),
 			depthFrameBinding: scope.frameBindings.getDepthFrameBinding(),
 			decalFrameBinding: scope.frameBindings.getDecalFrameBinding(),
 			environmentBinding: scope.frameBindings.getEnvironmentBinding(),

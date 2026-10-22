@@ -287,7 +287,7 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 					pass,
 					"transparent-forward",
 					"WebGPUTransparentForward",
-					this._createForwardGraphResources(state, true),
+					withShadowReads(this._createForwardGraphResources(state)),
 				));
 			}
 			if (hasTransmissionPackets) {
@@ -323,7 +323,7 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 					pass,
 					"particle-alpha-forward",
 					"WebGPUParticlesAlpha",
-					this._createForwardGraphResources(state, true),
+					this._createForwardGraphResources(state),
 				));
 			}
 			if (hasAdditiveParticles) {
@@ -331,7 +331,7 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 					pass,
 					"particle-additive",
 					"WebGPUParticlesAdditive",
-					this._createForwardGraphResources(state, true),
+					this._createForwardGraphResources(state),
 				));
 			}
 			return nodes;
@@ -352,7 +352,7 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 				pass,
 				"particle-additive",
 				"WebGPUParticlesAdditive",
-				this._createForwardGraphResources(state, true),
+				this._createForwardGraphResources(state),
 			));
 		}
 		return nodes;
@@ -385,7 +385,7 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 			pass,
 			"oit-mesh-accumulate",
 			"WebGPUOITMeshAccumulate",
-			this._createOITAccumulateResources(),
+			withShadowReads(this._createOITAccumulateResources()),
 		);
 	}
 
@@ -402,12 +402,6 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 		return {
 			reads: [
 				readWebGPUFrameGraphResource("frame:depth", "depth-attachment"),
-				readWebGPUFrameGraphResource("shadow-atlas", "texture-binding", true),
-				readWebGPUFrameGraphResource(
-					"shadow-transmittance-atlas",
-					"texture-binding",
-					true,
-				),
 			],
 			writes: [
 				writeWebGPUFrameGraphResource("oit:accum", "render-attachment"),
@@ -439,7 +433,7 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 			"transmission",
 			"WebGPUTransmission",
 			this._withTransmissionCaptureResources(
-				this._createForwardGraphResources(state, true),
+				withShadowReads(this._createForwardGraphResources(state)),
 				state,
 			),
 		);
@@ -493,7 +487,6 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 
 	private _createForwardGraphResources(
 		state: WebGPUFrameResourceAllocationSnapshot & WebGPUTransparencyPlanningState,
-		loadExistingColor: boolean,
 	): Pick<WebGPUFrameGraphNode, "reads" | "writes"> {
 		const useCanvas = state.sceneTargetMode === "single" || !state.hasFrameTargets;
 		const color = useCanvas
@@ -502,20 +495,11 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 		const depth = useCanvas
 			? WEBGPU_FRAME_GRAPH_RESOURCES.canvasDepth
 			: WEBGPU_FRAME_GRAPH_RESOURCES.frameDepth;
-		const reads = [
-			readWebGPUFrameGraphResource("shadow-atlas", "texture-binding", true),
-			readWebGPUFrameGraphResource(
-				"shadow-transmittance-atlas",
-				"texture-binding",
-				true,
-			),
-		];
-		if (loadExistingColor) {
-			reads.push(readWebGPUFrameGraphResource(color, "render-attachment", true));
-			reads.push(readWebGPUFrameGraphResource(depth, "depth-attachment", true));
-		}
 		return {
-			reads,
+			reads: [
+				readWebGPUFrameGraphResource(color, "render-attachment", true),
+				readWebGPUFrameGraphResource(depth, "depth-attachment", true),
+			],
 			writes: [
 				writeWebGPUFrameGraphResource(color, "render-attachment"),
 				writeWebGPUFrameGraphResource(depth, "depth-attachment"),
@@ -834,4 +818,17 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 		const destroy = (resource as { destroy?: () => void } | null)?.destroy;
 		if (typeof destroy === "function") destroy.call(resource);
 	}
+}
+
+function withShadowReads(
+	resources: Pick<WebGPUFrameGraphNode, "reads" | "writes">,
+): Pick<WebGPUFrameGraphNode, "reads" | "writes"> {
+	return {
+		reads: [
+			...(resources.reads ?? []),
+			readWebGPUFrameGraphResource("shadow-atlas", "texture-binding", true),
+			readWebGPUFrameGraphResource("shadow-transmittance-atlas", "texture-binding", true),
+		],
+		writes: resources.writes,
+	};
 }

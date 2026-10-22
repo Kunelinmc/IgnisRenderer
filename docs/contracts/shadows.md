@@ -48,6 +48,10 @@ resolution degradation from immutable definition snapshots, light state,
 camera state, caster bounds, and backend identity. A plan must not change after
 it is published.
 
+`ShadowCasterIntent` must contain only prepared `meshSubmissions`. Transparent
+caster presence must be supplied through
+`ShadowPlannerOptions.hasTransmissionCasters`, without a duplicate intent flag.
+
 `RenderBackendProfile` must not expose shadow-planning capability metadata.
 `ShadowPlanner` must own the fixed policies for built-in backend identifiers.
 Unknown backend identifiers must use the planner's fixed cross-backend policy;
@@ -86,10 +90,10 @@ temporary bounds reduction does not immediately resize the projection.
 
 Backends consume `ShadowFramePlan` plus prepared caster and transmitter
 `DrawSubmission` collections. `PreparedSceneState.shadowCasterSubmissions` and
-`PreparedSceneState.shadowTransmitterSubmissions` provide baseline mesh work;
-late particle work may contribute additional submissions through the frame's
-`ShadowWorkSet`. Shadow runtimes must not depend on main-camera `DrawPacket`
-sorting state. Backends own their mutable atlas slots, textures, framebuffers,
+`PreparedSceneState.shadowTransmitterSubmissions` provide mesh work.
+Particle work must not contribute shadow submissions. Shadow runtimes must not
+depend on main-camera `DrawPacket` sorting state. Backends own their mutable
+atlas slots, textures, framebuffers,
 and binding caches. Native allocation failure may make sampling fully lit for
 that frame but must not mutate the shared plan.
 
@@ -106,8 +110,9 @@ than backend-specific approximations.
 
 WebGPU directional and spot visibility queries must return fully lit before
 cascade selection or projection-data reads when frame or light shadow sampling
-is disabled. Shared sampling helpers must read shadow fields by light and slice
-index rather than passing the complete `ShadowData` value, including its cascade
+is disabled.
+Fragment sampling helpers must read shadow fields by light and slice index
+rather than passing the complete `ShadowData` value, including its cascade
 arrays, through fragment-stage calls. This fast path must preserve enabled
 PCF/PCSS filtering, cascade blending, and transmittance sampling.
 

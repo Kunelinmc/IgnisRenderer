@@ -39,7 +39,6 @@ export function createRenderViewTransient(
 			systemId: batch.systemId,
 			blendMode: batch.blendMode,
 			texture: batch.texture,
-			receiveShadows: batch.receiveShadows,
 			particles,
 		});
 	}

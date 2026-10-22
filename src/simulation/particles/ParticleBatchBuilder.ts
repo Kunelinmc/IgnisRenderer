@@ -143,7 +143,6 @@ export class ParticleBatchBuilder {
 			templateId: system.templates[0]?.id,
 			blendMode: ParticleBlendMode.Alpha,
 			texture: null,
-			receiveShadows: true,
 			particles: [],
 		};
 	}
@@ -183,7 +182,6 @@ export class ParticleBatchBuilder {
 			templateId: template.id,
 			blendMode,
 			texture: shape?.texture ?? null,
-			receiveShadows: template.receiveShadows ?? true,
 			particles: [],
 		};
 		batches.set(templateIndex, batch);
@@ -212,10 +210,6 @@ export class ParticleBatchBuilder {
 					mesh,
 					primitive,
 					material: primitive.material,
-					receiveShadows: template.receiveShadows ?? true,
-					castShadows:
-						(template.castShadows ?? true) &&
-						primitive.castShadows !== false,
 					particles: [],
 				};
 				batches.set(key, batch);

@@ -35,7 +35,6 @@ export interface ParticleRenderBatch {
 	templateId?: string;
 	blendMode: ParticleBlendMode;
 	texture: Texture | null;
-	receiveShadows: boolean;
 	particles: ParticleRenderItem[];
 }
 
@@ -59,7 +58,5 @@ export interface ParticleMeshRenderBatch {
 	mesh: MeshAsset;
 	primitive: IPrimitive;
 	material: Material;
-	receiveShadows: boolean;
-	castShadows: boolean;
 	particles: ParticleMeshRenderItem[];
 }

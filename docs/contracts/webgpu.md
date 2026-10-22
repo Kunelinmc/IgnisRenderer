@@ -181,7 +181,9 @@ lighting, presentation configuration, reflections, and structured buffer packing
 - `WebGPUFrameServiceOwner` must own particle-render resources through a
 	delegated `WebGPUParticleRenderResources` service. The service must own only
 	billboard pipelines, buffers, bindings, and pass recording; frame scopes
-	retain shadow-transmittance binding ownership.
+	retain camera and fog binding ownership. Billboard particle passes must not
+  bind shadow textures, comparison samplers, or shadow uniforms.
+  Billboard particle frame-graph nodes must not declare shadow-resource reads.
 - `WebGPUParticleRenderResources` must select particle pipeline sample counts
 	from the concrete particle pass-target descriptor. It must not depend on the
 	backend MSAA controller or backend-wide MSAA state.
@@ -244,6 +246,9 @@ lighting, presentation configuration, reflections, and structured buffer packing
   clear, mesh accumulation, particle accumulation, resolve, transmission, and
   additive particle work. The OIT scene-color copy must occur in the prepare
   node before any accumulation node.
+- Shared transparency attachment builders must declare only attachment reads
+  and writes. Mesh and transmission paths must explicitly add shadow-resource
+  reads; billboard particle paths must use the attachment declarations directly.
 - `WebGPUTransparencyRuntime` owns transparency graph planning and node
 	execution together with the OIT resolve shader, pipeline, sampler, and binding
 	lifecycle. It must not delegate planning to a separate transparency planner.

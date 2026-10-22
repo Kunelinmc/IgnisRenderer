@@ -1069,7 +1069,6 @@ function testPostProcessShaderConstantsMatchCPUContract() {
 function testShadowSamplingRotationIsSpatiallyStable() {
 	const shadowSources = [
 		embeddedShaderSources["./webgpu/common/utils.wgsl"],
-		embeddedShaderSources["./webgpu/particles/render.wgsl"],
 		embeddedShaderSources["./webgl/scene/fragmentShadows.glsl"],
 	];
 	for (const source of shadowSources) {

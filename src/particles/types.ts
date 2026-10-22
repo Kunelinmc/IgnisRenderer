@@ -70,8 +70,6 @@ export interface ParticleTemplate {
 	sizeOverLifetime?: ParticleCurve;
 	colorOverLifetime?: ParticleColorGradient;
 	shape: ParticleRenderShape;
-	receiveShadows?: boolean;
-	castShadows?: boolean;
 }
 
 interface ParticleColliderBase {

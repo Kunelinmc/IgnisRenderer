@@ -26,8 +26,8 @@ Shadow authoring definitions and persistent light bindings belong to
 `Scene.shadows`. `ShadowPlanner` resolves them once into an immutable
 `ShadowFramePlan` before backend execution. Backend shadow runtimes own physical
 atlas resources and publish backend-private sampling state; they do not rewrite
-the shared plan. Current particle work may attach after simulation as a late
-`ShadowWorkSet` without changing the plan's resource topology.
+the shared plan. Particle work does not contribute shadow casters or receivers;
+shadow planning consumes prepared non-particle mesh submissions.
 Shadow enablement is definition-owned: `ShadowMapBase.enabled` is observed by
 `ShadowManager`, and no renderer feature flag independently gates the shadow
 pipeline.

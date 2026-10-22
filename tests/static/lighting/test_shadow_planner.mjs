@@ -35,8 +35,6 @@ function createIntent(hasCasters = true) {
 		meshSubmissions: hasCasters ? [createTestDrawPacket({
 			worldBounds: { center: { x: 0, y: 0, z: 0 }, radius: 10 },
 		}).submission] : [],
-		hasTransparentCasters: false,
-		hasParticleCasters: false,
 	};
 }
 
@@ -50,7 +48,7 @@ function planScene(scene, options = {}) {
 		camera,
 		sceneBounds: { center: { x: 0, y: 0, z: 0 }, radius: 80 },
 		casterIntent: options.intent ?? createIntent(),
-		hasTransmissionCasters: false,
+		hasTransmissionCasters: options.hasTransmissionCasters ?? false,
 	}, plannerState);
 }
 
@@ -98,6 +96,13 @@ function testRasterWorkIsCasterGated() {
 	const noCasters = planScene(scene, { intent: createIntent(false) });
 	assert.equal(noCasters.hasRasterWork, false);
 	assert.equal(noCasters.lights.length, 1);
+
+	const transmissionOnly = planScene(scene, {
+		intent: createIntent(false),
+		hasTransmissionCasters: true,
+	});
+	assert.equal(transmissionOnly.hasRasterWork, true);
+	assert.equal(transmissionOnly.hasTransmissionWork, true);
 }
 
 function testAtlasPCSSSupportAndUnknownFallback() {

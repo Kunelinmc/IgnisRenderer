@@ -1,6 +1,6 @@
 # Particles Contract
 
-This document defines particle templates, mesh-particle rendering, simulation integration, and particle shadow behavior.
+This document defines particle templates, mesh-particle rendering, and simulation integration.
 
 ## Contract
 
@@ -12,8 +12,8 @@ This document defines particle templates, mesh-particle rendering, simulation in
   particle template configuration. When omitted or empty, the system must
   create one default billboard template.
 - `ParticleEmitterParams` must contain only emission scheduling and spatial
-  fields. Lifetime, speed, size, color, rotation, render shape, and shadow
-  configuration must belong to `ParticleTemplate`.
+  fields. Lifetime, speed, size, color, rotation, and render shape configuration
+  must belong to `ParticleTemplate`.
 - `ParticleTemplate.weight` must control weighted random selection at spawn
   time. Non-finite weights must resolve to `1`; negative weights must resolve to
   `0`.
@@ -33,30 +33,29 @@ This document defines particle templates, mesh-particle rendering, simulation in
 - `src/particles/ParticleRenderBatch.ts` must own the backend-neutral billboard
   and mesh particle render-batch contracts. `src/pipeline/types.ts` must own
   only the transient keys used to transport those batches through a frame.
+- WebGPU GPU draw batches must describe billboard instances only. Mesh-particle
+  batches must use the backend-neutral contract and `prepareFramePackets`.
 - `prepareFramePackets` must prepare current-view `DrawPacket` objects from
 	emitted mesh-particle batches after particle simulation and before frame analysis.
-- The composed frame packet set must expose opaque, transparent, reflective,
-	and complete view packets plus shadow-caster and shadow-transmitter
-	`DrawSubmission` collections. Shadow work must reuse the submissions owned by
-	the current-view particle packets.
+- Mesh-particle packets must contribute to the opaque, transparent, reflective,
+  and complete view packet collections. They must not contribute shadow caster
+  or shadow transmitter submissions and must not receive shadows.
 - Individual consumers must not rebuild mesh packets from
 	`PARTICLE_MESH_TRANSIENT_BATCHES_KEY` or depend on a particle-specific packet
 	accessor.
 - The particle subsystem must expose backend-neutral render intent for visible
 	mesh-particle templates before simulation emits the current frame's packets.
-	The intent must identify transparent-material and shadow-casting template
-	work without comparing backend identifiers.
+	The intent must identify transparent-material template work without comparing
+  backend identifiers.
 - Renderer frame planning must include that intent in `FramePassRequirements`
 	when resolved render support enables mesh particles, so the
-	`main-transparent` and `shadow` backend passes remain available for emitted
-	mesh packets.
+	`main-transparent` backend pass remains available for emitted mesh packets.
 - Probe capture views must prepare their own packet set and resolve mesh-particle
 	depth for the capture camera. Packet sets must not be reused across views or
 	retained across frames. Planar reflection capture must exclude mesh-particle
 	contributors because particle reflection is unsupported.
-- WebGPU mesh particles must support opaque, transparent, OIT, and mesh shadow
-  caster/transmitter passes according to each primitive material. Shadow passes
-  must consume their prepared submissions without depending on view sort depth.
+- WebGPU mesh particles must support opaque, transparent, and OIT passes
+  according to each primitive material.
 - WebGLBackend and SoftwareBackend must skip mesh particle templates and emit
   a once-only warning.
 - WebGPU compute simulation may run only for compatible single-template
@@ -65,15 +64,14 @@ This document defines particle templates, mesh-particle rendering, simulation in
 
 ### Particle shadows
 
-- `ParticleTemplate.castShadows` must control whether a mesh particle template
-  contributes mesh shadow caster draw packets.
-- `ParticleTemplate.castShadows` must default to `true`.
-- `ParticleSystem.castShadows` must proxy the first template for legacy callers.
-- Mesh particle templates must use regular mesh shadow caster/transmitter draw
-  packets. Billboard particles may receive shadows but must not contribute
-  shadow casters.
-- Backends that do not support mesh particle rendering must skip those
-  templates and emit the documented once-only warning.
+- Billboard and mesh particles must neither cast nor receive shadows.
+- `ParticleTemplate`, `ParticleSystem`, and particle render batches must not
+  expose shadow configuration fields.
+- Particle render intent must not request shadow work. Shadow planning and
+  backend shadow passes must consume only non-particle caster submissions.
+- Particle shaders and simulation payloads must not carry shadow flags or
+  sample shadow resources. Billboard render passes must not bind shadow
+  textures, samplers, or uniforms.
 
 ## Usage
 
@@ -127,7 +125,6 @@ const impact = new ParticleSystem({
 				kind: "mesh",
 				mesh: shardMesh,
 			},
-			castShadows: true,
 		},
 	],
 });

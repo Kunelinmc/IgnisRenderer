@@ -20,9 +20,12 @@ import { WebGPUVisibilityFrameModule } from "../../../src/backends/webgpu/render
 import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
 const unused = {};
+const transparencyRuntime = new WebGPUTransparencyRuntime(
+	unused, unused, unused, unused, unused,
+);
 const modules = [
 	new WebGPUDeferredFrameModule(unused, unused, unused),
-	new WebGPUTransparencyRuntime(unused, unused, unused, unused, unused, unused),
+	transparencyRuntime,
 	new WebGPUReflectionFrameModule(unused, unused, unused),
 	new WebGPUVisibilityFrameModule(unused, unused, unused),
 	new WebGPUPostProcessFrameModule(unused, unused, unused, unused, unused),
@@ -170,6 +173,92 @@ const retryAnalysis = await analyze(retryContext, retryPackets, []);
 await configure(retryAnalysis, retryContext);
 await configure(retryAnalysis, retryContext);
 assert.equal(transmissionReads, 1);
+
+function planTransparencyNodes(stage, state) {
+	return transparencyRuntime.planStage({
+		pass: { stage },
+		context: createContext(),
+		state,
+		messages: {
+			getAll: () => [{
+				source: "transparency",
+				hasOITMeshContributors: true,
+				hasTransmissionPackets: true,
+				hasAlphaBillboardParticles: true,
+				hasAdditiveBillboardParticles: true,
+			}],
+		},
+	}).flatMap((contribution) => contribution.nodes ?? []);
+}
+
+for (const [
+	oitActive,
+	hasFrameTargets,
+	sceneTargetMode,
+	color,
+	depth,
+	needsTransmissionTargets,
+] of [
+	[false, false, "single", "canvas:scene-color-main", "canvas:depth"],
+	[false, true, "color", "frame:scene-color-main", "frame:depth"],
+	[true, true, "color", "frame:scene-color-main", "frame:depth"],
+	[false, true, "color", "frame:scene-color-main", "frame:depth", true],
+	[true, true, "color", "frame:scene-color-main", "frame:depth", true],
+]) {
+	const state = { oitActive, hasFrameTargets, sceneTargetMode, needsTransmissionTargets };
+	const particleNodes = planTransparencyNodes("particles", state);
+	const forwardKinds = oitActive
+		? ["particle-additive"]
+		: ["particle-alpha-forward", "particle-additive"];
+	for (const kind of forwardKinds) {
+		const node = particleNodes.find((candidate) => candidate.kind === kind);
+		assert.ok(node, kind);
+		assert.deepEqual(node.reads, [
+			{ id: color, usage: "render-attachment", optional: true },
+			{ id: depth, usage: "depth-attachment", optional: true },
+		]);
+		assert.deepEqual(node.writes, [
+			{ id: color, usage: "render-attachment", optional: false },
+			{ id: depth, usage: "depth-attachment", optional: false },
+		]);
+	}
+	if (oitActive) {
+		const node = particleNodes.find(
+			(candidate) => candidate.kind === "oit-particle-accumulate",
+		);
+		assert.ok(node);
+		assert.deepEqual(node.reads, [
+			{ id: "frame:depth", usage: "depth-attachment", optional: false },
+		]);
+		assert.deepEqual(node.writes, [
+			{ id: "oit:accum", usage: "render-attachment", optional: false },
+			{ id: "oit:reveal", usage: "render-attachment", optional: false },
+		]);
+	}
+	const transparentNodes = planTransparencyNodes("main-transparent", state);
+	for (const kind of [
+		oitActive ? "oit-mesh-accumulate" : "transparent-forward",
+		"transmission",
+	]) {
+		const node = [...transparentNodes, ...particleNodes].find(
+			(candidate) => candidate.kind === kind,
+		);
+		assert.ok(node, kind);
+		assert.deepEqual(node.reads.filter((resource) =>
+			resource.id === "shadow-atlas" ||
+			resource.id === "shadow-transmittance-atlas"), [
+			{ id: "shadow-atlas", usage: "texture-binding", optional: true },
+			{ id: "shadow-transmittance-atlas", usage: "texture-binding", optional: true },
+		]);
+		if (kind === "transmission" && needsTransmissionTargets) {
+			assert.deepEqual(node.reads.filter((resource) =>
+				resource.id === color || resource.id === depth), [
+				{ id: color, usage: "copy-src", optional: true },
+				{ id: depth, usage: "copy-src", optional: true },
+			]);
+		}
+	}
+}
 
 const conflictRegistry = new WebGPUFrameMessageRegistry();
 for (const [moduleId, id] of [

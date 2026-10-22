@@ -183,7 +183,6 @@ export type {
 	ShadowCasterIntent,
 	ShadowDiagnostic,
 	ShadowFramePlan,
-	ShadowWorkSet,
 } from "./lights/shadows/ShadowFramePlan";
 export {
 	getEnabledCustomPostProcessPassIds,

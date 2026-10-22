@@ -6,7 +6,6 @@ import type {
 } from "./types";
 import type { Matrix4 } from "../../maths/Matrix4";
 import type { IVector3 } from "../../maths/types";
-import type { ParticleMeshRenderBatch } from "../../particles/ParticleRenderBatch";
 import type { DrawSubmission } from "../../pipeline/types";
 
 export interface ShadowDiagnostic {
@@ -68,18 +67,9 @@ export interface ShadowFramePlan {
 	readonly hasTransmissionWork: boolean;
 }
 
-/** Conservative caster information available before particle simulation. */
+/** Prepared caster information used during shadow planning. */
 export interface ShadowCasterIntent {
 	readonly meshSubmissions: readonly DrawSubmission[];
-	readonly hasTransparentCasters: boolean;
-	readonly hasParticleCasters: boolean;
-}
-
-/** Concrete draw work published after particle simulation. */
-export interface ShadowWorkSet {
-	readonly casterSubmissions: readonly DrawSubmission[];
-	readonly meshParticleBatches: readonly ParticleMeshRenderBatch[];
-	readonly transmitterSubmissions: readonly DrawSubmission[];
 }
 
 export const EMPTY_SHADOW_FRAME_PLAN: ShadowFramePlan = Object.freeze({

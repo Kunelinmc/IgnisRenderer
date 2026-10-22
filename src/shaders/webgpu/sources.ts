@@ -333,7 +333,7 @@ sources["webgpu.deferredLighting"] = {
 sources["webgpu.particle"] = {
 	kind: "module",
 	sourceKind: "particle",
-	source: concat(["scene.lightData", "fixed.particle"], "<webgpu-shared-light-data-part>"),
+	source: asset("fixed.particle"),
 };
 sources["webgpu.particleSimulation"] = {
 	kind: "module",

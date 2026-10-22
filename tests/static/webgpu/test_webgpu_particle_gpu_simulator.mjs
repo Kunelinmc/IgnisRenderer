@@ -151,6 +151,11 @@ function testWebGPUParticleSimulatorPublishesDrawBatches() {
 	assert.ok(cpuBatches.length > 0);
 	assert.equal(gpuBatches.length, cpuBatches.length);
 	assert.ok(gpuBatches[0].instanceCount > 0);
+	assert.equal("receiveShadows" in gpuBatches[0], false);
+	const uploadedInstances = backend.buffers.find(
+		(buffer) => buffer.label === `WebGPUParticleInstances_${system.id}`,
+	);
+	assert.deepEqual(Array.from(uploadedInstances.lastWrite).slice(13, 16), [0, 0, 0]);
 	assert.ok(
 		backend.buffers.some((buffer) =>
 			String(buffer.label).startsWith("WebGPUParticleIndirect_"),
@@ -201,6 +206,13 @@ async function testWebGPUParticleSimulatorDispatchesComputeSimulation() {
 	assert.ok(instanceBuffer.usage & BufferUsage.Storage);
 	assert.ok(instanceBuffer.usage & BufferUsage.Vertex);
 	assert.equal(instanceBuffer.lastWrite, null);
+	assert.equal("receiveShadows" in gpuBatches[0], false);
+	const paramsBuffer = backend.buffers.find(
+		(buffer) => String(buffer.label).startsWith("WebGPUParticleParams_"),
+	);
+	assert.ok(paramsBuffer);
+	assert.equal(new DataView(paramsBuffer.lastWrite.data).getUint32(28, true), 0,
+		"simulation uniform alignment contains zero padding without a shadow flag");
 
 	const indirectBuffer = backend.buffers.find(
 		(buffer) => buffer.label === `WebGPUParticleIndirect_${system.id}`,
@@ -270,6 +282,21 @@ async function testRenderResourcesPrefersGPUDrawBatches() {
 
 	const context = createContext([]);
 	const frameResources = resources.prepareFrame(context, createMainFrameOptions());
+	const particleFrameBinding = frameResources.particleFrameBinding;
+	assert.ok(particleFrameBinding);
+	assert.notEqual(particleFrameBinding, frameResources.frameBinding);
+	assert.deepEqual(particleFrameBinding.desc.entries.map((entry) => entry.binding), [0, 4]);
+	assert.deepEqual(
+		particleFrameBinding.desc.entries.map((entry) => entry.resource.label),
+		["WebGPUFrameCameraUniforms", "WebGPUFogUniforms"],
+	);
+	const particleFrameLayout = particleFrameBinding.desc.layout;
+	assert.deepEqual(particleFrameLayout.desc.entries.map((entry) => entry.binding), [0, 4]);
+	assert.ok(particleFrameLayout.desc.entries.every((entry) => entry.buffer?.type === "uniform"));
+	const particlePipelineLayout = backend.pipelineLayouts.find(
+		(layout) => layout.desc.label === "WebGPUParticlePipelineLayout",
+	);
+	assert.equal(particlePipelineLayout.desc.bindGroupLayouts[0], particleFrameLayout);
 
 	const instanceBuffer = backend.createBuffer({
 		size: 3 * 64,
@@ -293,7 +320,6 @@ async function testRenderResourcesPrefersGPUDrawBatches() {
 			systemId: "particleSystem-gpu",
 			blendMode: ParticleBlendMode.Alpha,
 			texture,
-			receiveShadows: true,
 			instanceBuffer,
 			instanceCount: 3,
 			indirectBuffer,
@@ -327,6 +353,22 @@ async function testRenderResourcesPrefersGPUDrawBatches() {
 
 	assert.equal(renderedCount, 3);
 	assert.ok(encoder.calls.some((call) => call[0] === "drawIndirect"));
+	assert.deepEqual(
+		encoder.calls.find((call) => call[0] === "setBindGroup" && call[1] === 0),
+		["setBindGroup", 0, particleFrameBinding],
+	);
+	const instanceLayout = backend.pipelines.find(
+		(pipeline) => pipeline.label === "WebGPUParticlePipeline_alpha_single",
+	).desc.vertex.buffers[1];
+	assert.equal(instanceLayout.arrayStride, 64);
+	assert.deepEqual(instanceLayout.attributes.map((attribute) => attribute.shaderLocation), [2, 3, 4, 5]);
+	resources.releaseScope("main");
+	assert.equal(particleFrameBinding.destroyed, true);
+	assert.ok(particleFrameBinding.desc.entries.every((entry) => entry.resource.destroyed));
+	const nextFrameResources = resources.prepareFrame(context, createMainFrameOptions());
+	assert.notEqual(nextFrameResources.particleFrameBinding, particleFrameBinding);
+	resources.destroy();
+	assert.equal(nextFrameResources.particleFrameBinding.destroyed, true);
 }
 
 

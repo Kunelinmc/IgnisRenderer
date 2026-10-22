@@ -7,8 +7,9 @@ import {
 	PARTICLE_MESH_TRANSIENT_BATCHES_KEY,
 	PARTICLE_TRANSIENT_BATCHES_KEY,
 } from "../../../src/pipeline/types.ts";
-import { Material } from "../../../src/materials/Material.ts";
+import { AlphaMode, Material } from "../../../src/materials/Material.ts";
 import { MeshAsset } from "../../../src/meshes/MeshAsset.ts";
+import { resolveParticleRenderIntent } from "../../../src/particles/ParticleRenderIntent.ts";
 import { ParticleSystem } from "../../../src/particles/ParticleSystem.ts";
 import { ParticleBlendMode, ParticleSpaceMode } from "../../../src/particles/types.ts";
 import { DefaultParticleSimulator } from "../../../src/simulation/particles/DefaultParticleSimulator.ts";
@@ -182,10 +183,7 @@ function testRateAndBurstSpawn() {
 	assert.equal(particles.length, 5);
 }
 
-function testShadowDefaultsAndBatchParams() {
-	const defaultSystem = new ParticleSystem();
-	assert.equal(defaultSystem.castShadows, true);
-
+function testBillboardBatchRenderData() {
 	const simulator = createSimulator();
 	const alphaSystem = new ParticleSystem({
 		emit: {
@@ -201,7 +199,6 @@ function testShadowDefaultsAndBatchParams() {
 					kind: "billboard",
 					blendMode: ParticleBlendMode.Alpha,
 				},
-				castShadows: true,
 			}),
 		],
 	});
@@ -219,7 +216,6 @@ function testShadowDefaultsAndBatchParams() {
 					kind: "billboard",
 					blendMode: ParticleBlendMode.Additive,
 				},
-				castShadows: true,
 			}),
 		],
 	});
@@ -233,6 +229,21 @@ function testShadowDefaultsAndBatchParams() {
 
 	assert.ok(alphaBatch);
 	assert.ok(additiveBatch);
+	for (const [batch, system, blendMode] of [
+		[alphaBatch, alphaSystem, ParticleBlendMode.Alpha],
+		[additiveBatch, additiveSystem, ParticleBlendMode.Additive],
+	]) {
+		const { particles, ...renderData } = batch;
+		assert.equal(particles.length, 1);
+		assert.deepEqual(renderData, {
+			kind: "billboard",
+			systemId: system.id,
+			templateIndex: 0,
+			templateId: "template-0",
+			blendMode,
+			texture: null,
+		});
+	}
 }
 
 function testGradientAndAtlas() {
@@ -295,19 +306,31 @@ function testTemplateConfigurationOwnsSpawnProperties() {
 		],
 	});
 
-	assert.deepEqual(system.templates[0].lifetimeRange, [3, 4]);
-	assert.deepEqual(system.templates[0].speedRange, [5, 6]);
-	assert.deepEqual(system.templates[0].sizeRange, [7, 8]);
-	assert.deepEqual(system.templates[0].startColor, {
-		r: 10,
-		g: 20,
-		b: 30,
-		a: 0.4,
-	});
-	assert.deepEqual(system.templates[0].rotationRange, [0.1, 0.2]);
-	assert.deepEqual(system.templates[0].angularVelocityRange, [0.3, 0.4]);
 	assert.equal(Object.hasOwn(system.emit, "lifetimeRange"), false);
 	assert.equal("definitions" in system, false);
+	const expectedTemplate = {
+		id: "template-0",
+		weight: 1,
+		lifetimeRange: [3, 4],
+		speedRange: [5, 6],
+		sizeRange: [7, 8],
+		startColor: { r: 10, g: 20, b: 30, a: 0.4 },
+		rotationRange: [0.1, 0.2],
+		angularVelocityRange: [0.3, 0.4],
+		sizeOverLifetime: [],
+		colorOverLifetime: [],
+		shape: {
+			kind: "billboard",
+			texture: null,
+			atlas: null,
+			blendMode: ParticleBlendMode.Alpha,
+		},
+	};
+	assert.deepEqual(system.templates[0], expectedTemplate);
+	const clone = system.clone();
+	assert.deepEqual(clone.templates[0], expectedTemplate);
+	clone.templates[0].lifetimeRange[0] = 9;
+	assert.deepEqual(system.templates[0].lifetimeRange, [3, 4]);
 }
 
 function testWeightedDefinitionsBuildBillboardAndMeshBatches() {
@@ -366,13 +389,52 @@ function testWeightedDefinitionsBuildBillboardAndMeshBatches() {
 	assert.equal(meshBatch.mesh, mesh);
 	assert.equal(meshBatch.primitive, mesh.primitives[0]);
 	assert.equal(meshBatch.material, mesh.primitives[0].material);
-	assert.ok(meshBatch.particles.length > 0);
-	assert.equal(meshBatch.particles[0].templateIndex, 1);
-	assert.equal(Object.hasOwn(meshBatch.particles[0], "color"), false);
+	const { particles, ...renderData } = meshBatch;
+	assert.deepEqual(renderData, {
+		kind: "mesh",
+		systemId: system.id,
+		templateIndex: 1,
+		templateId: "shard",
+		mesh,
+		primitive: mesh.primitives[0],
+		material: mesh.primitives[0].material,
+	});
+	assert.ok(particles.length > 0);
+	assert.equal(particles[0].templateIndex, 1);
+	assert.equal(Object.hasOwn(particles[0], "color"), false);
 	assert.ok(
-		meshBatch.particles[0].previousPosition.y >
-			meshBatch.particles[0].position.y
+		particles[0].previousPosition.y > particles[0].position.y
 	);
+}
+
+function testMeshRenderIntentPreservesTransparentVisibility() {
+	const mesh = createTriangleMesh();
+	const system = new ParticleSystem({
+		templates: [
+			{
+				lifetimeRange: [1, 1],
+				speedRange: [0, 0],
+				sizeRange: [1, 1],
+				shape: { kind: "mesh", mesh },
+			},
+		],
+	});
+	assert.deepEqual(resolveParticleRenderIntent([system]), {
+		hasTransparentMeshTemplates: false,
+	});
+	mesh.primitives[0].material.alphaMode = AlphaMode.Blend;
+	assert.deepEqual(resolveParticleRenderIntent([system]), {
+		hasTransparentMeshTemplates: true,
+	});
+	mesh.primitives[0].visible = false;
+	assert.deepEqual(resolveParticleRenderIntent([system]), {
+		hasTransparentMeshTemplates: false,
+	});
+	mesh.primitives[0].visible = true;
+	system.visible = false;
+	assert.deepEqual(resolveParticleRenderIntent([system]), {
+		hasTransparentMeshTemplates: false,
+	});
 }
 
 function testLocalSpaceFollowsSystemPosition() {
@@ -598,10 +660,11 @@ function testStrictFailureWhenLODStillOverBudget() {
 function run() {
 	testDeterministicSeed();
 	testRateAndBurstSpawn();
-	testShadowDefaultsAndBatchParams();
+	testBillboardBatchRenderData();
 	testGradientAndAtlas();
 	testTemplateConfigurationOwnsSpawnProperties();
 	testWeightedDefinitionsBuildBillboardAndMeshBatches();
+	testMeshRenderIntentPreservesTransparentVisibility();
 	testLocalSpaceFollowsSystemPosition();
 	testCollisionAndSubEmitter();
 	testLODScalesSimulationAndRenderSubset();

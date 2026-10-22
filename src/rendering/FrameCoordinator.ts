@@ -51,7 +51,6 @@ import {
 } from "../pipeline/types";
 import { RenderPipelineRegistry } from "../pipeline/RenderPipelineRegistry";
 import { resolveFramePassRequirements } from "../pipeline/FramePassRequirements";
-import { resolveParticleRenderIntent } from "../particles/ParticleRenderIntent";
 import { ShadowPlanner } from "../lights/shadows/ShadowPlanner";
 import type { RendererFeatures } from "./Renderer";
 import type { AnimationSystem } from "../animation/AnimationSystem";
@@ -842,7 +841,6 @@ export class FrameCoordinator {
 		transient: TransientStore,
 		incremental: IncrementalFrameContext,
 	): FrameContext {
-		const particleIntent = resolveParticleRenderIntent(frame.particleSystems);
 		const shadowPlan = ShadowPlanner.plan({
 			manager: delegate.scene.shadows,
 			lights: frame.lights,
@@ -851,10 +849,6 @@ export class FrameCoordinator {
 			sceneBounds: frame.sceneBounds,
 			casterIntent: {
 				meshSubmissions: frame.shadowCasterSubmissions,
-				hasTransparentCasters: frame.shadowTransmitterSubmissions.length > 0,
-				hasParticleCasters:
-					this._backend.profile.capabilities.meshParticles &&
-					particleIntent.hasShadowCastingMeshTemplates,
 			},
 			hasTransmissionCasters: frame.shadowTransmitterSubmissions.length > 0,
 		}, this._shadowPlannerState);

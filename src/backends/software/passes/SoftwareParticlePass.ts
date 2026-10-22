@@ -1,5 +1,4 @@
 import { CameraType } from "../../../cameras/Camera";
-import { isShadowCastingLight } from "../../../lights";
 import { Matrix4 } from "../../../maths/Matrix4";
 import { ParticleBlendMode } from "../../../particles";
 import {
@@ -11,7 +10,6 @@ import type { SoftwarePassLike } from "./types";
 import { Logger } from "../../../foundation/Logger";
 import type { SoftwarePassContext } from "../SoftwareFrameServices";
 import type { SoftwareFrameView } from "../SoftwareFrameView";
-import type { SoftwareShadowSampler } from "../SoftwareShadowContracts";
 
 const MIN_PARTICLE_PIXEL_RADIUS = 0.5;
 const PARTICLE_RADIAL_FADE_START = 0.4;
@@ -34,12 +32,7 @@ export class SoftwareParticlePass implements SoftwarePassLike {
 
 		for (const batch of batches) {
 			for (const particle of batch.particles) {
-				this._drawParticle(
-					frame,
-					batch,
-					particle,
-					context.services.shadow.sampler,
-				);
+				this._drawParticle(frame, batch, particle);
 			}
 		}
 	}
@@ -48,7 +41,6 @@ export class SoftwareParticlePass implements SoftwarePassLike {
 		frame: SoftwareFrameView,
 		batch: ParticleRenderBatch,
 		particle: ParticleRenderItem,
-		sampleShadow: SoftwareShadowSampler,
 	): void {
 		const attachments = frame.attachments;
 		const width = attachments.width;
@@ -76,10 +68,6 @@ export class SoftwareParticlePass implements SoftwarePassLike {
 		const minY = Math.max(0, Math.floor(centerY - radiusPx));
 		const maxY = Math.min(height - 1, Math.ceil(centerY + radiusPx));
 		if (minX > maxX || minY > maxY) return;
-		const shadowVisibility =
-			batch.receiveShadows && frame.shadowPlan?.hasRasterWork === true
-				? this._resolveShadowVisibility(frame, particle, sampleShadow)
-				: 1;
 		const baseAlpha = clamp(particle.color.a);
 		const rotation = particle.rotation;
 		const cosRot = Math.cos(rotation);
@@ -141,9 +129,9 @@ export class SoftwareParticlePass implements SoftwarePassLike {
 					const alpha = baseAlpha * (texA / 255) * radialMask;
 					if (alpha <= PARTICLE_ALPHA_CUTOFF) continue;
 
-					const srcR = (particle.color.r / 255) * (texR / 255) * shadowVisibility;
-					const srcG = (particle.color.g / 255) * (texG / 255) * shadowVisibility;
-					const srcB = (particle.color.b / 255) * (texB / 255) * shadowVisibility;
+					const srcR = (particle.color.r / 255) * (texR / 255);
+					const srcG = (particle.color.g / 255) * (texG / 255);
+					const srcB = (particle.color.b / 255) * (texB / 255);
 
 					const pixelIndex = bufferIndex << 2;
 					if (batch.blendMode === ParticleBlendMode.Additive) {
@@ -180,21 +168,6 @@ export class SoftwareParticlePass implements SoftwarePassLike {
 		const focalLength = (frame.attachments.height * 0.5) / tanHalfFov;
 		const pixelSize = (Math.max(MIN_PARTICLE_WORLD_SIZE, size) * focalLength) / depth;
 		return Math.max(MIN_PARTICLE_PIXEL_RADIUS, pixelSize * 0.5);
-	}
-
-	private _resolveShadowVisibility(
-		frame: SoftwareFrameView,
-		particle: ParticleRenderItem,
-		sampleShadow: SoftwareShadowSampler,
-	): number {
-		let visibility = 1;
-		for (const light of frame.scene.lights) {
-			if (!isShadowCastingLight(light)) continue;
-			const sampled = sampleShadow(light, particle.position, null);
-			const shadow = clamp((sampled.r + sampled.g + sampled.b) / 3);
-			visibility *= shadow;
-		}
-		return clamp(visibility);
 	}
 }
 

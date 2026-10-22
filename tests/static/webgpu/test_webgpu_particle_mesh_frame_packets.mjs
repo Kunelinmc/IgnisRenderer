@@ -9,6 +9,7 @@ import {
 import { WebGPUBackend } from "../../../src/backends/webgpu/WebGPUBackend.ts";
 import {
 	DRAW_PACKET_FLAG_SHADOW_CASTER,
+	DRAW_PACKET_FLAG_SHADOW_RECEIVER,
 	DRAW_PACKET_FLAG_SHADOW_TRANSMITTER,
 	DRAW_PACKET_FLAG_TRANSPARENT,
 	PARTICLE_MESH_TRANSIENT_BATCHES_KEY,
@@ -47,8 +48,6 @@ function createMeshBatch({
 		mesh,
 		primitive: mesh.primitives[0],
 		material,
-		receiveShadows: true,
-		castShadows: true,
 		particles: [
 			{
 				templateIndex,
@@ -86,6 +85,10 @@ function testMeshParticleFramePreparation() {
 	});
 	const opaqueMesh = createTriangleMesh(opaqueMaterial);
 	const transparentMesh = createTriangleMesh(transparentMaterial);
+	for (const mesh of [opaqueMesh, transparentMesh]) {
+		mesh.primitives[0].castShadows = true;
+		mesh.primitives[0].receiveShadows = true;
+	}
 	const context = createPacketContext();
 	context.transient.set(PARTICLE_MESH_TRANSIENT_BATCHES_KEY, [
 		createMeshBatch({
@@ -115,18 +118,10 @@ function testMeshParticleFramePreparation() {
 	assert.equal(packets.all.length, 2);
 	assert.equal(packets.opaque.length, 1);
 	assert.equal(packets.transparent.length, 1);
-	assert.equal(packets.shadowCasterSubmissions.length, 1);
-	assert.equal(packets.shadowTransmitterSubmissions.length, 1);
+	assert.equal(packets.shadowCasterSubmissions.length, 0);
+	assert.equal(packets.shadowTransmitterSubmissions.length, 0);
 	assert.strictEqual(packets.all[0], packets.opaque[0]);
 	assert.strictEqual(packets.all[1], packets.transparent[0]);
-	assert.strictEqual(
-		packets.opaque[0].submission,
-		packets.shadowCasterSubmissions[0],
-	);
-	assert.strictEqual(
-		packets.transparent[0].submission,
-		packets.shadowTransmitterSubmissions[0],
-	);
 	assert.equal("meshInstance" in packets.opaque[0], false);
 	assert.equal("mesh" in packets.opaque[0], false);
 	assert.equal("primitive" in packets.opaque[0], false);
@@ -136,15 +131,16 @@ function testMeshParticleFramePreparation() {
 		packets.opaque[0].submission.worldBounds.radius,
 		opaqueMesh.primitives[0].boundingSphere.radius * 2,
 	);
-	assert.ok(
-		(packets.opaque[0].submission.passFlags & DRAW_PACKET_FLAG_SHADOW_CASTER) !== 0,
-	);
+	const shadowFlags = DRAW_PACKET_FLAG_SHADOW_CASTER |
+		DRAW_PACKET_FLAG_SHADOW_TRANSMITTER | DRAW_PACKET_FLAG_SHADOW_RECEIVER;
+	for (const packet of packets.all) {
+		assert.equal(packet.submission.passFlags & shadowFlags, 0,
+			"particle packets must neither cast, transmit, nor receive shadows");
+	}
+	assert.equal(opaqueMesh.primitives[0].receiveShadows, true);
+	assert.equal(opaqueMesh.primitives[0].castShadows, true);
 	assert.ok(
 		(packets.transparent[0].submission.passFlags & DRAW_PACKET_FLAG_TRANSPARENT) !== 0,
-	);
-	assert.ok(
-		(packets.transparent[0].submission.passFlags &
-			DRAW_PACKET_FLAG_SHADOW_TRANSMITTER) !== 0,
 	);
 	const emptyViewA = createPacketContext();
 	const emptyViewB = createPacketContext();

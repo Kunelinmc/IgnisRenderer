@@ -8,7 +8,7 @@ struct ParticleSimParams {
 	spawnStart: u32,
 	randomSeed: u32,
 	spaceMode: u32,
-	receiveShadow: u32,
+	padding: u32,
 	gravity: vec4<f32>,
 	worldPosition: vec4<f32>,
 	spawnBasePosition: vec4<f32>,
@@ -32,9 +32,9 @@ struct ParticleInstance {
 	color: vec4<f32>,
 	uvRect: vec4<f32>,
 	rotation: f32,
-	receiveShadow: f32,
 	padding0: f32,
 	padding1: f32,
+	padding2: f32,
 }
 
 struct ParticleStateBuffer {
@@ -229,7 +229,7 @@ fn simulateMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 		particle.colorSize,
 		resolveAtlasUV(particle.positionAge.w),
 		particle.rotationAngularActive.x,
-		f32(params.receiveShadow),
+		0.0,
 		0.0,
 		0.0
 	);

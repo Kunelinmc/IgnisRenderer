@@ -150,22 +150,6 @@ export class ParticleSystem extends Node {
 		this._primaryTemplate.colorOverLifetime = cloneColorGradient(value);
 	}
 
-	public get receiveShadows(): boolean {
-		return this._primaryTemplate.receiveShadows ?? true;
-	}
-
-	public set receiveShadows(value: boolean) {
-		this._primaryTemplate.receiveShadows = value;
-	}
-
-	public get castShadows(): boolean {
-		return this._primaryTemplate.castShadows ?? true;
-	}
-
-	public set castShadows(value: boolean) {
-		this._primaryTemplate.castShadows = value;
-	}
-
 	protected override _createCloneInstance(): this {
 		return new ParticleSystem() as this;
 	}
@@ -277,14 +261,11 @@ function createDefaultParticleTemplate(): ParticleTemplate {
 			atlas: null,
 			blendMode: ParticleBlendMode.Alpha,
 		},
-		receiveShadows: true,
-		castShadows: true,
 	};
 }
 
 function cloneParticleTemplate(source: ParticleTemplate): ParticleTemplate {
 	return {
-		...source,
 		id: source.id,
 		weight: sanitizeWeight(source.weight),
 		lifetimeRange: cloneRange(source.lifetimeRange),
@@ -308,8 +289,6 @@ function cloneParticleTemplate(source: ParticleTemplate): ParticleTemplate {
 					kind: "mesh",
 					mesh: source.shape.mesh,
 				},
-		receiveShadows: source.receiveShadows ?? true,
-		castShadows: source.castShadows ?? true,
 	};
 }
 

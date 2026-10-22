@@ -165,9 +165,9 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
     the shadow planner and are not backend extension points.
   - Constraint: backend execution must not mutate the plan or apply a second
     shared fallback or budget policy.
-  - Late-work contract: current particle and supplemental draw work may be
-    attached after simulation, but it must not change selected techniques or
-    renderer-level pass requirements.
+  - Caster contract: particle work must not contribute shadow casters,
+    transmitters, or receivers. Backend execution must use the prepared
+    non-particle submissions selected by the frame plan.
 - `IRenderBackend.beginFrame(context: FrameContext)`
   - Behavior contract: must prepare command encoders, bind presentation attachments, and transition frame state.
   - Constraint: must throw if another frame is already active or if the backend is uninitialized.

@@ -1,4 +1,3 @@
-import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../core/types";
 import { isMaterialTransparentPass } from "../materials/transparency";
 import type { ParticleSystem } from "./ParticleSystem";
 
@@ -10,7 +9,6 @@ import type { ParticleSystem } from "./ParticleSystem";
  */
 export interface ParticleRenderIntent {
 	readonly hasTransparentMeshTemplates: boolean;
-	readonly hasShadowCastingMeshTemplates: boolean;
 }
 
 /**
@@ -23,9 +21,6 @@ export interface ParticleRenderIntent {
 export function resolveParticleRenderIntent(
 	systems: readonly ParticleSystem[] | null | undefined,
 ): ParticleRenderIntent {
-	let hasTransparentMeshTemplates = false;
-	let hasShadowCastingMeshTemplates = false;
-
 	for (const system of systems ?? []) {
 		if (system.visible === false) continue;
 		for (const template of system.templates ?? []) {
@@ -33,23 +28,8 @@ export function resolveParticleRenderIntent(
 			for (const primitive of template.shape.mesh.primitives) {
 				if (primitive.visible === false) continue;
 				if (isMaterialTransparentPass(primitive.material)) {
-					hasTransparentMeshTemplates = true;
-				}
-				if (
-					(template.castShadows ?? true) &&
-					primitive.castShadows !== false &&
-					(primitive.topology ?? DEFAULT_PRIMITIVE_DRAW_TOPOLOGY) ===
-						DEFAULT_PRIMITIVE_DRAW_TOPOLOGY
-				) {
-					hasShadowCastingMeshTemplates = true;
-				}
-				if (
-					hasTransparentMeshTemplates &&
-					hasShadowCastingMeshTemplates
-				) {
 					return {
-						hasTransparentMeshTemplates,
-						hasShadowCastingMeshTemplates,
+						hasTransparentMeshTemplates: true,
 					};
 				}
 			}
@@ -57,7 +37,6 @@ export function resolveParticleRenderIntent(
 	}
 
 	return {
-		hasTransparentMeshTemplates,
-		hasShadowCastingMeshTemplates,
+		hasTransparentMeshTemplates: false,
 	};
 }

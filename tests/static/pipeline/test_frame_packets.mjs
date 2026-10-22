@@ -70,8 +70,6 @@ function createMeshBatch({
 		mesh,
 		primitive: mesh.primitives[0],
 		material,
-		receiveShadows: true,
-		castShadows: true,
 		particles: [
 			{
 				templateIndex,
@@ -149,8 +147,8 @@ function testFramePacketPreparationAndCaching() {
 	assert.ok(packets.all[3].submission.id.startsWith("particleMesh:particles:1:"));
 	assert.equal(packets.opaque.length, 2);
 	assert.equal(packets.transparent.length, 2);
-	assert.equal(packets.shadowCasterSubmissions.length, 2);
-	assert.equal(packets.shadowTransmitterSubmissions.length, 1);
+	assert.deepEqual(packets.shadowCasterSubmissions, context.scene.shadowCasterSubmissions);
+	assert.deepEqual(packets.shadowTransmitterSubmissions, []);
 	assert.equal(packets.reflective.length, 1);
 
 	// Test view purpose isolation: planar reflection excludes mesh particles

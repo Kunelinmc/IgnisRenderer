@@ -170,7 +170,7 @@ function testAuthoritativeColorResourceAndDomainTracking() {
 	executor.unbindSoftwareFrame();
 }
 
-function testAdditiveParticlesCanExceedOne() {
+function testAdditiveParticlesPreserveHDRWithoutShadowServices() {
 	const color = new Float32Array(3 * 3 * 4);
 	const particles = Array.from({ length: 5 }, () => ({
 		position: { x: 0, y: 0, z: -1 },
@@ -194,7 +194,7 @@ function testAdditiveParticlesCanExceedOne() {
 				viewMatrix: Matrix4.identity(),
 				projectionMatrix: Matrix4.identity(),
 			},
-			features: { enableShadows: false },
+			shadowPlan: { hasRasterWork: true },
 			scene: { lights: [] },
 			clipRegions: [{ minX: 0, minY: 0, maxXExclusive: 3, maxYExclusive: 3 }],
 		},
@@ -204,12 +204,13 @@ function testAdditiveParticlesCanExceedOne() {
 					systemId: "hdr-additive",
 					blendMode: ParticleBlendMode.Additive,
 					texture: null,
-					receiveShadows: false,
 					particles,
 				}],
 				meshBatches: [],
 			},
-			shadow: { sampler: () => ({ r: 1, g: 1, b: 1 }) },
+			get shadow() {
+				throw new Error("Particle rendering must not access shadow services");
+			},
 		},
 	});
 	const center = (1 * 3 + 1) << 2;
@@ -220,7 +221,7 @@ function run() {
 	testSyntheticGBufferBridgeDoesNotResolveSceneColor();
 	testHDRDomainBuiltInsPreserveRadiance();
 	testAuthoritativeColorResourceAndDomainTracking();
-	testAdditiveParticlesCanExceedOne();
+	testAdditiveParticlesPreserveHDRWithoutShadowServices();
 	console.log("Software HDR pipeline tests passed");
 }
 

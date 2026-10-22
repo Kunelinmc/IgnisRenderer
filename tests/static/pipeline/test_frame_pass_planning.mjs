@@ -238,7 +238,6 @@ function run() {
 				visible: true,
 				templates: [
 					{
-						castShadows: true,
 						shape: {
 							kind: "mesh",
 							mesh: {
@@ -258,7 +257,7 @@ function run() {
 		transparentPackets: [],
 		shadowCasterSubmissions: [],
 		shadowTransmitterSubmissions: [],
-		shadowPlan: createShadowPlan(true),
+		shadowPlan: createShadowPlan(false),
 	});
 	const meshParticlePlan = createFramePlan(
 		meshParticleFrame,
@@ -275,7 +274,7 @@ function run() {
 	);
 	assert.equal(
 		meshParticlePlan.find((pass) => pass.stage === "shadow")?.enabled,
-		true,
+		false,
 	);
 	const unsupportedMeshParticlePlan = createFramePlan(
 		{ ...meshParticleFrame, shadowPlan: createShadowPlan(false) },

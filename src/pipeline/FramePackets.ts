@@ -10,9 +10,6 @@ import type {
 } from "../particles/ParticleRenderBatch";
 import {
 	DRAW_PACKET_FLAG_REFLECTIVE,
-	DRAW_PACKET_FLAG_SHADOW_CASTER,
-	DRAW_PACKET_FLAG_SHADOW_RECEIVER,
-	DRAW_PACKET_FLAG_SHADOW_TRANSMITTER,
 	DRAW_PACKET_FLAG_TRANSPARENT,
 	PARTICLE_MESH_TRANSIENT_BATCHES_KEY,
 	type DrawPacket,
@@ -148,12 +145,6 @@ export function prepareFramePackets(
 				} else {
 					opaque.push(packet);
 				}
-				if ((flags & DRAW_PACKET_FLAG_SHADOW_CASTER) !== 0) {
-					shadowCasterSubmissions.push(packet.submission);
-				}
-				if ((flags & DRAW_PACKET_FLAG_SHADOW_TRANSMITTER) !== 0) {
-					shadowTransmitterSubmissions.push(packet.submission);
-				}
 				if ((flags & DRAW_PACKET_FLAG_REFLECTIVE) !== 0) {
 					reflective.push(packet);
 				}
@@ -203,9 +194,6 @@ function createParticleMeshPacket(
 	const isTransparent = isMaterialTransparentPass(material);
 	const isReflective =
 		material.reflectivity > 0 && material.mirrorPlane !== null;
-	const supportsShadowCasting =
-		(batch.primitive.topology ?? DEFAULT_PRIMITIVE_DRAW_TOPOLOGY) ===
-		DEFAULT_PRIMITIVE_DRAW_TOPOLOGY;
 	const currentWorldMatrix = createParticleMeshWorldMatrix(
 		particle.position,
 		particle.rotation,
@@ -232,17 +220,9 @@ function createParticleMeshPacket(
 	let passFlags = 0;
 	if (isTransparent) {
 		passFlags |= DRAW_PACKET_FLAG_TRANSPARENT;
-		if (batch.castShadows && supportsShadowCasting) {
-			passFlags |= DRAW_PACKET_FLAG_SHADOW_TRANSMITTER;
-		}
-	} else if (batch.castShadows && supportsShadowCasting) {
-		passFlags |= DRAW_PACKET_FLAG_SHADOW_CASTER;
 	}
 	if (isReflective) {
 		passFlags |= DRAW_PACKET_FLAG_REFLECTIVE;
-	}
-	if (batch.primitive.receiveShadows !== false) {
-		passFlags |= DRAW_PACKET_FLAG_SHADOW_RECEIVER;
 	}
 
 	return {

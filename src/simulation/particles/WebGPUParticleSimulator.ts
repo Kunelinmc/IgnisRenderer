@@ -328,7 +328,6 @@ export class WebGPUParticleSimulator implements IParticleSimulator {
 						shape.blendMode ?? ParticleBlendMode.Alpha
 					:	ParticleBlendMode.Alpha,
 				texture: shape?.kind === "billboard" ? shape.texture ?? null : null,
-				receiveShadows: template?.receiveShadows ?? true,
 				instanceBuffer: state.instanceBuffer,
 				instanceCount: maxParticles,
 				indirectBuffer: state.indirectBuffer,
@@ -574,7 +573,7 @@ export class WebGPUParticleSimulator implements IParticleSimulator {
 				instanceData[offset + 10] = particle.uvRect.u1;
 				instanceData[offset + 11] = particle.uvRect.v1;
 				instanceData[offset + 12] = particle.rotation;
-				instanceData[offset + 13] = batch.receiveShadows ? 1 : 0;
+				instanceData[offset + 13] = 0;
 				instanceData[offset + 14] = 0;
 				instanceData[offset + 15] = 0;
 				particleOffset++;
@@ -589,7 +588,6 @@ export class WebGPUParticleSimulator implements IParticleSimulator {
 				templateId: batch.templateId,
 				blendMode: batch.blendMode,
 				texture: batch.texture,
-				receiveShadows: batch.receiveShadows,
 				instanceBuffer: state.instanceBuffer,
 				instanceCount,
 				indirectBuffer: state.indirectBuffer,
@@ -792,11 +790,6 @@ export class WebGPUParticleSimulator implements IParticleSimulator {
 			system.space === ParticleSpaceMode.World ?
 				GPU_PARTICLE_SPACE_WORLD
 			:	GPU_PARTICLE_SPACE_LOCAL,
-			true
-		);
-		view.setUint32(
-			28,
-			(template?.receiveShadows ?? true) ? 1 : 0,
 			true
 		);
 

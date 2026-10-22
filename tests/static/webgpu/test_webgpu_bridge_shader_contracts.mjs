@@ -1004,7 +1004,21 @@ function testShadowDepthLayoutMatchesTransmittanceShaderBinding() {
 }
 
 async function testParticleShaderDepthConsistency() {
-	const WEBGPU_PARTICLE_SHADER = (await ShaderSource.load("webgpu.particle")).source.code;
+	const WEBGPU_PARTICLE_SHADER = await loadCompiledWebGPUShader("webgpu.particle");
+	assert.doesNotMatch(
+		WEBGPU_PARTICLE_SHADER,
+		/shadow|Shadow|sampler_comparison|texture_depth_2d/,
+		"billboards must not carry shadow uniforms, resources, flags, or sampling code",
+	);
+	const simulationShader = readFileSync("src/shaders/webgpu/particles/simulation.wgsl", "utf8");
+	assert.doesNotMatch(simulationShader, /shadow/i,
+		"GPU particle simulation payloads must not carry shadow fields");
+	assert.deepEqual(
+		[...WEBGPU_PARTICLE_SHADER.matchAll(/@group\(0\) @binding\((\d+)\)/g)]
+			.map((match) => Number(match[1])),
+		[0, 4],
+		"billboard frame bindings contain only camera and fog uniforms",
+	);
 
 	assert.ok(
 		WEBGPU_PARTICLE_SHADER.includes(
@@ -1015,9 +1029,6 @@ async function testParticleShaderDepthConsistency() {
 		WEBGPU_PARTICLE_SHADER.includes(
 			"clipPosition.z = clipPosition.z * 0.5 + clipPosition.w * 0.5;"
 		)
-	);
-	assert.ok(
-		WEBGPU_PARTICLE_SHADER.includes("let currentDepth = ndc.z * 0.5 + 0.5;")
 	);
 	assert.ok(WEBGPU_PARTICLE_SHADER.includes("struct ParticleUVTransform"));
 	assert.ok(
@@ -1037,21 +1048,8 @@ async function testParticleShaderDepthConsistency() {
 		)
 	);
 	assert.ok(WEBGPU_PARTICLE_SHADER.includes("struct ParticleOITOutput"));
-	assert.ok(WEBGPU_PARTICLE_SHADER.includes("particleShadowSampleCounts"));
-	assert.ok(WEBGPU_PARTICLE_SHADER.includes("particleLinearizeShadowDepth"));
 	assert.ok(WEBGPU_PARTICLE_SHADER.includes("fn fsMainOIT("));
 	assert.ok(WEBGPU_PARTICLE_SHADER.includes("fn resolveParticleOITWeight("));
-	assert.ok(
-		WEBGPU_PARTICLE_SHADER.includes(
-			"for (var index = 0u; index < directionalCount; index = index + 1u)"
-		)
-	);
-	assert.ok(
-		WEBGPU_PARTICLE_SHADER.includes(
-			"@group(0) @binding(6) var shadowTransmittanceAtlas"
-		)
-	);
-	assert.equal(WEBGPU_PARTICLE_SHADER.includes("directionalShadows[0]"), false);
 }
 
 async function testWebGPUShaderConstantTokenInjection() {
@@ -1137,7 +1135,7 @@ async function testWebGPUShaderConstantTokenInjection() {
 	assert.ok(WEBGPU_SCENE_SHADER.includes("const INV_PI: f32 = 0.31830988618;"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("compensateCascadeDepthRange"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("length(shadowClipDepthRow) * 0.5"));
-	assert.ok(WEBGPU_PARTICLE_SHADER.includes("cascadeDepthBiasScale"));
+	assert.doesNotMatch(WEBGPU_PARTICLE_SHADER, /cascadeDepthBiasScale|FrameShadowUniforms/);
 	assert.ok(
 		WEBGPU_SCENE_SHADER.includes(
 			`pointLights: array<PointLightData, ${MAX_POINT_LIGHTS}>`
@@ -1195,12 +1193,8 @@ async function testWebGPUShaderConstantTokenInjection() {
 	assert.ok(
 		WEBGPU_PARTICLE_SHADER.includes("struct FrameCameraUniforms")
 	);
-	assert.ok(
-		WEBGPU_PARTICLE_SHADER.includes("struct FrameShadowUniforms")
-	);
-	assert.ok(
-		WEBGPU_PARTICLE_SHADER.includes("@group(0) @binding(11) var<uniform> frameShadows")
-	);
+	assert.doesNotMatch(WEBGPU_PARTICLE_SHADER, /FrameShadowUniforms/);
+	assert.doesNotMatch(WEBGPU_PARTICLE_SHADER, /frameShadows/);
 	assert.ok(
 		WEBGPU_SSR_SHADER.includes("struct FrameCameraUniforms")
 	);

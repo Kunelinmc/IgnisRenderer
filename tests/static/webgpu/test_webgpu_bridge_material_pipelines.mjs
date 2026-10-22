@@ -890,7 +890,6 @@ async function testWebGPUOITParticlePipelinesSplitAlphaAndAdditive() {
 						systemId: "particleSystem-oit-alpha",
 						blendMode: ParticleBlendMode.Alpha,
 						texture,
-						receiveShadows: true,
 						particles: [
 							{
 								position: { x: 0, y: 0, z: 0 },
@@ -906,7 +905,6 @@ async function testWebGPUOITParticlePipelinesSplitAlphaAndAdditive() {
 						systemId: "particleSystem-oit-add",
 						blendMode: ParticleBlendMode.Additive,
 						texture,
-						receiveShadows: false,
 						particles: [
 							{
 								position: { x: 0, y: 0, z: 0 },

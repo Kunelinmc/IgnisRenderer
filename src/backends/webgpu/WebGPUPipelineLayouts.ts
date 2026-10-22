@@ -43,6 +43,7 @@ export interface WebGPUPipelineLayouts {
 	deferredUnusedBindGroupLayout: GPUBindGroupLayout;
 	environmentFrameBindGroupLayout: GPUBindGroupLayout;
 	modelBindGroupLayouts: Record<WebGPUShadingFamily, GPUBindGroupLayout>;
+	particleFrameBindGroupLayout: GPUBindGroupLayout;
 	particleBindGroupLayout: GPUBindGroupLayout;
 	scenePipelineLayouts: Record<WebGPUShadingFamily, GPUPipelineLayout>;
 	sceneGBufferPipelineLayouts: Record<WebGPUShadingFamily, GPUPipelineLayout>;
@@ -502,6 +503,21 @@ export function createWebGPUPipelineLayouts(
 			entries: familyEntries,
 		});
 	}
+	const particleFrameBindGroupLayout = device.createBindGroupLayout({
+		label: "WebGPUParticleFrameBindGroupLayout",
+		entries: [
+			{
+				binding: 0,
+				visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+				buffer: { type: "uniform" },
+			},
+			{
+				binding: 4,
+				visibility: GPUShaderStage.FRAGMENT,
+				buffer: { type: "uniform" },
+			},
+		],
+	});
 	const particleBindGroupLayout = device.createBindGroupLayout({
 		label: "WebGPUParticleBindGroupLayout",
 		entries: [
@@ -593,7 +609,7 @@ export function createWebGPUPipelineLayouts(
 	});
 	const particlePipelineLayout = device.createPipelineLayout({
 		label: "WebGPUParticlePipelineLayout",
-		bindGroupLayouts: [sceneFrameBindGroupLayout, particleBindGroupLayout],
+		bindGroupLayouts: [particleFrameBindGroupLayout, particleBindGroupLayout],
 	});
 
 	return {
@@ -612,6 +628,7 @@ export function createWebGPUPipelineLayouts(
 		deferredUnusedBindGroupLayout,
 		environmentFrameBindGroupLayout,
 		modelBindGroupLayouts,
+		particleFrameBindGroupLayout,
 		particleBindGroupLayout,
 		scenePipelineLayouts,
 		sceneGBufferPipelineLayouts,

@@ -42,7 +42,6 @@ function createBillboardBatch(systemId, blendMode, texture) {
 		systemId,
 		blendMode,
 		texture,
-		receiveShadows: true,
 		particles: [
 			{
 				position: { x: 1, y: 2, z: 3 },
@@ -108,7 +107,10 @@ async function testBillboardPipelinesBindingsScissorAndLifecycle() {
 	]);
 	const context = createBillboardContext(transient);
 	const targets = createParticleTargets();
-	const frameResources = { frameBinding: { label: "frame-binding" } };
+	const frameResources = {
+		frameBinding: { label: "scene-frame-binding" },
+		particleFrameBinding: { label: "particle-frame-binding" },
+	};
 	const encoder = new FakeCommandEncoder(backend);
 
 	const renderedCount = await particles.renderParticles(
@@ -119,6 +121,16 @@ async function testBillboardPipelinesBindingsScissorAndLifecycle() {
 		"single",
 	);
 	assert.equal(renderedCount, 2);
+	assert.deepEqual(
+		encoder.calls.filter((call) => call[0] === "setBindGroup" && call[1] === 0),
+		[["setBindGroup", 0, frameResources.particleFrameBinding]],
+		"CPU billboard draws must bind camera and fog without scene shadow resources",
+	);
+	const instanceData = backend.buffers.find(
+		(buffer) => buffer.desc.label === "WebGPUParticleInstances",
+	).lastWrite;
+	assert.deepEqual(Array.from(instanceData).slice(13, 16), [0, 0, 0],
+		"particle instance alignment uses zero padding without shadow flags");
 	assert.ok(
 		backend.pipelines.some(
 			(pipeline) => pipeline.label === "WebGPUParticlePipeline_alpha_single",
@@ -236,7 +248,10 @@ async function testGPUIndirectDrawAndFallback() {
 	]);
 	const context = createBillboardContext(transient);
 	const targets = createParticleTargets();
-	const frameResources = { frameBinding: { label: "frame-binding" } };
+	const frameResources = {
+		frameBinding: { label: "scene-frame-binding" },
+		particleFrameBinding: { label: "particle-frame-binding" },
+	};
 	const indirectEncoder = new FakeCommandEncoder(backend);
 
 	assert.equal(
@@ -252,6 +267,11 @@ async function testGPUIndirectDrawAndFallback() {
 	assert.deepEqual(
 		indirectEncoder.calls.find((call) => call[0] === "drawIndirect").slice(1),
 		[indirectBuffer, 4],
+	);
+	assert.deepEqual(
+		indirectEncoder.calls.find((call) => call[0] === "setBindGroup" && call[1] === 0),
+		["setBindGroup", 0, frameResources.particleFrameBinding],
+		"GPU billboard draws must bind camera and fog without scene shadow resources",
 	);
 
 	const fallbackEncoder = new FakeCommandEncoder(backend);
@@ -295,7 +315,7 @@ async function testParticlePipelinesUsePassTargetSampleCount() {
 		new FakeCommandEncoder(backend),
 		createBillboardContext(transient),
 		createParticleTargets(4),
-		{ frameBinding: { label: "frame-binding" } },
+		{ particleFrameBinding: { label: "particle-frame-binding" } },
 		"mrt",
 	);
 
@@ -328,7 +348,7 @@ async function testParticleBindingCacheEviction() {
 		new FakeCommandEncoder(backend),
 		createBillboardContext(transient),
 		createParticleTargets(),
-		{ frameBinding: { label: "frame-binding" } },
+		{ particleFrameBinding: { label: "particle-frame-binding" } },
 		"single",
 	);
 	const binding = backend.bindingGroups.find(

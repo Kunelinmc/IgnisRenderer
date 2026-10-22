@@ -21,7 +21,6 @@ import {
 	WEBGPU_PHONG_MATERIAL_UNIFORM_BYTE_SIZE,
 	WEBGPU_PARTICLE_ATTR_INSTANCE_COLOR,
 	WEBGPU_PARTICLE_ATTR_INSTANCE_POSITION_SIZE,
-	WEBGPU_PARTICLE_ATTR_INSTANCE_RECEIVE_SHADOW,
 	WEBGPU_PARTICLE_ATTR_INSTANCE_ROTATION,
 	WEBGPU_PARTICLE_ATTR_INSTANCE_UV_RECT,
 	WEBGPU_PARTICLE_ATTR_QUAD_POSITION,
@@ -126,9 +125,9 @@ const PARTICLE_INSTANCE_STRUCT_LAYOUT = new StructuredBufferLayout(
 		{ name: "color", type: VEC4_F32 },
 		{ name: "uvRect", type: VEC4_F32 },
 		{ name: "rotation", type: F32 },
-		{ name: "receiveShadow", type: F32 },
 		{ name: "padding0", type: F32 },
 		{ name: "padding1", type: F32 },
+		{ name: "padding2", type: F32 },
 	]),
 	"vertex"
 );
@@ -183,10 +182,6 @@ export const WEBGPU_PARTICLE_VERTEX_LAYOUTS: VertexBufferLayout[] = [
 			{
 				path: "rotation",
 				shaderLocation: WEBGPU_PARTICLE_ATTR_INSTANCE_ROTATION,
-			},
-			{
-				path: "receiveShadow",
-				shaderLocation: WEBGPU_PARTICLE_ATTR_INSTANCE_RECEIVE_SHADOW,
 			},
 		],
 	}),

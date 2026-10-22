@@ -102,17 +102,11 @@ export class ShadowPlanner {
 			policy,
 			diagnostics
 		);
-		// Particle positions are not available until simulation. Keep the full
-		// scene bounds in that case instead of tightening the projection around
-		// mesh packets and clipping particle casters.
-		const meshCasterBounds = resolveShadowCasterBounds(
+		const casterBounds = resolveShadowCasterBounds(
 			options.casterIntent.meshSubmissions,
 			options.sceneBounds,
 			options.camera
 		);
-		const casterBounds = options.casterIntent.hasParticleCasters ?
-			options.sceneBounds
-		: meshCasterBounds;
 		const preparedLights: PreparedShadowLight[] = [];
 		const activeLights = new Set<ShadowCastingLight>();
 
@@ -157,7 +151,6 @@ export class ShadowPlanner {
 
 		const hasCasters =
 			options.casterIntent.meshSubmissions.length > 0 ||
-			options.casterIntent.hasParticleCasters ||
 			options.hasTransmissionCasters;
 		const hasRasterWork = hasCasters && preparedLights.length > 0;
 		const hasTransmissionWork =

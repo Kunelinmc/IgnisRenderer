@@ -94,7 +94,7 @@ export class WebGPUParticleRenderResources implements WebGPUParticleBillboardRen
 		mode: WebGPUSceneTargetMode,
 		options: WebGPUParticleRenderOptions = {},
 	): Promise<number> {
-		if (!frameResources?.frameBinding) {
+		if (!frameResources?.particleFrameBinding) {
 			throw new Error(
 				"WebGPUParticleRenderResources.renderParticles() requires prepared frame resources.",
 			);
@@ -183,7 +183,7 @@ export class WebGPUParticleRenderResources implements WebGPUParticleBillboardRen
 				instanceData[offset + 10] = particle.uvRect.u1;
 				instanceData[offset + 11] = particle.uvRect.v1;
 				instanceData[offset + 12] = particle.rotation;
-				instanceData[offset + 13] = batch.receiveShadows ? 1 : 0;
+				instanceData[offset + 13] = 0;
 				instanceData[offset + 14] = 0;
 				instanceData[offset + 15] = 0;
 				particleOffset++;
@@ -209,7 +209,7 @@ export class WebGPUParticleRenderResources implements WebGPUParticleBillboardRen
 				depthStoreOp: "store",
 			},
 		} as any);
-		encoder.setBindingGroup(0, frameResources.frameBinding);
+		encoder.setBindingGroup(0, frameResources.particleFrameBinding);
 		encoder.setVertexBuffer(0, this._particleQuadBuffer);
 		encoder.setVertexBuffer(1, this._particleInstanceBuffer);
 		const dirtyRects = this._resolveParticleDirtyRects(context, targets);
@@ -292,7 +292,7 @@ export class WebGPUParticleRenderResources implements WebGPUParticleBillboardRen
 				depthStoreOp: "store",
 			},
 		} as any);
-		encoder.setBindingGroup(0, frameResources.frameBinding);
+		encoder.setBindingGroup(0, frameResources.particleFrameBinding);
 		encoder.setVertexBuffer(0, this._particleQuadBuffer);
 		const dirtyRects = this._resolveParticleDirtyRects(context, targets);
 		const activeCacheKeys = new Set<string>();

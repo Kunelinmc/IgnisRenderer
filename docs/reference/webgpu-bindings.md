@@ -26,8 +26,8 @@ This document does not list vertex attribute `shaderLocation` values.
 
 WebGPU scene rendering uses stable bind group roles:
 
-- `group(0)` is frame-scoped scene data for scene, particle, deferred, and
-  post-process frame-aware passes.
+- `group(0)` is frame-scoped scene data for scene, deferred, and post-process
+  frame-aware passes. Billboard particles use a separate camera-and-fog group.
 - `group(1)` is model/material data for mesh scene passes, particle material
   data for particle render passes, or pass-specific animation data for shadow
   passes.
@@ -69,7 +69,7 @@ The following pipeline layouts must preserve these bind group roles:
 | `sceneDepthPrepassPipelineLayout` | `depthFrameBindGroupLayout` | `depthModelBindGroupLayout` | `depthMaterialBindGroupLayout` | N/A |
 | `deferredLightingPipelineLayout` | `sceneFrameBindGroupLayout` | `deferredUnusedBindGroupLayout` | `clusteredSceneBindGroupLayout` | `gbufferReadBindGroupLayout` |
 | `environmentPipelineLayout` | `environmentFrameBindGroupLayout` | N/A | N/A | N/A |
-| `particlePipelineLayout` | `sceneFrameBindGroupLayout` | `particleBindGroupLayout` | N/A | N/A |
+| `particlePipelineLayout` | `particleFrameBindGroupLayout` | `particleBindGroupLayout` | N/A | N/A |
 
 ### `sceneFrameBindGroupLayout` - `group(0)`
 
@@ -253,20 +253,13 @@ passes agree on the fixed index span for each cluster.
 
 ### Particle Render Bindings
 
-Particle render pipelines use `sceneFrameBindGroupLayout` as `group(0)` and
+Particle render pipelines use `particleFrameBindGroupLayout` as `group(0)` and
 `particleBindGroupLayout` as `group(1)`.
 
 | Group | Binding | Shader name | Resource contract |
 | --- | --- | --- | --- |
 | `0` | `0` | `frame` | `FrameCameraUniforms` uniform buffer |
-| `0` | `1` | `shadowAtlas` | `texture_depth_2d` |
-| `0` | `2` | `envSpecularTexture` | `texture_2d<f32>` |
-| `0` | `3` | `envSpecularSampler` | Filtering sampler |
 | `0` | `4` | `fog` | `FogUniforms` uniform buffer |
-| `0` | `6` | `shadowTransmittanceAtlas` | `texture_2d<f32>` |
-| `0` | `9` | `shadowComparisonSampler` | Comparison sampler |
-| `0` | `10` | `frameLights` | `FrameLightUniforms` uniform buffer |
-| `0` | `11` | `frameShadows` | `FrameShadowUniforms` uniform buffer |
 | `1` | `0` | `particleTexture` | `texture_2d<f32>` |
 | `1` | `1` | `particleSampler` | Filtering sampler |
 | `1` | `2` | `particleUVTransform` | Particle UV transform uniform buffer |

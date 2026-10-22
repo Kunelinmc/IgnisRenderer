@@ -127,6 +127,7 @@ export class WebGPUFrameBindingCache {
 	};
 	private _fogUniformData: Float32Array<ArrayBuffer> = new Float32Array(8);
 	private _sceneBinding: IBindingGroup | null = null;
+	private _particleFrameBinding: IBindingGroup | null = null;
 	private _depthFrameBinding: IBindingGroup | null = null;
 	private _decalFrameBinding: IBindingGroup | null = null;
 	private _environmentBinding: IBindingGroup | null = null;
@@ -493,6 +494,27 @@ export class WebGPUFrameBindingCache {
 		return this._sceneBinding;
 	}
 
+	/**
+	 * Returns camera and fog bindings for billboard particles.
+	 *
+	 * @internal Owned by WebGPU frame scopes; applications should use `Renderer.renderFrame()`.
+	 * @returns The cached particle frame group, sharing this scope's camera and fog buffers.
+	 * @sideEffects Lazily creates the binding group.
+	 */
+	public getParticleFrameBinding(): IBindingGroup {
+		if (!this._particleFrameBinding) {
+			this._particleFrameBinding = this._backend.createBindingGroup({
+				label: "WebGPUParticleFrameBinding",
+				layout: this._layouts.particleFrameBindGroupLayout,
+				entries: [
+					{ binding: 0, resource: this._getFrameCameraUniformBuffer() },
+					{ binding: 4, resource: this._getFogUniformBuffer() },
+				],
+			});
+		}
+		return this._particleFrameBinding;
+	}
+
 	private _getShadowComparisonSampler(): ISampler {
 		if (!this._shadowComparisonSampler) {
 			this._shadowComparisonSampler = this._backend.createSampler({
@@ -686,10 +708,12 @@ export class WebGPUFrameBindingCache {
 
 	public destroy(): void {
 		this._destroyBindingGroup(this._sceneBinding);
+		this._destroyBindingGroup(this._particleFrameBinding);
 		this._destroyBindingGroup(this._depthFrameBinding);
 		this._destroyBindingGroup(this._decalFrameBinding);
 		this._destroyBindingGroup(this._environmentBinding);
 		this._sceneBinding = null;
+		this._particleFrameBinding = null;
 		this._depthFrameBinding = null;
 		this._decalFrameBinding = null;
 		this._environmentBinding = null;
