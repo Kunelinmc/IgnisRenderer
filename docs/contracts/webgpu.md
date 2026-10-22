@@ -246,9 +246,10 @@ lighting, presentation configuration, reflections, and structured buffer packing
   clear, mesh accumulation, particle accumulation, resolve, transmission, and
   additive particle work. The OIT scene-color copy must occur in the prepare
   node before any accumulation node.
-- Shared transparency attachment builders must declare only attachment reads
-  and writes. Mesh and transmission paths must explicitly add shadow-resource
-  reads; billboard particle paths must use the attachment declarations directly.
+- Shared transparency attachment builders must take an explicit shadow-read
+  option. Mesh and transmission paths must enable shadow-resource reads;
+  billboard particle paths must disable them so those nodes declare attachment
+  reads only.
 - `WebGPUTransparencyRuntime` owns transparency graph planning and node
 	execution together with the OIT resolve shader, pipeline, sampler, and binding
 	lifecycle. It must not delegate planning to a separate transparency planner.
