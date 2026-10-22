@@ -371,7 +371,75 @@ async function testWebGPUEarlyZColorPipelineUsesReadOnlyDepthState() {
 	assert.ok(draw && draw.length > 0);
 	const pipelineDesc = draw[0].pipeline.desc;
 	assert.equal(pipelineDesc.depthStencil.depthWriteEnabled, false);
-	assert.equal(pipelineDesc.depthStencil.depthCompare, "less-equal");
+	assert.equal(pipelineDesc.depthStencil.depthCompare, "equal");
+}
+
+async function testOpaqueEqualDepthWinnerMatchesWithAndWithoutPrepass() {
+	for (const mode of ["single", "mrt", "color", "gbuffer"]) {
+		for (const alphaMode of [AlphaMode.Opaque, AlphaMode.Mask]) {
+			const backend = new FakeBackend();
+			const material = new PBRMaterial({ alphaMode });
+			const packet = createPacket(createModel([material]));
+			const owner = new WebGPURenderResources(
+				backend, backend, createWebGPUComputeFacade(backend),
+			);
+			owner.beginFrameResourceLifecycle();
+			try {
+				const prepared = owner.prepareFrame(
+					createFrameContext(createFrame(packet), resolveFeatureState({}, {}, "webgpu")),
+					createMainFrameOptions({ sceneTargetMode: mode }),
+				);
+				const state = async (drawMode) => {
+					const draws = await owner.getDrawResources(packet, prepared, {
+						sceneTargetMode: mode, sampleCount: 1, drawMode,
+					});
+					assert.ok(draws?.length);
+					return draws[0].pipeline.desc.depthStencil;
+				};
+				const normal = await state("default");
+				const depthOnly = await state("early-z-prepass");
+				const prepassed = await state("early-z-color");
+				const compare = (incoming, stored, operation) => {
+					switch (operation) {
+						case "less": return incoming < stored;
+						case "less-equal": return incoming <= stored;
+						case "equal": return incoming === stored;
+						default: throw new Error(`Unexpected depth comparison: ${operation}`);
+					}
+				};
+				const renderSample = (depths, participates) => {
+					let depth = 1;
+					let winner = -1;
+					for (let index = 0; index < depths.length; index++) {
+						if (participates[index] && compare(depths[index], depth, depthOnly.depthCompare)) {
+							if (depthOnly.depthWriteEnabled) depth = depths[index];
+						}
+					}
+					for (let index = 0; index < depths.length; index++) {
+						const draw = participates[index] ? prepassed : normal;
+						if (compare(depths[index], depth, draw.depthCompare)) {
+							winner = index;
+							if (draw.depthWriteEnabled) depth = depths[index];
+						}
+					}
+					return { depth, winner };
+				};
+				for (const [depths, expected] of [
+					[[0.5, 0.5], { depth: 0.5, winner: 1 }],
+					[[0.25, 0.75], { depth: 0.25, winner: 0 }],
+					[[0.75, 0.25], { depth: 0.25, winner: 1 }],
+					[[1, 1], { depth: 1, winner: 1 }],
+				]) {
+					for (const participates of [[false, false], [true, true], [true, false], [false, true]]) {
+						assert.deepEqual(renderSample(depths, participates), expected,
+							`${mode}/${alphaMode}: prepass participation must preserve sample visibility`);
+					}
+				}
+			} finally {
+				owner.destroy();
+			}
+		}
+	}
 }
 
 async function testWebGPUEarlyZShaderMaterialDepthContract() {
@@ -556,7 +624,7 @@ fn customFs() -> @location(0) vec4<f32> {
 	assert.ok(draw && draw.length > 0);
 	const pipelineDesc = draw[0].pipeline.desc;
 	assert.equal(pipelineDesc.depthStencil.depthWriteEnabled, false);
-	assert.equal(pipelineDesc.depthStencil.depthCompare, "less");
+	assert.equal(pipelineDesc.depthStencil.depthCompare, "less-equal");
 
 	const earlyZColorDraw = await resources.getDrawResources(
 		packet,
@@ -570,7 +638,7 @@ fn customFs() -> @location(0) vec4<f32> {
 	assert.ok(earlyZColorDraw && earlyZColorDraw.length > 0);
 	const earlyZColorPipelineDesc = earlyZColorDraw[0].pipeline.desc;
 	assert.equal(earlyZColorPipelineDesc.depthStencil.depthWriteEnabled, false);
-	assert.equal(earlyZColorPipelineDesc.depthStencil.depthCompare, "less");
+	assert.equal(earlyZColorPipelineDesc.depthStencil.depthCompare, "less-equal");
 }
 
 async function testWebGPUShaderMaterialCustomUniformBufferBinding() {
@@ -1198,6 +1266,7 @@ async function testFeatureOwnedWarmupCompilesDeferredSceneVariants() {
 
 async function run() {
 	try {
+		await testOpaqueEqualDepthWinnerMatchesWithAndWithoutPrepass();
 		await testBuiltinDepthUsesOnlyDepthResources();
 		await testDepthPreparationRejectsPolicyChangesDuringCompilation();
 		await testDepthPreparationRejectsCoverageChangesDuringUpload();

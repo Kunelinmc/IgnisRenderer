@@ -134,7 +134,7 @@ struct VertexInput {
 }
 
 struct VertexOutput {
-	@builtin(position) position: vec4<f32>,
+	@invariant @builtin(position) position: vec4<f32>,
 	@location(0) worldPosition: vec3<f32>,
 	@location(1) worldNormal: vec3<f32>,
 	@location(2) uv0: vec2<f32>,

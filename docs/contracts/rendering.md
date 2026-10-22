@@ -252,7 +252,7 @@ The option `enableEarlyZPrepass?: boolean` is accepted by `SoftwareBackendOption
 - **Default behavior**: `undefined` must be treated as `true`.
 - **Behavior contract**:
 	- When `true`, the main opaque path must execute a depth-only prepass before color/G-buffer shading.
-	- When `false`, the main opaque path must run without the prepass and must keep the legacy single-pass depth test and write behavior.
+	- When `false`, the main opaque path must run without the prepass and use the backend's single-pass depth state defined below.
 
 #### WebGL-Specific APIs
 
@@ -283,9 +283,18 @@ The option `enableEarlyZPrepass?: boolean` is accepted by `SoftwareBackendOption
 
 - **WebGPU Backend**:
 	- Opaque non-mask prepass must use depth-only pipeline state with `depthWriteEnabled = true` and `depthCompare = less`.
-	- Opaque color draws that were prepassed must use read-only depth state with `depthWriteEnabled = false` and `depthCompare = less-equal` (`early-z-color`).
-	- Opaque color draws that were not prepassed must keep legacy depth state (`depthWriteEnabled = material.depthWrite !== false` and `depthCompare = less`).
+	- Opaque color draws that were prepassed must use read-only depth state with `depthWriteEnabled = false` and `depthCompare = equal` (`early-z-color`).
+	- Opaque color draws that were not prepassed must use `depthWriteEnabled = material.depthWrite !== false` and `depthCompare = less-equal`, including draws whose prepass is unavailable.
 	- G-buffer draws that were prepassed must use the same read-only `early-z-color` depth state as legacy MRT color draws.
+	- At equal depth, the later opaque draw in the prepared color packet order
+	  must overwrite the earlier draw. Enabling the prepass must preserve that
+	  result for depth-writing draws with matching position and sample coverage.
+	- Built-in depth and color vertex outputs must mark `position` as
+	  `@invariant` and share current clip-position arithmetic. Deformation,
+	  jitter, culling, alpha discard, and sample coverage must agree between passes.
+	  Custom shaders opting into a prepass must satisfy the same equivalence.
+	- Transparent, transmission, particle, and shadow depth states retain their
+	  owning pass contracts; they must not inherit the opaque equality policy.
 - **WebGL Backend**:
 	- The depth prepass must use depth writes, `LESS` depth test, disabled blending, and disabled color writes.
 	- The following color pass must use `LEQUAL` depth test and read-only depth only for packet IDs submitted by the depth prepass.

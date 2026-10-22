@@ -157,6 +157,10 @@ async function testSharedFrameUniformABI() {
 		"webgpu.postprocess.screenSpaceRefractions", "webgpu.postprocess.volumetric",
 	]) {
 		const code = await loadCompiledWebGPUShader(key);
+		if (key === "webgpu.scene" || key === "webgpu.scene.depth") {
+			assert.ok(/@invariant\s+@builtin\(position\)\s+position:/.test(code),
+				`${key}: raster position must preserve depth equality across vertex programs`);
+		}
 		const camera = code.match(/struct FrameCameraUniforms\s*\{([^}]+)\}/)?.[1];
 		assert.ok(camera, `${key} must resolve the camera uniform import`);
 		for (const [name, type, offset] of cameraMembers) {

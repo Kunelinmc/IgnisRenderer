@@ -1434,38 +1434,67 @@ function testDisabledIncrementalRebasesBeforePartialUpdates() {
 }
 
 function testOpaqueSortKeepsCompatibleGroupsContiguous() {
-	const camera = createCamera();
+	const scene = new Scene();
+	const camera = scene.add(new Camera());
 	const material = new Material();
 	const otherMaterial = new Material();
 	material.name = otherMaterial.name = "same-name";
-	const geometryA = {};
-	const geometryB = {};
-	const make = (name, depth, geometry, effective = material) => {
-		const packet = createPacket(name, 0, 0.05);
-		packet.sortDepth = depth;
-		packet.submission.material = { ...packet.submission.material,
-			effective, pipelineKey: "same-pipeline" };
-		packet.submission.geometry = { ...packet.submission.geometry, resourceKey: geometry };
-		return packet;
+	const mesh = (effective) => MeshAsset.fromFaces([{
+		material: effective,
+		vertices: [{ x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }, { x: 0, y: 1, z: 0 }],
+	}]);
+	const geometryA = mesh(material);
+	const geometryB = mesh(material);
+	const add = (name, depth, asset) => {
+		const instance = scene.add(new MeshInstance({ name, mesh: asset }));
+		instance.position.z = -depth;
+		return instance;
 	};
-	const a = make("a", 3, geometryA);
-	const z = make("z", 1, geometryA);
-	const m = make("m", 2, geometryB);
-	const duplicateName = make("q", 2, geometryA, otherMaterial);
-	const transparent = [make("near", 1, geometryA), make("far", 3, geometryB)];
-	for (const [input, size] of [[[a, m, z], 3], [[a, m, z, duplicateName], 4],
-		[[z, a, duplicateName, m], 4], [[duplicateName, m, a, z], 4]]) {
-		PreparedSceneBuilder._finalizeViewPackets(input, transparent, camera, [], {});
-		const nearIndex = input.indexOf(z);
-		assert.equal(input[nearIndex + 1], a,
-			"compatible geometry must be contiguous and front-to-back regardless of instance IDs");
-		assert.equal(input.length, size, "all material and geometry groups remain present");
-		assert.deepEqual(transparent.map(packet => packet.sortDepth), [3, 1],
-			"transparent ordering remains back-to-front");
+	const a = add("a", 3, geometryA);
+	const m = add("m", 2, geometryB);
+	const z = add("z", 1, geometryA);
+	const q = add("q", 2, mesh(otherMaterial));
+	scene.updateWorldMatrices();
+	camera.updateMatrices();
+	const source = PreparedSceneBuilder.build({ scene, camera, hasActiveAnimations: false });
+	const ids = (frame) => frame.opaquePackets.map((p) => p.submission.source.instanceId);
+	assert.deepEqual(ids(source), [z.id, a.id, m.id, q.id],
+		"first-seen material/geometry groups remain contiguous and internally front-to-back");
+	for (const submissions of [source.submissions, [...source.submissions].reverse()]) {
+		assert.deepEqual(ids(PreparedSceneBuilder.buildView({ ...source, submissions }, camera)),
+			[z.id, a.id, m.id, q.id], "secondary views reuse resource ordering identities");
 	}
 }
 
+function testOpaqueMaterialOrderIgnoresNamesAndInitialCameraVisibility() {
+	const { scene, camera, instances, source } = createSubmissionReuseFixture();
+	const materials = instances.map((instance) => instance.mesh.primitives[0].material);
+	[materials[0].name, materials[1].name, materials[2].name] = [".011", ".009", ".001"];
+	instances[0].position.x = 100;
+	scene.updateWorldMatrices();
+	const cache = new PreparedScenePacketCache();
+	const build = () => {
+		cache.beginFrame();
+		const frame = PreparedSceneBuilder.build(source, { packetCache: cache });
+		cache.endFrame();
+		return frame;
+	};
+	const ids = (frame) => frame.opaquePackets.map((p) => p.submission.source.instanceId);
+	assert.deepEqual(ids(build()), [instances[1].id, instances[2].id],
+		"material names must not reverse first-prepared ordering");
+	instances[0].position.x = 0;
+	scene.updateWorldMatrices();
+	[materials[0].name, materials[1].name, materials[2].name] = ["zzz", "aaa", "mmm"];
+	const revealed = build();
+	const expected = instances.map((instance) => instance.id);
+	assert.deepEqual(ids(revealed), expected,
+		"offscreen submissions receive identities before camera filtering");
+	assert.deepEqual(ids(build()), expected, "cached submissions retain material order");
+	assert.deepEqual(ids(PreparedSceneBuilder.buildView(revealed, camera)), expected);
+}
+
 function run() {
+	testOpaqueMaterialOrderIgnoresNamesAndInitialCameraVisibility();
 	testOpaqueSortKeepsCompatibleGroupsContiguous();
 	testDisabledIncrementalRebasesBeforePartialUpdates();
 	testDecalOnlyMemoDoesNotMixOtherDecals();

@@ -372,6 +372,13 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
   exactly one submission and add only state owned by its camera view.
 - Packets belonging to different cameras may share a submission but must not
   share or overwrite view-dependent sorting state.
+- Opaque packets must remain grouped by pipeline, material identity, and
+  geometry identity, with front-to-back depth ordering inside each group.
+  Material and geometry ordering identities must be assigned in first
+  submission-preparation order before camera visibility filtering or sorting,
+  and must remain stable for those resource objects. Material names must not
+  affect draw order. Cached builds and secondary views must reuse these
+  identities without assigning them inside the sort comparator.
 - `PreparedSceneState.shadowCasterSubmissions` and
   `PreparedSceneState.shadowTransmitterSubmissions` must be the authoritative
   prepared mesh shadow collections. `PreparedScene` must not publish derived

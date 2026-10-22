@@ -293,7 +293,8 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 					isTransmissionCapture ? true
 					: isEarlyZColor ? false
 					: depthWrite && !isTransparent,
-				depthCompare: isEarlyZColor ? "less-equal" : "less",
+				// Preserve last-draw wins at equal depth with or without the prepass.
+				depthCompare: isTransparent ? "less" : isEarlyZColor ? "equal" : "less-equal",
 			},
 			sampleCount: resolvedSampleCount,
 		} as any);

@@ -49,7 +49,7 @@ struct DepthVertexInput {
 }
 
 struct DepthVertexOutput {
-	@builtin(position) position: vec4<f32>,
+	@invariant @builtin(position) position: vec4<f32>,
 	@location(0) uv0: vec2<f32>,
 	@location(1) uv1: vec2<f32>,
 	@location(2) uv2: vec2<f32>,

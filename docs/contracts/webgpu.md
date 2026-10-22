@@ -499,6 +499,9 @@ lighting, presentation configuration, reflections, and structured buffer packing
   corresponding depth binding even when authored material values are unchanged.
   Depth preparation must reject results when relevant draw policy or alpha
   coverage inputs change while shader compilation or texture resolution awaits.
+- Scene pipelines must implement the opaque equal-depth and invariant-position
+  rules in `docs/contracts/rendering.md`. Early-Z must remain enabled by default
+  and must not require an additional attachment or change the depth format.
 - Object and animation buffers must be shared through their resource owners;
   scene and depth binding lifetimes must not destroy each other's live buffers.
   Static depth preparation must reuse the instance arena without first creating

@@ -812,6 +812,10 @@ export class PreparedSceneBuilder {
 		materialRevision: number,
 	): DrawSubmission {
 		const material = primitive.material;
+		const geometry = resolveGeometryBinding(primitive);
+		// Assign resource order before camera filtering; sorting must only read it.
+		prepareOpaqueSortIdentity(material);
+		prepareOpaqueSortIdentity(geometry.resourceKey);
 		const isTransparent = isMaterialTransparentPass(material);
 		const isReflective =
 			material.reflectivity > 0 && material.mirrorPlane !== null;
@@ -845,7 +849,7 @@ export class PreparedSceneBuilder {
 		return {
 			id: `${meshInstance.id}:${primitive.id}`,
 			source,
-			geometry: resolveGeometryBinding(primitive),
+			geometry,
 			instance,
 			material: {
 				effective: material,
@@ -973,32 +977,23 @@ function compareOpaquePackets(left: DrawPacket, right: DrawPacket): number {
 	}
 
 	if (leftSubmission.material.effective !== rightSubmission.material.effective) {
-		const leftName = leftSubmission.material.effective.name;
-		const rightName = rightSubmission.material.effective.name;
-		if (leftName !== rightName) {
-			const nameCompare = leftName.localeCompare(rightName);
-			if (nameCompare !== 0) return nameCompare;
-		}
-		return getOpaqueSortIdentity(leftSubmission.material.effective) -
-			getOpaqueSortIdentity(rightSubmission.material.effective);
+		return opaqueSortIdentities.get(leftSubmission.material.effective)! -
+			opaqueSortIdentities.get(rightSubmission.material.effective)!;
 	}
 
 	if (leftSubmission.geometry.resourceKey !== rightSubmission.geometry.resourceKey) {
 		// One geometry must stay in one bucket even when its depths cross instance IDs.
-		return getOpaqueSortIdentity(leftSubmission.geometry.resourceKey) -
-			getOpaqueSortIdentity(rightSubmission.geometry.resourceKey);
+		return opaqueSortIdentities.get(leftSubmission.geometry.resourceKey)! -
+			opaqueSortIdentities.get(rightSubmission.geometry.resourceKey)!;
 	}
 
 	return left.sortDepth - right.sortDepth;
 }
 
-function getOpaqueSortIdentity(resource: object): number {
-	let identity = opaqueSortIdentities.get(resource);
-	if (identity === undefined) {
-		identity = nextOpaqueSortIdentity++;
-		opaqueSortIdentities.set(resource, identity);
+function prepareOpaqueSortIdentity(resource: object): void {
+	if (!opaqueSortIdentities.has(resource)) {
+		opaqueSortIdentities.set(resource, nextOpaqueSortIdentity++);
 	}
-	return identity;
 }
 
 function resolveSubmissionSortDepth(
