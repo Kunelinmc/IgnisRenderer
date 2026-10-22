@@ -281,6 +281,10 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
 - `Renderer` must not infer a frame reason from whether a target is public or
   renderer-private.
 - The `render-target` dirty reason must not be capture-relevant.
+- The `probe-capture` dirty reason must cover both probe capture progress and
+  completed capture writeback. It must belong to the `shading` dirty group,
+  invalidate the `geometry` pass group, force a full frame, and reset temporal
+  history without being capture-relevant.
 - Scene-view and custom-pass jobs must share ordering, transaction, generation,
   and readback semantics. `Renderer` must not expose a separate custom
   render-pass registry.

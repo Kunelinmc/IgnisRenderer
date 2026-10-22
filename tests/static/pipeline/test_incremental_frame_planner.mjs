@@ -308,6 +308,30 @@ function testCustomDirtyReasonAllocatesMaskAndPlansFirstPass() {
 	}
 }
 
+function testProbeCaptureForcesFullFrameAndResetsTemporal() {
+	for (const hasEnabledShadows of [false, true]) {
+		const plan = IncrementalFramePlanner.plan({
+			enabled: true,
+			reasonMask: renderDirtyReasonToMask("probe-capture"),
+			features: createFeatures(),
+			hasEnabledShadows,
+			postProcess: createPostProcess(),
+		});
+		assert.equal(plan.firstPass, hasEnabledShadows ? "shadow" : "main-opaque");
+		assert.equal(plan.postProcessStartPass, null);
+		assert.equal(plan.forceFullFrame, true);
+		assert.equal(plan.temporalHistoryReset, true);
+	}
+}
+
+function testRemovedReflectionProbeReasonUsesUnknownFallback() {
+	const registry = new IncrementalRegistry();
+	assert.equal(
+		registry.getDirtyReasonMask("reflection-probe"),
+		registry.getDirtyReasonMask("unknown")
+	);
+}
+
 function testCustomDirtyReasonUsesGroups() {
 	const registry = getDefaultIncrementalRegistry();
 	const reasonId = "custom-geometry-reason-test";
@@ -347,6 +371,8 @@ function run() {
 	testGeometryFallsBackToMainWhenShadowsDisabled();
 	testDisabledIncrementalAlwaysFullFrame();
 	testDecalStartsAtMainOpaqueWithoutFullFrame();
+	testProbeCaptureForcesFullFrameAndResetsTemporal();
+	testRemovedReflectionProbeReasonUsesUnknownFallback();
 	testCustomDirtyReasonAllocatesMaskAndPlansFirstPass();
 	testCustomDirtyReasonUsesGroups();
 	console.log("Incremental frame planner tests passed");

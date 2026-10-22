@@ -5,6 +5,14 @@ IgnisRenderer consumers and contributors. Completed implementation history that
 does not require an action is retained in Git rather than in the documentation
 tree.
 
+## Probe Capture Dirty Reason
+
+Replace the removed `reflection-probe` dirty reason and
+`RENDER_DIRTY_REASON_MASK["reflection-probe"]` with `probe-capture` and
+`RENDER_DIRTY_REASON_MASK["probe-capture"]`. Probe capture progress and completed
+reflection capture writeback now share this reason. The removed name has no
+compatibility alias and follows the normal unknown-reason fallback.
+
 ## Scene and ECS Projection
 
 Use scene nodes directly for rendering, interaction, animation, physics, and

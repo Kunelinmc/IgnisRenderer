@@ -37,7 +37,6 @@ export const RENDER_DIRTY_REASON_MASK = {
 	"postfx-light": 1 << 12,
 	"postfx-standard": 1 << 13,
 	"postfx-cinematic": 1 << 14,
-	"reflection-probe": 1 << 15,
 	decal: 1 << 16,
 	"probe-capture": 1 << 17,
 	"render-target": 1 << 18,
@@ -57,7 +56,6 @@ export const RENDER_DIRTY_GROUP = {
 		RENDER_DIRTY_REASON_MASK.texture |
 		RENDER_DIRTY_REASON_MASK.lighting |
 		RENDER_DIRTY_REASON_MASK.shadow |
-		RENDER_DIRTY_REASON_MASK["reflection-probe"] |
 		RENDER_DIRTY_REASON_MASK["probe-capture"] |
 		RENDER_DIRTY_REASON_MASK.decal,
 } as const;
@@ -477,13 +475,6 @@ const DIRTY_REASON_SEEDS: readonly DirtyReasonSeed[] = [
 		id: "postfx-cinematic",
 		mask: RENDER_DIRTY_REASON_MASK["postfx-cinematic"],
 		groups: ["postfx"],
-		temporalHistoryReset: true,
-	},
-	{
-		id: "reflection-probe",
-		mask: RENDER_DIRTY_REASON_MASK["reflection-probe"],
-		groups: ["geometry"],
-		forceFullFrame: true,
 		temporalHistoryReset: true,
 	},
 	{

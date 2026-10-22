@@ -377,8 +377,8 @@ Consumers must read its row-major values from `worldToGrid3x3.elements`.
   generation.
 - `ProbeCaptureRuntime` must write captured low-frequency radiance to
   `LightProbe.sh`.
-- `ProbeCaptureRuntime` must invalidate captured SH writes with a
-  non-capture-relevant dirty reason such as `probe-capture`; runtime capture
+- `ProbeCaptureRuntime` must invalidate captured SH writes with the
+  non-capture-relevant `probe-capture` dirty reason; runtime capture
   writeback must not invalidate an in-flight capture generation by itself.
 - `ProbeCaptureRuntime` must store radiance SH coefficients and must not store
   pre-convolved irradiance coefficients.
@@ -432,6 +432,9 @@ When initializing a `ReflectionProbe` or passing options to its constructor `Ref
   - The runtime capture executor must prioritize requested probes nearest to the active camera position first.
   - The frame budget for probe capture updates must default to `4ms`. If a task exceeds this limit, the capture resolution must temporarily scale down using steps `1.0 -> 0.75 -> 0.5`.
   - An unfinished capture must invalidate the next frame with the non-capture-relevant `probe-capture` reason so on-demand renderers continue the task.
+  - Completed reflection probe capture writeback must invalidate the scene with
+    the same `probe-capture` reason. Capture progress and writeback must not
+    invalidate capture-relevant scene state.
 - **Explicit Requests**:
   - `ReflectionProbe.requestCapture()` must increment `captureRequestToken` and `captureRevision` and must invalidate the attached scene so an on-demand renderer executes the request.
   - `ProbeCaptureRuntime` must execute a reflection probe capture only when `source === "capturedScene"` and a newer explicit request generation exists.

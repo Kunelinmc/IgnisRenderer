@@ -7,6 +7,7 @@ import { ReflectionProbe } from "../../../src/lights/ReflectionProbe.ts";
 import { IBLPrefilter } from "../../../src/lights/ibl/IBLPrefilter.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { ProbeCaptureRuntime } from "../../../src/lights/runtime/ProbeCaptureRuntime.ts";
+import { renderDirtyReasonToMask } from "../../../src/pipeline/incremental.ts";
 import { Renderer } from "../../../src/rendering/Renderer.ts";
 import {
 	installNoopPostProcessAdapter,
@@ -102,12 +103,26 @@ async function testCaptureRuntimeRequiresExplicitRequests() {
 			assert.equal(prefilterCalls.length, 0);
 
 			probe.requestCapture();
+			scene.consumeDirtyReasonMask();
 			for (let step = 0; step < 12 && prefilterCalls.length < 1; step++) {
 				await runtime.execute({ scene, nowMs: 60_016 + step * 16 });
 				await flushAsyncTasks();
 			}
 			assert.equal(prefilterCalls.length, 1);
 			assert.ok(probe.prefilteredMap);
+			const captureDirtyReasonMask = scene.consumeDirtyReasonMask();
+			assert.equal(
+				captureDirtyReasonMask,
+				renderDirtyReasonToMask("probe-capture")
+			);
+			await runtime.execute({
+				scene,
+				nowMs: 60_208,
+				frameDirtyReasonMask: captureDirtyReasonMask,
+			});
+			await flushAsyncTasks();
+			assert.equal(prefilterCalls.length, 1);
+			assert.equal(scene.dirtyReasonMask, 0);
 
 			scene.invalidate("lighting");
 			await runtime.execute({ scene, nowMs: 120_000 });

@@ -527,7 +527,7 @@ export class ProbeCaptureRuntime {
 				}
 				reflectionProbe.markCaptureUpdated();
 				reflectionProbe.markRuntimeDirty();
-				task.scene.invalidate("reflection-probe");
+				task.scene.invalidate("probe-capture");
 			} else {
 				if (target.kind === "grid") {
 					const grid = probe as IrradianceProbeGrid;
