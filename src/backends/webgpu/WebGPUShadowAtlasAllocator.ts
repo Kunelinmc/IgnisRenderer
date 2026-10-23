@@ -5,7 +5,7 @@ import {
 	WEBGPU_SHADOW_ATLAS_COLUMNS,
 	WEBGPU_SHADOW_ATLAS_ROWS,
 } from "./constants";
-import type { WebGPULightingState } from "./";
+import type { WebGPULightingState } from "./types";
 
 interface ShadowAtlas {
 	tileSize: number;
@@ -20,6 +20,11 @@ interface ShadowSlice {
 	atlasTileSize: number;
 }
 
+/**
+ * Owns reusable WebGPU depth and transmittance atlas textures.
+ *
+ * @internal WebGPU shadow resource owner; frame consumers use `WebGPUShadowRuntime`.
+ */
 export class WebGPUShadowAtlasAllocator {
 	private _backend: WebGPUDeviceResourceHost;
 	private _atlas: ShadowAtlas | null = null;
@@ -99,22 +104,6 @@ export class WebGPUShadowAtlasAllocator {
 
 	public get tileSize(): number {
 		return this._atlas?.tileSize ?? 0;
-	}
-
-	public get columns(): number {
-		return WEBGPU_SHADOW_ATLAS_COLUMNS;
-	}
-
-	public get rows(): number {
-		return WEBGPU_SHADOW_ATLAS_ROWS;
-	}
-
-	public get directionalAtlas(): IRenderTexture | null {
-		return this.atlas;
-	}
-
-	public get spotAtlas(): IRenderTexture | null {
-		return this.atlas;
 	}
 
 	public destroy(): void {

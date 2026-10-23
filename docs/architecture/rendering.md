@@ -32,6 +32,11 @@ Shadow enablement is definition-owned: `ShadowMapBase.enabled` is observed by
 `ShadowManager`, and no renderer feature flag independently gates the shadow
 pipeline.
 
+Within WebGPU, `WebGPUShadowRuntime` coordinates the atlas allocator and caster
+renderer directly. The allocator owns reusable depth and transmittance textures;
+the caster renderer owns pipelines, draw resources, and command encoding.
+`WebGPUShadowFrameModule` connects this runtime to the internal frame graph.
+
 Before the frame plan is created, `FrameCoordinator` composes prepared scene
 work, subsystem render intent, post-process intent, and resolved render support
 into backend-neutral `FramePassRequirements`. The default pipeline consumes

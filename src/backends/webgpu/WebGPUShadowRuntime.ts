@@ -4,21 +4,20 @@ import type { ICommandEncoder } from "../ICommandEncoder";
 import type { WebGPULightingState } from "./types";
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
 import type { WebGPUGeometryRegistry } from "./WebGPUGeometryRegistry";
-import { WebGPUAtlasShadowTechnique } from "./WebGPUAtlasShadowTechnique";
 import { WebGPUShadowAtlasAllocator } from "./WebGPUShadowAtlasAllocator";
 import { WebGPUShadowCasterRenderer } from "./WebGPUShadowCasterRenderer";
 import type { WebGPUAnimationPayloadPool } from "./WebGPUAnimationPayloadPool";
 import type { IRenderTexture } from "../types";
 
 /**
- * Sole WebGPU owner for atlas shadow technique.
+ * Coordinates WebGPU shadow atlas resources and caster execution.
  *
  * @internal `WebGPUFrameServiceOwner` delegates shadow resource lifecycle and
  * frame execution to this runtime.
  */
 export class WebGPUShadowRuntime {
 	private readonly _casterRenderer: WebGPUShadowCasterRenderer;
-	private readonly _atlasTechnique: WebGPUAtlasShadowTechnique;
+	private readonly _atlasAllocator: WebGPUShadowAtlasAllocator;
 
 	constructor(
 		backend: WebGPUDeviceResourceHost,
@@ -30,10 +29,7 @@ export class WebGPUShadowRuntime {
 			geometryRegistry,
 			animationPayloads
 		);
-		this._atlasTechnique = new WebGPUAtlasShadowTechnique(
-			new WebGPUShadowAtlasAllocator(backend),
-			this._casterRenderer,
-		);
+		this._atlasAllocator = new WebGPUShadowAtlasAllocator(backend);
 	}
 
 	public warmup(): Promise<void> {
@@ -45,28 +41,29 @@ export class WebGPUShadowRuntime {
 		framePackets: PreparedFramePacketSet,
 		encoder?: ICommandEncoder | null,
 	): Promise<void> {
-		return this._atlasTechnique.render(
+		return this._casterRenderer.renderAtlas(
 			context,
 			framePackets.shadowCasterSubmissions,
 			framePackets.shadowTransmitterSubmissions,
+			this._atlasAllocator,
 			encoder,
 		);
 	}
 
 	public prepareAtlas(lightingState: WebGPULightingState, tileSize: number): void {
-		this._atlasTechnique.prepare(lightingState, tileSize);
+		this._atlasAllocator.prepare(lightingState, tileSize);
 	}
 
 	public get atlas(): IRenderTexture | null {
-		return this._atlasTechnique.allocator.atlas;
+		return this._atlasAllocator.atlas;
 	}
 
 	public get transmittanceAtlas(): IRenderTexture | null {
-		return this._atlasTechnique.allocator.transmittanceAtlas;
+		return this._atlasAllocator.transmittanceAtlas;
 	}
 
 	public ensureAtlasForTileSize(tileSize: number): IRenderTexture {
-		return this._atlasTechnique.allocator.ensureAtlasForTileSize(tileSize);
+		return this._atlasAllocator.ensureAtlasForTileSize(tileSize);
 	}
 
 	public onShaderRuntimeChanged(): void {
@@ -74,7 +71,7 @@ export class WebGPUShadowRuntime {
 	}
 
 	public destroy(): void {
-		this._atlasTechnique.destroy();
+		this._atlasAllocator.destroy();
 		this._casterRenderer.destroy();
 	}
 }

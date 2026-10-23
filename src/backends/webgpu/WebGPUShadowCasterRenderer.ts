@@ -95,10 +95,12 @@ const SHADOW_INSTANCE_DATA_UINTS = 12;
 const DRAW_INDEXED_INDIRECT_UINTS = 5;
 
 /**
- * Encodes shadow-caster draws into targets selected by a shadow technique.
+ * Encodes depth and transmittance draws into runtime-owned shadow atlases.
  *
- * This renderer owns shared draw pipelines and transient instance resources. It
+ * This renderer owns draw pipelines and transient instance resources. It
  * does not own atlas allocation or frame-graph policy.
+ *
+ * @internal WebGPU shadow draw owner; frame consumers use `WebGPUShadowRuntime`.
  */
 export class WebGPUShadowCasterRenderer {
 	private _backend: WebGPUDeviceResourceHost;
@@ -139,7 +141,7 @@ export class WebGPUShadowCasterRenderer {
 		this._animationPayloads = animationPayloads;
 	}
 
-	/** @internal Encodes the atlas technique's caster work. */
+	/** @internal WebGPU shadow draw encoding; frame consumers use `WebGPUShadowRuntime`. */
 	public async renderAtlas(
 		context: FrameContext,
 		casterSubmissions: readonly DrawSubmission[],

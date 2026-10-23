@@ -229,17 +229,21 @@ lighting, presentation configuration, reflections, and structured buffer packing
   and feature-local pipeline/binding lifecycle. The orchestrator must not
   construct concrete feature runtimes, retain feature passes, or provide
   callback-only runtime wrappers for those features.
-- `WebGPUShadowRuntime` must be the sole frame-aware WebGPU shadow owner. It
-  must consume the atlas-oriented `FrameContext.shadowPlan`, own the atlas
-  technique executor, contribute shadow graph nodes and logical resources, and
-  publish backend-private sampling state. It must not mutate the shared plan.
-- `WebGPUAtlasShadowTechnique` must exclusively own atlas allocation and atlas
-  frame execution.
-- The atlas technique may use `WebGPUShadowCasterRenderer` for shared caster
-  pipeline and draw encoding. The caster renderer must not own atlas allocation,
-  capability decisions, or graph topology.
+- `WebGPUShadowRuntime` must be the sole frame-facing entry point for WebGPU
+  shadows. It must consume the atlas-oriented `FrameContext.shadowPlan`, directly
+  own the atlas allocator and caster renderer, coordinate atlas preparation and
+  frame execution, and publish backend-private sampling textures. It must not
+  mutate the shared plan.
+- `WebGPUShadowAtlasAllocator` must own depth and transmittance atlas allocation,
+  growth, device-limit clamping, and texture destruction.
+- `WebGPUShadowCasterRenderer` must own shadow pipelines, transient draw
+  resources, and depth/transmittance command encoding. It must borrow atlas
+  resources from the runtime-owned allocator without retaining or destroying
+  that allocator. It must not own capability decisions or graph topology.
+- `WebGPUShadowFrameModule` must own shadow graph nodes and their logical
+  resource writes, and execute them through the runtime's recording capability.
 - Frame consumers must obtain sampling resources through
-  `WebGPUShadowRuntime` instead of retaining the technique or its allocator.
+  `WebGPUShadowRuntime` instead of retaining its allocator or caster renderer.
 - WebGPU atlas sampling must implement the shared PCF and PCSS quality presets.
   One logical PCF tap must use bilinear comparison sampling.
 - Transparency graph nodes must separately represent OIT preparation, target
