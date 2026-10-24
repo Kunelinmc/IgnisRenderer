@@ -22,8 +22,7 @@ This document defines shader source ownership, composition, diagnostics, and cus
   `ShaderSourceSyncKey` contract. It must populate the same prepared cache used
   by `ShaderSource.get()`.
 - Browser bundles must include every approved synchronous source without
-  requiring prior asynchronous preparation. This includes the WebGPU and WebGL
-  material texture helpers used during custom-material program resolution.
+  requiring prior asynchronous preparation.
 - The generated synchronous source table must contain every backend manifest
   asset marked `sync`, with contents matching the source shader file.
 - `ShaderSource.has(key, params)` must report whether `ShaderSource.get()` can
@@ -136,6 +135,21 @@ This document defines shader source ownership, composition, diagnostics, and cus
   `ShaderMaterialGLSLToWGSL` transpiler. WebGPU must submit only the resolved
   WGSL output to the native shader-module API.
 - WebGL chunks must use GLSL.
+
+### ShaderMaterial custom textures
+
+- Fragment source augmentation must generate `ignisSampleTexture_<token>` and
+  `ignisSampleTextureLevel_<token>` for every resolved texture binding.
+- Both sampling functions must accept `uv0`, `uv1`, `uv2`, and `uv3` in that
+  order. The explicit-level function must additionally accept `level: f32` in
+  WGSL or `float lod` in GLSL.
+- Source generation must select the UV parameter directly from the binding's
+  normalized `uvSet` in the range `0` through `3`. Changing `uvSet` must update
+  shader/program cache identity.
+- Generated `IGNIS_TEXTURE_SLOT_<TOKEN>` and `IGNIS_TEXTURE_UVSET_<TOKEN>`
+  constants must retain the resolved binding metadata.
+- Sampling functions must follow the native texture sampling encoding contract
+  in [Materials Contract](materials.md).
 
 ### ShaderMaterial custom uniforms
 
@@ -316,6 +330,7 @@ bun tests/static/webgl/test_webgl_backend_scene_shadow_contracts.mjs
 
 ```bash
 bun tests/static/shaders/test_shader_source.mjs
+bun tests/static/shaders/test_shader_material.mjs
 bunx tsc --noEmit
 ```
 

@@ -789,8 +789,6 @@ function testBrowserSyncSourcesWithoutPreparation() {
 
 	try {
 		for (const key of [
-			"webgpu.material.textureHelpers",
-			"webgl.material.textureHelpers",
 			"webgpu.utility.mipmapBlit",
 		]) {
 			const manifest = key.startsWith("webgpu.") ?

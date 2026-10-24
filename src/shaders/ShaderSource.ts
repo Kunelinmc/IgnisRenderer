@@ -77,11 +77,9 @@ type WebGPUPostProcessKey = `webgpu.postprocess.${WebGPUPostProcessShaderPart}`;
 type WebGPUShadowKey = `webgpu.shadow.${WebGPUShadowShaderPart}`;
 type WebGPUUtilityKey = `webgpu.utility.${WebGPUUtilityShaderPart}`;
 type WebGPUDirectiveKey = `webgpu.directive.${WebGPUDirectiveShaderPart}`;
-type WebGPUMaterialKey = "webgpu.material.textureHelpers";
 type WebGLPartKey = `webgl.part.${WebGLShaderPart}`;
 type WebGLDirectiveKey =
 	`webgl.directive.${"animation" | "constants" | "srgb" | "fog" | "lumaWeights" | "lumaCommon"}`;
-type WebGLMaterialKey = "webgl.material.textureHelpers";
 
 export type ShaderSourceKey =
 	| WebGPUFixedShaderKey
@@ -90,19 +88,14 @@ export type ShaderSourceKey =
 	| WebGPUShadowKey
 	| WebGPUUtilityKey
 	| WebGPUDirectiveKey
-	| WebGPUMaterialKey
 	| WebGLPartKey
 	| WebGLDirectiveKey
-	| WebGLMaterialKey
 	| "webgl.scene"
 	| "webgl.scene.depth"
 	| "webgl.shadow.depth"
 	| "webgl.shadow.transmittance";
 
-export type ShaderSourceSyncKey =
-	| "webgpu.utility.mipmapBlit"
-	| "webgpu.material.textureHelpers"
-	| "webgl.material.textureHelpers";
+export type ShaderSourceSyncKey = "webgpu.utility.mipmapBlit";
 export type ShaderSourceParams<K extends ShaderSourceKey> =
 	K extends "webgl.scene" ? { specialization?: WebGLSceneVariantDescriptor }
 	: K extends "webgl.scene.depth" ? { specialization?: WebGLSceneDepthVariantDescriptor }
@@ -401,8 +394,6 @@ function createBrowserShaderSources(): ImportMetaGlobLoaderMap {
 		return import.meta.glob<string>([
 			"./webgl/**/*.glsl",
 			"./webgpu/**/*.wgsl",
-			"!./webgl/material/shaderMaterialTextureHelpers.glsl",
-			"!./webgpu/material/shaderMaterialTextureHelpers.wgsl",
 			"!./webgpu/utility/mipmapBlit.wgsl",
 		], { query: "?raw", import: "default" });
 	} catch { return {}; }
@@ -411,8 +402,6 @@ function createBrowserSyncShaderSources(): Record<string, string> {
 	if (Platform.isNodeRuntime()) return {};
 	try {
 		return import.meta.glob<string>([
-			"./webgl/material/shaderMaterialTextureHelpers.glsl",
-			"./webgpu/material/shaderMaterialTextureHelpers.wgsl",
 			"./webgpu/utility/mipmapBlit.wgsl",
 		], { query: "?raw", import: "default", eager: true });
 	} catch { return {}; }

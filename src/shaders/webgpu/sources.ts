@@ -208,10 +208,6 @@ const WEBGPU_DIRECTIVE_SHADER_FILES: Record<
 	lumaCommon: "./webgpu/directives/lumaCommon.wgsl",
 };
 
-const WEBGPU_SHADER_MATERIAL_FILES = {
-	textureHelpers: "./webgpu/material/shaderMaterialTextureHelpers.wgsl",
-} as const;
-
 const asset = (id: string): ShaderSourceNode => ({ asset: id });
 const concat = (
 	ids: readonly string[],
@@ -279,15 +275,6 @@ for (const [part, path] of Object.entries(WEBGPU_DIRECTIVE_SHADER_FILES)) {
 	sources[`webgpu.directive.${part}`] = {
 		kind: "module",
 		sourceKind: "unknown",
-		source: asset(id),
-	};
-}
-for (const [part, path] of Object.entries(WEBGPU_SHADER_MATERIAL_FILES)) {
-	const id = `material.${part}`;
-	assets[id] = { path, sync: true };
-	sources[`webgpu.material.${part}`] = {
-		kind: "module",
-		sourceKind: "custom-material",
 		source: asset(id),
 	};
 }

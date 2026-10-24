@@ -302,6 +302,13 @@ bindings must remove matching manual uniform, sampler, binding, and helper
 declarations. Generic hook-provided `ShaderInjectionScript` values remain
 supported.
 
+Custom material UV selection is resolved during shader source generation.
+The `webgpu.material.textureHelpers` and `webgl.material.textureHelpers` source
+keys are removed, and `ignisSelectShaderMaterialUv` is no longer injected.
+Custom chunks can use the existing per-binding `ignisSampleTexture_<token>`
+and `ignisSampleTextureLevel_<token>` functions with their existing parameters,
+or select their UV parameter explicitly.
+
 ## Software Backend Lifecycle
 
 `SoftwareBackend` participates in the same attach, initialize, frame

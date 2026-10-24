@@ -1144,16 +1144,48 @@ function testTextureBindingGeneratedSourceBlocks() {
 	);
 }
 
-function testTextureBindingUvSetGreaterThanOneIsPreserved() {
-	const material = new ShaderMaterial({ name: "TextureBindingUvClamp" });
-	material.setTextureBinding({
-		name: "detail",
-		texture: null,
-		uvSet: 2,
-	});
-	const bindings = material.getTextureBindings();
-	assert.equal(bindings.length, 1);
-	assert.equal(bindings[0].uvSet, 2);
+function testTextureBindingGeneratedUvSelection() {
+	const material = new ShaderMaterial({ name: "TextureBindingUvSelection" });
+	for (const [uvSet, selectedUv] of [
+		[0, "uv0"], [1, "uv1"], [2, "uv2"], [3, "uv3"],
+		[-1, "uv0"], [1.9, "uv1"], [9, "uv3"], [NaN, "uv0"],
+	]) {
+		const previousWebGPUKey = material.getWebGPUCacheKey();
+		const previousWebGLKey = material.getWebGLCacheKey();
+		material.setTextureBinding({ name: "detail", texture: null, uvSet });
+		assert.notEqual(material.getWebGPUCacheKey(), previousWebGPUKey);
+		assert.notEqual(material.getWebGLCacheKey(), previousWebGLKey);
+		for (const language of ["wgsl", "glsl"]) {
+			const generated = createShaderMaterialSourceBlocks({
+				material, language, stage: "fragment", source: "", wgslUniformBinding: 39,
+			}).map((block) => block.code).join("\n");
+			const parameters = language === "wgsl" ?
+				"uv0:vec2<f32>,uv1:vec2<f32>,uv2:vec2<f32>,uv3:vec2<f32>" :
+				"vec2uv0,vec2uv1,vec2uv2,vec2uv3";
+			for (const explicitLevel of [false, true]) {
+				const name = explicitLevel ? "ignisSampleTextureLevel_detail" :
+					"ignisSampleTexture_detail";
+				const fn = generated.match(new RegExp(
+					`(?:fn|vec4) ${name}\\(([^)]*)\\)[^{]*\\{([^}]*)\\}`,
+				));
+				assert.ok(fn, `${language} preserves ${name}`);
+				const levelParameter = language === "wgsl" ? ",level:f32" : ",floatlod";
+				assert.equal(fn[1].replace(/\s+/g, ""),
+					parameters + (explicitLevel ? levelParameter : ""));
+				assert.ok(fn[2].includes(
+					`${language === "wgsl" ? "let" : "vec2"} uv = ${selectedUv};`,
+				), `${language} ${name} selects ${selectedUv} for uvSet ${uvSet}`);
+				const sample = language === "wgsl" ?
+					explicitLevel ?
+						"textureSampleLevel(ignisShaderTexture_detail, ignisShaderSampler_detail, uv, level)" :
+						"textureSample(ignisShaderTexture_detail, ignisShaderSampler_detail, uv)" :
+					explicitLevel ? "textureLod(uShaderTex_detail, uv, lod)" :
+						"texture(uShaderTex_detail, uv)";
+				assert.ok(fn[2].includes(sample));
+				assert.ok(fn[2].includes("return sampled;"));
+			}
+		}
+	}
 }
 
 function testUniformBindingSchemaAndValueRevision() {
@@ -1597,7 +1629,7 @@ async function run() {
 	testChunkApiSupportsUnifiedShaderUpdates();
 	testTextureBindingAutoSlotAndUniformDefaults();
 	testTextureBindingGeneratedSourceBlocks();
-	testTextureBindingUvSetGreaterThanOneIsPreserved();
+	testTextureBindingGeneratedUvSelection();
 	testUniformBindingSchemaAndValueRevision();
 	testUniformBindingDuplicateDiagnostics();
 	testUniformBindingGeneratedSourceBlocks();

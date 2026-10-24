@@ -190,10 +190,6 @@ const WEBGL_DIRECTIVE_SHADER_FILES: Record<
 	lumaCommon: "./webgl/directives/lumaCommon.glsl",
 };
 
-const WEBGL_SHADER_MATERIAL_FILES = {
-	textureHelpers: "./webgl/material/shaderMaterialTextureHelpers.glsl",
-} as const;
-
 const literal = (value: string | number | boolean): ShaderManifestExpression => ({ literal: value });
 const parameter = (path: string): ShaderManifestExpression => ({ parameter: path });
 const equals = (path: string, value: string): ShaderManifestExpression => ({
@@ -500,15 +496,6 @@ for (const [part, path] of Object.entries(WEBGL_DIRECTIVE_SHADER_FILES)) {
 	sources[`webgl.directive.${part}`] = {
 		kind: "module",
 		sourceKind: "unknown",
-		source: asset(id),
-	};
-}
-for (const [part, path] of Object.entries(WEBGL_SHADER_MATERIAL_FILES)) {
-	const id = `material.${part}`;
-	assets[id] = { path, sync: true };
-	sources[`webgl.material.${part}`] = {
-		kind: "module",
-		sourceKind: "custom-material",
 		source: asset(id),
 	};
 }

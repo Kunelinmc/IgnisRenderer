@@ -4,13 +4,12 @@ import type {
 	ShaderMaterial,
 	ShaderMaterialUniformType,
 } from "../materials/ShaderMaterial";
-import { ShaderSource } from "./ShaderSource";
 import type {
 	ShaderGeneratedSourceBlock,
 	ShaderLanguage,
 } from "./runtime";
 
-export const SHADER_MATERIAL_SOURCE_ABI_REVISION = 3;
+export const SHADER_MATERIAL_SOURCE_ABI_REVISION = 4;
 
 export interface ShaderMaterialSourceOptions {
 	readonly material: ShaderMaterial;
@@ -184,11 +183,6 @@ function createWGSLTextureBlocks(
 	source: string,
 ): ShaderGeneratedSourceBlock[] {
 	if (bindings.length <= 0) return [];
-	for (const [name, declaration] of [
-		["ignisSelectShaderMaterialUv", /\bfn\s+ignisSelectShaderMaterialUv\b/m],
-	] as const) {
-		assertWGSLDeclarationAvailable(source, declaration, name);
-	}
 	const declarations: string[] = [];
 	const wrappers: string[] = [];
 	const usedTokens = new Set<string>();
@@ -224,16 +218,14 @@ function createWGSLTextureBlocks(
 			"\tuv0: vec2<f32>,\n\tuv1: vec2<f32>,\n" +
 			"\tuv2: vec2<f32>,\n\tuv3: vec2<f32>\n" +
 			") -> vec4<f32> {\n" +
-			`\tlet uv = ignisSelectShaderMaterialUv(` +
-			`uv0, uv1, uv2, uv3, ${uvConst});\n` +
+			`\tlet uv = uv${binding.uvSet};\n` +
 			`\tlet sampled = textureSample(${textureName}, ${samplerName}, uv);\n` +
 			"\treturn sampled;\n}\n\n" +
 			`fn ${levelFunctionName}(\n` +
 			"\tuv0: vec2<f32>,\n\tuv1: vec2<f32>,\n" +
 			"\tuv2: vec2<f32>,\n\tuv3: vec2<f32>,\n\tlevel: f32\n" +
 			") -> vec4<f32> {\n" +
-			`\tlet uv = ignisSelectShaderMaterialUv(` +
-			`uv0, uv1, uv2, uv3, ${uvConst});\n` +
+			`\tlet uv = uv${binding.uvSet};\n` +
 			`\tlet sampled = textureSampleLevel(` +
 			`${textureName}, ${samplerName}, uv, level);\n` +
 			"\treturn sampled;\n}",
@@ -245,12 +237,6 @@ function createWGSLTextureBlocks(
 			sourcePath: "<generated:webgpu:shader-material:textures>",
 			label: "webgpu-shader-material-textures",
 			anchor: "afterBindings",
-		},
-		{
-			code: ShaderSource.getSync("webgpu.material.textureHelpers").source.code,
-			sourcePath: "./webgpu/material/shaderMaterialTextureHelpers.wgsl",
-			label: "webgpu-shader-material-shared-texture-helpers",
-			anchor: "beforeEntryPoint",
 		},
 		{
 			code: wrappers.join("\n\n"),
@@ -303,15 +289,6 @@ function createGLSLTextureBlocks(
 	source: string,
 ): ShaderGeneratedSourceBlock[] {
 	if (bindings.length <= 0) return [];
-	for (const name of [
-		"ignisSelectShaderMaterialUv",
-	]) {
-		if (new RegExp(`\\b(?:vec[234]\\s+)?${name}\\s*\\(`, "m").test(source)) {
-			throw new Error(
-				`ShaderMaterial GLSL source redeclares reserved helper "${name}".`,
-			);
-		}
-	}
 	const declarations: string[] = [];
 	const wrappers: string[] = [];
 	const usedTokens = new Set<string>();
@@ -337,14 +314,12 @@ function createGLSLTextureBlocks(
 		);
 		wrappers.push(
 			`vec4 ${functionName}(vec2 uv0, vec2 uv1, vec2 uv2, vec2 uv3) {\n` +
-			`\tvec2 uv = ignisSelectShaderMaterialUv(` +
-			`uv0, uv1, uv2, uv3, ${uvConst});\n` +
+			`\tvec2 uv = uv${binding.uvSet};\n` +
 			`\tvec4 sampled = texture(${binding.webglUniform}, uv);\n` +
 			"\treturn sampled;\n}\n\n" +
 			`vec4 ${levelFunctionName}(` +
 			"vec2 uv0, vec2 uv1, vec2 uv2, vec2 uv3, float lod) {\n" +
-			`\tvec2 uv = ignisSelectShaderMaterialUv(` +
-			`uv0, uv1, uv2, uv3, ${uvConst});\n` +
+			`\tvec2 uv = uv${binding.uvSet};\n` +
 			`\tvec4 sampled = textureLod(${binding.webglUniform}, uv, lod);\n` +
 			"\treturn sampled;\n}",
 		);
@@ -355,12 +330,6 @@ function createGLSLTextureBlocks(
 			sourcePath: "<generated:webgl:shader-material:textures>",
 			label: "webgl-shader-material-textures",
 			anchor: "afterUniforms",
-		},
-		{
-			code: ShaderSource.getSync("webgl.material.textureHelpers").source.code,
-			sourcePath: "./webgl/material/shaderMaterialTextureHelpers.glsl",
-			label: "webgl-shader-material-shared-texture-helpers",
-			anchor: "beforeEntryPoint",
 		},
 		{
 			code: wrappers.join("\n\n"),
