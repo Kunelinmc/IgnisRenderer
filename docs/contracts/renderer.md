@@ -376,6 +376,25 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
 
 ### Incremental rendering
 
+- Each `Renderer` must own an independent incremental registry. Runtime pass
+  registration, ordering, dirty-reason descriptors, and post-process metadata
+  must not mutate another renderer's registry. The standalone default registry
+  may seed a new runtime, but later mutations must not change that runtime.
+- Renderer-local dirty reasons must retain their local meaning when scheduling
+  a frame. Scene-originated reasons must be resolved by reason identity rather
+  than assuming that independently allocated custom reason bits are equal.
+- A failed frame must remain eligible for retry. Consumed requests and backend
+  invalidations must not be lost, including requests received during the failed
+  attempt. Preparation history from that attempt must be invalidated, and the
+  next attempt must reconstruct the full frame before partial reuse resumes.
+- Global post-process invalidation, including display exposure and enabled-pass
+  changes, must replay the complete scene and post-process chain. This remains
+  required when local packet or backend dirty rectangles exist in the same frame;
+  a previous display-domain result must not be reused as scene-linear input.
+- When scene work changes while shadows or visible planar-reflection surfaces
+  are active, the renderer must conservatively rebuild full-frame coverage and
+  execute the shadow and reflection producers before their scene consumers.
+  This rule also applies to changes detected without an explicit dirty reason.
 - `PreparedSceneBuilder` must resolve mesh authoring state into a
   camera-independent readonly `DrawSubmission`. A `DrawPacket` must reference
   exactly one submission and add only state owned by its camera view.
@@ -428,6 +447,10 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
   within one synchronous `PreparedSceneCache.build()` only. Each build must
   observe current contents using the existing signature fields and precision.
   Decal-specific values must not mutate a shared material signature.
+- Packet and decal dirty-state comparisons must include material object identity
+  and its complete render-state revision. Changes to material-specific factors,
+  shader uniforms, texture identity, and texture sampling state must not be
+  omitted because an unrelated packet also changed during the same frame.
 - Successful submission validation may be consumed once by the following full
   build within the same synchronous preparation. Failed checks must not be
   memoized. Ending preparation, starting another preparation, clearing the
@@ -482,6 +505,10 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
   `IncrementalTileRange` values.
 - The updated and reusable ranges of each coverage object must partition its
   complete tile grid.
+- Reported dirty tiles and dirty area must describe the final clamped execution
+  rectangles after merging and rectangle-count reduction. Any tiles introduced
+  by rectangle expansion must participate in area-ratio fallback and must not
+  be reported as reusable.
 - `finalOutputCoverage` must report `"full"` unless every backend path that
   affects final visible output proves it preserved non-dirty tiles.
 - `"unchanged"` must be used for an on-demand clean frame. Its reusable range

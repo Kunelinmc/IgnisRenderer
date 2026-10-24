@@ -256,6 +256,7 @@ export class FrameCoordinator {
 				);
 			}
 			await this._abortFailedFrame(error, state.frameStarted);
+			this._preparedSceneCache.reset();
 			throw error;
 		}
 	}
@@ -532,6 +533,7 @@ export class FrameCoordinator {
 			features: state.resolved,
 			postProcess: state.resolvedPostProcess,
 			incrementalOptions: delegate.incrementalOptions,
+			incrementalRegistry: delegate.pipeline.incremental,
 			occlusionVisibilityProvider: this._occlusionCullingController.getVisibilityProvider(
 				state.resolved,
 			),
@@ -547,6 +549,8 @@ export class FrameCoordinator {
 			hasEnabledShadows: delegate.scene.shadows.hasEnabledBinding(
 				state.frame.lights,
 			),
+			hasEnabledReflections: state.resolved.enableReflection &&
+				state.frame.reflectivePackets.length > 0,
 			postProcess: state.resolvedPostProcess,
 			registry: delegate.pipeline.incremental,
 		});

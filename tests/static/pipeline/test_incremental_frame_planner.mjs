@@ -98,6 +98,7 @@ function testPostFxStartsAtFirstEnabledPostStage() {
 	});
 	assert.equal(plan.firstPass, "postprocess");
 	assert.equal(plan.postProcessStartPass, "bloom");
+	assert.equal(plan.forceFullFrame, true, "global postprocess changes require scene replay");
 }
 
 function testBuiltInPostProcessStageUsesPassMetadata() {
@@ -264,7 +265,7 @@ function testDisabledIncrementalAlwaysFullFrame() {
 	assert.equal(plan.temporalHistoryReset, true);
 }
 
-function testDecalStartsAtMainOpaqueWithoutFullFrame() {
+function testDecalWithShadowsRequiresFullReceiverReplay() {
 	const plan = IncrementalFramePlanner.plan({
 		enabled: true,
 		reasonMask: renderDirtyReasonToMask("decal"),
@@ -274,7 +275,7 @@ function testDecalStartsAtMainOpaqueWithoutFullFrame() {
 	});
 	assert.equal(plan.firstPass, "main-opaque");
 	assert.equal(plan.postProcessStartPass, null);
-	assert.equal(plan.forceFullFrame, false);
+	assert.equal(plan.forceFullFrame, true);
 	assert.equal(plan.temporalHistoryReset, true);
 }
 
@@ -370,7 +371,7 @@ function run() {
 	testCameraForcesFullAndResetsTemporal();
 	testGeometryFallsBackToMainWhenShadowsDisabled();
 	testDisabledIncrementalAlwaysFullFrame();
-	testDecalStartsAtMainOpaqueWithoutFullFrame();
+	testDecalWithShadowsRequiresFullReceiverReplay();
 	testProbeCaptureForcesFullFrameAndResetsTemporal();
 	testRemovedReflectionProbeReasonUsesUnknownFallback();
 	testCustomDirtyReasonAllocatesMaskAndPlansFirstPass();

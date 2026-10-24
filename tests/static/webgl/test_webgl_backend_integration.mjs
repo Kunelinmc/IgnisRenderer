@@ -5,6 +5,7 @@ import { Logger } from "../../../src/foundation/Logger.ts";
 import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";import { Matrix4 } from "../../../src/maths/Matrix4.ts";import { drawWebGLPacket } from "../../../src/backends/webgl/WebGLScenePass.ts";import { WebGLBackend } from "../../../src/backends/webgl/WebGLBackend.ts";import { PARTICLE_SIM_DELTA_TIME_SECONDS_KEY } from "../../../src/pipeline/types.ts";import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";import { createScenePassCaptureGL, runWebGLBackendFile } from "../../helpers/webgl-backend.mjs";import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 import { CameraType } from "../../../src/cameras/Camera.ts";
 import { WebGLEnvironmentRenderer } from "../../../src/backends/webgl/WebGLEnvironmentRenderer.ts";
+import { WebGLSceneRuntime } from "../../../src/backends/webgl/WebGLSceneRuntime.ts";
 import { WebGLFullscreenRenderer } from "../../../src/backends/webgl/WebGLFullscreenRenderer.ts";
 import { WebGLTransparencyWarmupContributor } from "../../../src/backends/webgl/WebGLTransparencyRuntime.ts";
 
@@ -59,7 +60,7 @@ function testEnvironmentRendererOwnsProgramAndDrawLifecycle() {
 		getWidth: () => 64,
 		getHeight: () => 32,
 	});
-	const rendered = renderer.render({
+	const context = {
 		viewCamera: {
 			type: CameraType.Perspective,
 			fov: 60,
@@ -68,13 +69,15 @@ function testEnvironmentRendererOwnsProgramAndDrawLifecycle() {
 		},
 		scene: {
 			environment: {
+				backgroundEnabled: true,
 				backgroundTexture: {},
 				backgroundTintLinear: { r: 1, g: 0.5, b: 0.25 },
 				backgroundExposure: 1,
 				backgroundStrength: 1,
 			},
 		},
-	});
+	};
+	const rendered = renderer.render(context);
 	assert.equal(rendered, true);
 	assert.equal(gl.calls.drawArrays, 1);
 	assert.deepEqual(gl.calls.depthMask, [false, true]);
@@ -83,6 +86,38 @@ function testEnvironmentRendererOwnsProgramAndDrawLifecycle() {
 		plan: { enableEnvironment: true },
 		postProcessPlan: null,
 	}).length, 1);
+	const dirtyRects = [
+		{ x: 2, y: 3, width: 4, height: 5 },
+		{ x: 40, y: 12, width: 6, height: 4 },
+	];
+	const draws = [];
+	let scissorEnabled = false;
+	const enable = gl.enable;
+	const disable = gl.disable;
+	gl.enable = (capability) => {
+		if (capability === gl.SCISSOR_TEST) scissorEnabled = true;
+		enable(capability);
+	};
+	gl.disable = (capability) => {
+		if (capability === gl.SCISSOR_TEST) scissorEnabled = false;
+		disable(capability);
+	};
+	gl.drawArrays = () => draws.push(scissorEnabled ? gl.calls.scissor.at(-1) : "full");
+	const scene = new WebGLSceneRuntime({
+		gl, modelMatrixCache: new Map(), modelMatrixKeysThisFrame: new Set(),
+		getWidth: () => 64, getHeight: () => 32,
+		isIncrementalPartial: () => true,
+		resolveDirtyRects: () => dirtyRects,
+		setScissorRect: (x, y, width, height, viewportHeight) =>
+			gl.scissor(x, viewportHeight - y - height, width, height),
+		renderEnvironment: (frame) => renderer.render(frame),
+	});
+	scene.renderEnvironment({ ...context, features: { enableEnvironment: true } });
+	assert.deepEqual(draws, [
+		{ x: 2, y: 24, width: 4, height: 5 },
+		{ x: 40, y: 16, width: 6, height: 4 },
+	], "environment draws must stay inside the cleared dirty regions");
+	assert.equal(scissorEnabled, false);
 	renderer.destroy();
 	assert.equal(slotDestroyed, true);
 }

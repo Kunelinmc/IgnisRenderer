@@ -297,6 +297,10 @@ export class ShaderMaterial extends Material {
 		return this._uniformValueRevision;
 	}
 
+	protected override _getAdditionalRenderState(): Iterable<unknown> {
+		return this._textureBindings.values();
+	}
+
 	public get chunks(): ShaderChunk[] {
 		const chunks: ShaderChunk[] = [];
 		for (const key of SHADER_CHUNK_ORDER) {

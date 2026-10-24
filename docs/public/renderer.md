@@ -96,6 +96,20 @@ if (!result.rendered) {
 }
 ```
 
+A rejected frame remains eligible for retry. Call `renderFrame()` again after
+handling the error; the next attempt reconstructs the complete frame before
+partial reuse resumes.
+
+Incremental rendering preserves local updates where their effects can be bounded.
+Changes to post-process configuration or display exposure redraw the complete
+scene, including when an object also changes. Scene edits with active shadows
+or visible planar reflections conservatively redraw the full frame as well.
+
+Register renderer-specific dirty reasons and passes through `renderer.pipeline`.
+Each renderer owns its registration state; changing another renderer's pass
+metadata cannot change this renderer's dirty coverage. Standalone default
+registry helpers seed future runtimes and do not reconfigure existing ones.
+
 #### Canvas size
 
 `initialize()` calls `resizeCanvas()` once. Call it again whenever the canvas

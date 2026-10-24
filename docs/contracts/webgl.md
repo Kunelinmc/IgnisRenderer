@@ -4,6 +4,11 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
 
 ## Contract
 
+- Incremental scene clears must reconstruct an enabled environment background
+  inside the same dirty rectangles before geometry draws. Partial-frame status
+  must not suppress environment planning or execution after those clears.
+- Global post-process invalidation must reconstruct the full scene before
+  running the post-process chain, including when a local scene edit coincides.
 - WebGL scene lighting must use the forward material path. Its material G-buffer
   is a post-processing resource, not a deferred lighting resolve. Cross-backend
   verification must identify WebGL deferred lighting as unsupported.

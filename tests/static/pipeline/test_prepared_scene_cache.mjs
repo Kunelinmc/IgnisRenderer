@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { Material } from "../../../src/materials/Material.ts";
+import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
+import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";
+import { Texture } from "../../../src/core/Texture.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { Camera } from "../../../src/cameras/Camera.ts";
 import { Scene } from "../../../src/core/Scene.ts";
@@ -152,6 +155,8 @@ function testPacketDiffLifecycle() {
 	const packetA0 = createPacket("A", 0.0, 0.08);
 	const packetA1 = createPacket("A", 0.0, 0.08);
 	const packetA2 = createPacket("A", 0.45, 0.08);
+	packetA1.submission.material.effective = packetA0.submission.material.effective;
+	packetA2.submission.material.effective = packetA0.submission.material.effective;
 	const frames = [
 		createFrame(camera, [packetA0]),
 		createFrame(camera, [packetA1]),
@@ -263,11 +268,145 @@ function testBackendDirtyRectsJoinPreparedCoverage() {
 	}
 }
 
+function testMergedExecutionCoverageIncludesExpandedTiles() {
+	const originalBuild = PreparedSceneBuilder.build;
+	PreparedSceneBuilder.build = () => createFrame(createCamera(), []);
+	try {
+		for (const fallbackRatio of [1, 0.2]) {
+			const cache = new PreparedSceneCache();
+			const input = {
+				viewportWidth: 128, viewportHeight: 128,
+				features: createFeatures(), postProcess: createResolvedPostProcess(),
+				incrementalOptions: {
+					...DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
+					fullFrameFallbackAreaRatio: fallbackRatio,
+				},
+			};
+			cache.build(input);
+			const result = cache.build({ ...input, additionalDirtyRects: [
+				{ x: 0, y: 0, width: 1, height: 1 },
+				{ x: 33, y: 0, width: 1, height: 1 },
+				{ x: 0, y: 33, width: 1, height: 1 },
+			] });
+			if (fallbackRatio === 1) {
+				assert.deepEqual(result.dirtyRects, [{ x: 0, y: 0, width: 64, height: 64 }]);
+				assert.deepEqual(result.dirtyTiles, [0, 1, 4, 5],
+					"tiles introduced by rectangle merging cannot be reported as reusable");
+				assert.equal(result.dirtyAreaRatio, 0.25);
+			} else {
+				assert.equal(result.forceFullFrame, true,
+					"the expanded execution area must participate in fallback");
+				assert.equal(result.dirtyAreaRatio, 1);
+			}
+		}
+	} finally {
+		PreparedSceneBuilder.build = originalBuild;
+	}
+}
+
+function testCompleteMaterialChangesDirtyEveryAffectedPacket() {
+	const texture = () => new Texture({
+		width: 1, height: 1, data: new Uint8Array([255, 255, 255, 255]),
+	});
+	const changes = [
+		["roughness", (primitive) => { primitive.material.roughness = 0.9; }],
+		["metalness", (primitive) => { primitive.material.metalness = 0.8; }],
+		["specular", (primitive) => { primitive.material.specularFactor = 0.3; }],
+		["texture identity", (primitive) => { primitive.material.map = texture(); }],
+		["texture sampling", (primitive) => { primitive.material.map.offset.x = 0.2; }],
+		["material identity", (primitive) => {
+			primitive.material = new PBRMaterial({ roughness: 0.9 });
+		}],
+		["custom texture upload", (primitive) => {
+			primitive.material.getTextureBindings()[0].texture.markNeedsUpdate();
+		}],
+		["custom texture sampling", (primitive) => {
+			primitive.material.getTextureBindings()[0].texture.offset.x = 0.2;
+		}],
+	];
+	for (const [label, change] of changes) {
+		const fixture = createSubmissionReuseFixture(2);
+		fixture.camera.position.set(0, 0, 4);
+		fixture.camera.aspectRatio = 640 / 360;
+		const primitives = fixture.instances.map((instance, index) => {
+			instance.position.x = index === 0 ? -1.1 : 1.1;
+			instance.scale.set(0.2, 0.2, 0.2);
+			const primitive = instance.mesh.primitives[0];
+			primitive.material = index === 1 && label.startsWith("custom texture") ?
+				new ShaderMaterial({ textureBindings: [{ name: "customMap", texture: texture() }] }) :
+				new PBRMaterial({ map: texture() });
+			return primitive;
+		});
+		fixture.scene.updateWorldMatrices();
+		fixture.camera.updateMatrices();
+		const cache = new PreparedSceneCache();
+		const input = {
+			source: fixture.source, viewportWidth: 640, viewportHeight: 360,
+			features: createFeatures(), postProcess: createResolvedPostProcess(),
+			incrementalOptions: {
+				...DEFAULT_INCREMENTAL_RENDERING_OPTIONS, fullFrameFallbackAreaRatio: 1,
+			},
+		};
+		const baseline = cache.build(input);
+		assert.equal(cache.build(input).dirtyRects.length, 0);
+		primitives[0].material.albedo.r = 128;
+		change(primitives[1]);
+		const changed = cache.build(input);
+		for (const instance of fixture.instances) {
+			const packet = baseline.frame.opaquePackets.find((candidate) =>
+				candidate.submission.source.instanceId === instance.id);
+			assert.ok(packet);
+			const rect = baseline.packetRects.get(packet.submission.id);
+			assert.ok(changed.dirtyRects.some((candidate) => rectContainsRect(candidate, rect)),
+				`${label}: both independently changed packets need dirty coverage`);
+		}
+		assert.equal(cache.build(input).dirtyRects.length, 0);
+	}
+}
+
+function testCompleteMaterialChangesDirtyEveryAffectedDecal() {
+	for (const replaceMaterial of [false, true]) {
+		const decals = [
+			createDecalPacket("complete-left", -0.5, 0.04, { material: new PBRMaterial() }),
+			createDecalPacket("complete-right", 0.5, 0.04, { material: new PBRMaterial() }),
+		];
+		const frame = createFrame(createCamera(), [], decals);
+		const originalBuild = PreparedSceneBuilder.build;
+		PreparedSceneBuilder.build = () => frame;
+		try {
+			const cache = new PreparedSceneCache();
+			const input = {
+				viewportWidth: 320, viewportHeight: 180,
+				features: createFeatures(), postProcess: createResolvedPostProcess(),
+				incrementalOptions: {
+					...DEFAULT_INCREMENTAL_RENDERING_OPTIONS, fullFrameFallbackAreaRatio: 1,
+				},
+			};
+			cache.build(input);
+			decals[0].opacity = 0.4;
+			if (replaceMaterial) decals[1].material = new PBRMaterial({ roughness: 0.9 });
+			else decals[1].material.roughness = 0.9;
+			const changed = cache.build(input);
+			for (const x of [80, 240]) {
+				assert.ok(changed.dirtyRects.some((rect) =>
+					rect.x <= x && x < rect.x + rect.width &&
+					rect.y <= 90 && 90 < rect.y + rect.height),
+				"decal-local changes must not hide another decal's material change");
+			}
+			assert.equal(cache.build(input).dirtyRects.length, 0);
+		} finally {
+			PreparedSceneBuilder.build = originalBuild;
+		}
+	}
+}
+
 function testDecalDiffLifecycle() {
 	const camera = createCamera();
 	const decalA0 = createDecalPacket("decal-A", 0.0, 0.08);
 	const decalA1 = createDecalPacket("decal-A", 0.0, 0.08);
 	const decalA2 = createDecalPacket("decal-A", 0.45, 0.08);
+	decalA1.material = decalA0.material;
+	decalA2.material = decalA0.material;
 	const frames = [
 		createFrame(camera, [], [decalA0]),
 		createFrame(camera, [], [decalA1]),
@@ -332,6 +471,7 @@ function testDecalStateDiffDetectsBlendAndOpacityChanges() {
 		},
 	});
 	const decalChanged = createDecalPacket("decal-state", 0.0, 0.08, {
+		material: decalBase.material,
 		opacity: 0.75,
 		channelBlendModes: {
 			baseColor: "multiply",
@@ -491,6 +631,7 @@ function testMatrixDiffDetectsSmallFloatChanges() {
 	const camera = createCamera();
 	const packetBase = createPacket("S", 0, 0.08);
 	const packetSmallDelta = createPacket("S", 0, 0.08);
+	packetSmallDelta.submission.material.effective = packetBase.submission.material.effective;
 	packetSmallDelta.submission.instance.worldMatrix.elements[0][3] = 0.00001;
 
 	const frames = [
@@ -641,6 +782,10 @@ function testDeformationRevisionAndBoundsDirtyPreviousAndCurrentCoverage() {
 	const boundsOnlyPacket = createPacket("skin", 0, 0.08, 3);
 	boundsOnlyPacket.submission.worldBounds.center.x = 0.3;
 	const deformationRemovedPacket = createPacket("skin", 0, 0.08, 0);
+	for (const packet of [currentPacket, unchangedPacket, revisionOnlyPacket,
+		boundsOnlyPacket, deformationRemovedPacket]) {
+		packet.submission.material.effective = previousPacket.submission.material.effective;
+	}
 	const frames = [
 		createFrame(camera, [previousPacket]),
 		createFrame(camera, [currentPacket]),
@@ -799,6 +944,9 @@ function testCameraMatrixChangeForcesFullFrameAndRebasesPacketRects() {
 	const rotatedPacket = createPacket("camera-skin", 0, 0.08, 1);
 	const stablePacket = createPacket("camera-skin", 0, 0.08, 2);
 	const animatedPacket = createPacket("camera-skin", 0, 0.08, 2);
+	for (const packet of [rotatedPacket, stablePacket, animatedPacket]) {
+		packet.submission.material.effective = initialPacket.submission.material.effective;
+	}
 	stablePacket.submission.worldBounds.center.x = 0.15;
 	animatedPacket.submission.worldBounds.center.x = 0.15;
 	const frames = [
@@ -1130,7 +1278,9 @@ function testDirtySignaturesAreSharedOnlyWithinOneBuild() {
 			matrixReads.fill(0);
 			const result = cache.build(input);
 			const hashes = input.incrementalOptions.enabled ? [1, 1] : [0, 0];
-			assert.deepEqual(materialReads, hashes, "hash only when incremental state is needed");
+			const materialScans = input.incrementalOptions.enabled ? [2, 2] : [0, 0];
+			assert.deepEqual(materialReads, materialScans,
+				"share the canonical revision and dirty signature scans within the build");
 			assert.deepEqual(matrixReads, hashes, "hash only when incremental state is needed");
 			assert.equal(result.packetRects.size, input.incrementalOptions.enabled ? 3 : 0);
 			return result;
@@ -1494,6 +1644,9 @@ function testOpaqueMaterialOrderIgnoresNamesAndInitialCameraVisibility() {
 }
 
 function run() {
+	testCompleteMaterialChangesDirtyEveryAffectedPacket();
+	testCompleteMaterialChangesDirtyEveryAffectedDecal();
+	testMergedExecutionCoverageIncludesExpandedTiles();
 	testOpaqueMaterialOrderIgnoresNamesAndInitialCameraVisibility();
 	testOpaqueSortKeepsCompatibleGroupsContiguous();
 	testDisabledIncrementalRebasesBeforePartialUpdates();

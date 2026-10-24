@@ -43,6 +43,14 @@ The frame session must derive one immutable Software frame view from
 incremental-region, temporal, and attachment state must be resolved once and
 shared by Software passes.
 
+Post-process configuration changes must reconstruct scene-linear color before
+the in-place post-process chain executes. A frame must not clear the scene and
+then skip all scene draws while presenting post-process-only work.
+
+When dirty-region clears expose an enabled environment background, the session
+must redraw that background inside the same normalized dirty regions before
+scene geometry. Pixels outside those regions must remain unchanged.
+
 Dirty regions must use clamped half-open pixel bounds. Full-frame work must be
 represented by one region covering the complete attachment extent. Every
 Software raster, particle, reflection-composite, and built-in post-process
