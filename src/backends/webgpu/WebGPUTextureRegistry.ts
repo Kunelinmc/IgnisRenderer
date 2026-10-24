@@ -1,4 +1,4 @@
-import type { Texture } from "../../core/Texture";
+import { resolveTextureSamplingFormat, type Texture } from "../../core/Texture";
 import {
 	getTextureFormatInfo,
 	TextureFormat,
@@ -16,7 +16,6 @@ import type { WebGPUResourceManager } from "./WebGPUResourceManager";
 import { tryGetWebGPUTextureHandle } from "./WebGPUResourceAccess";
 import {
 	createTextureMipUploadLevels,
-	resolveWebGPUTextureUploadFormat,
 	WEBGPU_TEXTURE_SLOT,
 } from "./";
 import {
@@ -39,7 +38,7 @@ interface SamplerCacheEntry {
 }
 
 interface TextureOwnedResources {
-	texture: IRenderTexture | null;
+	textures: Set<IRenderTexture>;
 	sampler: ISampler | null;
 }
 
@@ -51,8 +50,12 @@ export class WebGPUTextureRegistry {
 	private _backend: WebGPUDeviceResourceHost;
 	private _resourceManager: WebGPUResourceManager;
 	private _textureCache = new WeakMap<Texture, TextureCacheEntry>();
+	private _dataTextureCache = new WeakMap<Texture, TextureCacheEntry>();
+	private _srgbTextureCache = new WeakMap<Texture, TextureCacheEntry>();
 	private _samplerCache = new WeakMap<Texture, SamplerCacheEntry>();
 	private _uploadedVersionCache = new WeakMap<Texture, number>();
+	private _dataUploadedVersionCache = new WeakMap<Texture, number>();
+	private _srgbUploadedVersionCache = new WeakMap<Texture, number>();
 	private _ownedTextures = new Set<IRenderTexture>();
 	private _ownedSamplers = new Set<ISampler>();
 	private _ownedResources = new WeakMap<Texture, TextureOwnedResources>();
@@ -80,7 +83,9 @@ export class WebGPUTextureRegistry {
 
 	public getTextureForSlot(
 		texture: Texture | null,
-		slotIndex: number
+		slotIndex: number,
+		color: boolean = isColorTextureSlot(slotIndex),
+		forceSRGB: boolean = false,
 	): IRenderTexture {
 		if (!texture) {
 			return (
@@ -91,13 +96,30 @@ export class WebGPUTextureRegistry {
 				:	this.getWhiteTexture();
 		}
 
-		let cacheEntry = this._textureCache.get(texture);
+		const textureCache = forceSRGB ? this._srgbTextureCache
+			: color ? this._textureCache : this._dataTextureCache;
+		const versionCache = forceSRGB ? this._srgbUploadedVersionCache
+			: color ? this._uploadedVersionCache : this._dataUploadedVersionCache;
+		let cacheEntry = textureCache.get(texture);
 		const externalImageCopyCompatible =
 			resolveExternalTextureSource(texture) !== null;
-		const uploadFormat =
-			externalImageCopyCompatible ?
-				resolveExternalImageCopyFormat(texture)
-			:	resolveWebGPUTextureUploadFormat(texture);
+		const uploadFormat = resolveTextureSamplingFormat(
+			forceSRGB ? { format: texture.format, colorSpace: "sRGB" } : texture,
+			color,
+		);
+		if (cacheEntry && !this._ownedTextures.has(cacheEntry.resource) &&
+			cacheEntry.format !== uploadFormat) {
+			throw new Error("External WebGPU texture has an incompatible sampling format.");
+		}
+		if (!cacheEntry && (!color || forceSRGB)) {
+			const registered = this._textureCache.get(texture);
+			if (registered && !this._ownedTextures.has(registered.resource)) {
+				if (registered.format !== uploadFormat) {
+					throw new Error("External WebGPU texture has an incompatible data sampling format.");
+				}
+				return registered.resource;
+			}
+		}
 		if (
 			!cacheEntry &&
 			(!this._isTextureDimensionValid(texture.width, texture.height) ||
@@ -125,9 +147,6 @@ export class WebGPUTextureRegistry {
 			(externalImageCopyCompatible && !cacheEntry.externalImageCopyCompatible);
 
 		if (shouldRecreateTexture) {
-			if (cacheEntry?.resource) {
-				this._releaseOwnedTextureResource(texture, cacheEntry.resource);
-			}
 			const usage =
 				TextureUsage.TextureBinding |
 				TextureUsage.CopyDst |
@@ -143,6 +162,15 @@ export class WebGPUTextureRegistry {
 				mipLevelCount,
 				label: `Texture_${slotIndex}_${texture.width}x${texture.height}`,
 			});
+			if (getTextureFormatInfo(uploadFormat).isSRGB &&
+				resource.format !== undefined && resource.format !== uploadFormat) {
+				resource.destroy();
+				throw new Error("WebGPU sRGB sampling format fallback would lose native decoding.");
+			}
+			// Keep the previous binding usable when allocation or format validation fails.
+			if (cacheEntry?.resource) {
+				this._releaseOwnedTextureResource(texture, cacheEntry.resource);
+			}
 
 			cacheEntry = {
 				resource,
@@ -152,11 +180,11 @@ export class WebGPUTextureRegistry {
 			};
 			this._ownedTextures.add(resource);
 			this._setOwnedTextureResource(texture, resource);
-			this._textureCache.set(texture, cacheEntry);
-			this._uploadedVersionCache.delete(texture);
+			textureCache.set(texture, cacheEntry);
+			versionCache.delete(texture);
 		}
 
-		const uploadedVersion = this._uploadedVersionCache.get(texture);
+		const uploadedVersion = versionCache.get(texture);
 		if (uploadedVersion !== texture.version) {
 			const usedExternalImageFastPath = this._tryUploadExternalSource(
 				texture,
@@ -192,7 +220,7 @@ export class WebGPUTextureRegistry {
 			if (mipPolicy.autoGenerate) {
 				this._generateMipmaps(texture, cacheEntry);
 			}
-			this._uploadedVersionCache.set(texture, texture.version);
+			versionCache.set(texture, texture.version);
 		}
 
 		return cacheEntry.resource;
@@ -200,9 +228,11 @@ export class WebGPUTextureRegistry {
 
 	public async getTextureForSlotAsync(
 		texture: Texture | null,
-		slotIndex: number
+		slotIndex: number,
+		color: boolean = isColorTextureSlot(slotIndex),
+		forceSRGB: boolean = false,
 	): Promise<IRenderTexture> {
-		const resource = this.getTextureForSlot(texture, slotIndex);
+		const resource = this.getTextureForSlot(texture, slotIndex, color, forceSRGB);
 		if (texture) {
 			await this._mipmapGenerationPromises.get(texture);
 		}
@@ -220,6 +250,7 @@ export class WebGPUTextureRegistry {
 		const cached = this._textureCache.get(texture);
 		if (cached) {
 			if (cached.resource !== resource ||
+				cached.format !== resolveTextureSamplingFormat(texture) ||
 				this._uploadedVersionCache.get(texture) !== texture.version) return false;
 		} else {
 			const usesFallback = !this._isTextureDimensionValid(texture.width, texture.height) ||
@@ -240,23 +271,28 @@ export class WebGPUTextureRegistry {
 		uploadedVersion: number = texture.version,
 		mipLevelCount: number = 1
 	): void {
-		const cached = this._textureCache.get(texture);
-		if (
-			cached &&
-			cached.resource !== resource &&
-			this._ownedTextures.has(cached.resource)
-		) {
-			const resources = this._ownedResources.get(texture);
-			this._releaseOwnedTextureResource(texture, cached.resource, resources);
-			if (resources) {
-				this._clearOwnershipIfEmpty(texture, resources);
+		const format = resolveRegisteredTextureFormat(resource);
+		if (format !== resolveTextureSamplingFormat(texture)) {
+			throw new Error("External WebGPU texture has an incompatible color sampling format.");
+		}
+		const resources = this._ownedResources.get(texture);
+		for (const cache of [this._textureCache, this._dataTextureCache, this._srgbTextureCache]) {
+			const cached = cache.get(texture);
+			if (cached && cached.resource !== resource && this._ownedTextures.has(cached.resource)) {
+				this._releaseOwnedTextureResource(texture, cached.resource, resources);
 			}
+			cache.delete(texture);
+		}
+		this._dataUploadedVersionCache.delete(texture);
+		this._srgbUploadedVersionCache.delete(texture);
+		if (resources) {
+			this._clearOwnershipIfEmpty(texture, resources);
 		}
 		this._textureCache.set(texture, {
 			resource,
 			mipLevelCount: Math.max(1, Math.floor(mipLevelCount)),
 			externalImageCopyCompatible: false,
-			format: resolveRegisteredTextureFormat(resource, texture),
+			format,
 		});
 		this._uploadedVersionCache.set(texture, uploadedVersion);
 	}
@@ -272,8 +308,8 @@ export class WebGPUTextureRegistry {
 	public releaseTexture(texture: Texture): void {
 		const resources = this._ownedResources.get(texture);
 		if (resources) {
-			if (resources.texture) {
-				this._releaseOwnedTextureResource(texture, resources.texture, resources);
+			for (const resource of resources.textures) {
+				this._releaseOwnedTextureResource(texture, resource, resources);
 			}
 			if (resources.sampler) {
 				this._releaseOwnedSamplerResource(resources.sampler, resources);
@@ -282,8 +318,12 @@ export class WebGPUTextureRegistry {
 		}
 
 		this._textureCache.delete(texture);
+		this._dataTextureCache.delete(texture);
+		this._srgbTextureCache.delete(texture);
 		this._samplerCache.delete(texture);
 		this._uploadedVersionCache.delete(texture);
+		this._dataUploadedVersionCache.delete(texture);
+		this._srgbUploadedVersionCache.delete(texture);
 		this._mipmapGenerationPromises.delete(texture);
 	}
 
@@ -412,8 +452,12 @@ export class WebGPUTextureRegistry {
 		}
 		this._ownedSamplers.clear();
 		this._textureCache = new WeakMap<Texture, TextureCacheEntry>();
+		this._dataTextureCache = new WeakMap<Texture, TextureCacheEntry>();
+		this._srgbTextureCache = new WeakMap<Texture, TextureCacheEntry>();
 		this._samplerCache = new WeakMap<Texture, SamplerCacheEntry>();
 		this._uploadedVersionCache = new WeakMap<Texture, number>();
+		this._dataUploadedVersionCache = new WeakMap<Texture, number>();
+		this._srgbUploadedVersionCache = new WeakMap<Texture, number>();
 		this._ownedResources = new WeakMap<Texture, TextureOwnedResources>();
 		this._disposeUnsubscribers = new WeakMap<Texture, () => void>();
 		this._mipmapGenerationPromises = new WeakMap<Texture, Promise<void>>();
@@ -468,7 +512,8 @@ export class WebGPUTextureRegistry {
 		if (!this._mipmapGenerator) {
 			this._mipmapGenerator = new WebGPUMipmapGenerator(this._backend);
 		}
-		const generation = this._mipmapGenerator.generate(
+		const previousGeneration = this._mipmapGenerationPromises.get(texture);
+		const currentGeneration = this._mipmapGenerator.generate(
 			cacheEntry.resource,
 			cacheEntry.format,
 			cacheEntry.mipLevelCount
@@ -484,11 +529,15 @@ export class WebGPUTextureRegistry {
 						`${texture.width}x${texture.height}-${cacheEntry.format}`,
 				}
 			);
-		}).finally(() => {
-			if (this._mipmapGenerationPromises.get(texture) === generation) {
-				this._mipmapGenerationPromises.delete(texture);
-			}
 		});
+		// Color and data resources may generate concurrently for the same source.
+		const generation = Promise.all([previousGeneration, currentGeneration])
+			.then(() => undefined)
+			.finally(() => {
+				if (this._mipmapGenerationPromises.get(texture) === generation) {
+					this._mipmapGenerationPromises.delete(texture);
+				}
+			});
 		this._mipmapGenerationPromises.set(texture, generation);
 	}
 
@@ -576,7 +625,7 @@ export class WebGPUTextureRegistry {
 			return resources;
 		}
 
-		resources = { texture: null, sampler: null };
+		resources = { textures: new Set(), sampler: null };
 		this._ownedResources.set(texture, resources);
 		this._finalizationRegistry?.register(texture, resources, texture);
 		const observer = this._disposeObserver;
@@ -594,10 +643,7 @@ export class WebGPUTextureRegistry {
 		resource: IRenderTexture,
 	): void {
 		const resources = this._ensureOwnedResources(texture);
-		if (resources.texture && resources.texture !== resource) {
-			this._releaseOwnedTextureResource(texture, resources.texture, resources);
-		}
-		resources.texture = resource;
+		resources.textures.add(resource);
 		this._ownedTextures.add(resource);
 	}
 
@@ -616,9 +662,7 @@ export class WebGPUTextureRegistry {
 		resources: TextureOwnedResources | undefined =
 			texture ? this._ownedResources.get(texture) : undefined,
 	): void {
-		if (resources?.texture === resource) {
-			resources.texture = null;
-		}
+		resources?.textures.delete(resource);
 		if (!this._ownedTextures.has(resource)) {
 			return;
 		}
@@ -650,8 +694,8 @@ export class WebGPUTextureRegistry {
 	}
 
 	private _destroyOwnedResources(resources: TextureOwnedResources): void {
-		if (resources.texture) {
-			this._releaseOwnedTextureResource(null, resources.texture, resources);
+		for (const resource of resources.textures) {
+			this._releaseOwnedTextureResource(null, resource, resources);
 		}
 		if (resources.sampler) {
 			this._releaseOwnedSamplerResource(resources.sampler, resources);
@@ -662,7 +706,7 @@ export class WebGPUTextureRegistry {
 		texture: Texture,
 		resources: TextureOwnedResources,
 	): void {
-		if (resources.texture || resources.sampler) {
+		if (resources.textures.size > 0 || resources.sampler) {
 			return;
 		}
 		this._clearOwnership(texture, resources);
@@ -747,7 +791,6 @@ function resolveTextureMipPolicy(
 
 function resolveRegisteredTextureFormat(
 	resource: IRenderTexture,
-	texture: Texture
 ): TextureFormat {
 	const resourceFormat =
 		resource.format ??
@@ -755,17 +798,14 @@ function resolveRegisteredTextureFormat(
 	if (resourceFormat) {
 		return resourceFormat;
 	}
-	return resolveWebGPUTextureUploadFormat(texture);
+	throw new Error("External WebGPU texture must report its actual sampling format.");
 }
 
-function resolveExternalImageCopyFormat(texture: Texture): TextureFormat {
-	switch (texture.format) {
-		case TextureFormat.RGBA8UnormSrgb:
-			return TextureFormat.RGBA8UnormSrgb;
-		case TextureFormat.RGBA8Unorm:
-		default:
-			return TextureFormat.RGBA8Unorm;
-	}
+function isColorTextureSlot(slot: number): boolean {
+	return slot === WEBGPU_TEXTURE_SLOT.BASE_COLOR ||
+		slot === WEBGPU_TEXTURE_SLOT.EMISSIVE ||
+		slot === WEBGPU_TEXTURE_SLOT.SPECULAR_COLOR ||
+		slot === WEBGPU_TEXTURE_SLOT.SHEEN_COLOR;
 }
 
 function resolveExternalTextureSource(texture: Texture): TexImageSource | null {

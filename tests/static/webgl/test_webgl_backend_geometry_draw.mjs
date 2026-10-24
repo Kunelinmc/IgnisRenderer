@@ -22,7 +22,7 @@ function createSceneDrawDeps(gl, overrides = {}) {
 		textures: {
 			getBaseColorTexture:
 				overrides.getBaseColorTexture ??
-				(() => ({ texture: null, isLinear: true })),
+				(() => ({ texture: null })),
 		},
 		animationPayloads: null,
 		modelMatrixCache: new Map(),
@@ -553,17 +553,17 @@ function testDrawWebGLPacketBindsPBRTexturesAndUVSets() {
 	material.anisotropyMap = anisotropyMap;
 	material.anisotropyMapUV = 3;
 	const textureTable = new Map([
-		[baseMap, { texture: { id: "base" }, isLinear: false }],
-		[normalMap, { texture: { id: "normal" }, isLinear: true }],
-		[metallicRoughnessMap, { texture: { id: "mr" }, isLinear: true }],
-		[emissiveMap, { texture: { id: "emissive" }, isLinear: false }],
-		[occlusionMap, { texture: { id: "occlusion" }, isLinear: true }],
-		[iridescenceMap, { texture: { id: "iridescence" }, isLinear: true }],
+		[baseMap, { texture: { id: "base" } }],
+		[normalMap, { texture: { id: "normal" } }],
+		[metallicRoughnessMap, { texture: { id: "mr" } }],
+		[emissiveMap, { texture: { id: "emissive" } }],
+		[occlusionMap, { texture: { id: "occlusion" } }],
+		[iridescenceMap, { texture: { id: "iridescence" } }],
 		[
 			iridescenceThicknessMap,
-			{ texture: { id: "iridescence-thickness" }, isLinear: true },
+			{ texture: { id: "iridescence-thickness" } },
 		],
-		[anisotropyMap, { texture: { id: "anisotropy" }, isLinear: true }],
+		[anisotropyMap, { texture: { id: "anisotropy" } }],
 	]);
 	const sceneProgram = {
 		program: {},
@@ -653,8 +653,10 @@ function testDrawWebGLPacketBindsPBRTexturesAndUVSets() {
 		},
 	};
 	const host = createSceneDrawDeps(gl, {
-		getBaseColorTexture: (texture) =>
-			textureTable.get(texture) ?? { texture: null, isLinear: true },
+		getBaseColorTexture: (texture, color = true) => {
+			if (texture) assert.equal(color, !texture.linear);
+			return textureTable.get(texture) ?? { texture: null };
+		},
 	});
 	const packet = {
 		id: "packet-pbr-textures",
@@ -689,8 +691,8 @@ function testDrawWebGLPacketBindsPBRTexturesAndUVSets() {
 	assert.equal(unitFor("uHasIridescenceMap"), 1);
 	assert.equal(unitFor("uHasIridescenceThicknessMap"), 1);
 	assert.equal(unitFor("uHasAnisotropyMap"), 1);
-	assert.equal(unitFor("uBaseMapIsLinear"), 0);
-	assert.equal(unitFor("uEmissiveMapIsLinear"), 0);
+	assert.equal(unitFor("uBaseMapIsLinear"), undefined);
+	assert.equal(unitFor("uEmissiveMapIsLinear"), undefined);
 	assert.ok(
 		gl.calls.uniform1f.some(
 			(entry) =>
@@ -799,11 +801,11 @@ function testDrawWebGLPacketBindsAnisotropyMapWhenSharedSlotIsFree() {
 		},
 	};
 	const textureTable = new Map([
-		[anisotropyMap, { texture: { id: "anisotropy" }, isLinear: true }],
+		[anisotropyMap, { texture: { id: "anisotropy" } }],
 	]);
 	const host = createSceneDrawDeps(gl, {
 		getBaseColorTexture: (texture) =>
-			textureTable.get(texture) ?? { texture: null, isLinear: true },
+			textureTable.get(texture) ?? { texture: null },
 	});
 	const packet = {
 		id: "packet-pbr-anisotropy",
@@ -857,7 +859,6 @@ function testDrawWebGLPacketPreservesInactiveGlobalSamplerUnits() {
 	const host = createSceneDrawDeps(gl, {
 		getBaseColorTexture: () => ({
 			texture: { id: "material-fallback" },
-			isLinear: true,
 		}),
 	});
 	const packet = {

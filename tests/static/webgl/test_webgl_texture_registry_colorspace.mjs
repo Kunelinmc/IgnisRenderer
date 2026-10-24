@@ -149,10 +149,11 @@ function testEnvironmentTextureRespectsTextureColorSpace() {
 	const linearResolved = registry.getEnvironmentTexture(linearTexture);
 	const hdrResolved = registry.getEnvironmentTexture(hdrTexture);
 
-	assert.equal(srgbResolvedA.isLinear, false);
-	assert.equal(srgbResolvedB.isLinear, false);
-	assert.equal(linearResolved.isLinear, true);
-	assert.equal(hdrResolved.isLinear, true);
+	assert.equal(srgbResolvedA.format, TextureFormat.RGBA8UnormSrgb);
+	assert.strictEqual(srgbResolvedA, srgbResolvedB);
+	assert.equal(linearResolved.format, TextureFormat.RGBA8Unorm);
+	assert.equal(hdrResolved.format, TextureFormat.RGBA16Float);
+	assert.equal(gl.texImage2DCalls[0].internalFormat, gl.SRGB8_ALPHA8);
 }
 
 function testBaseColorTextureRemainsSrgbByDefault() {
@@ -162,8 +163,35 @@ function testBaseColorTextureRemainsSrgbByDefault() {
 	const srgbTexture = createSolidTexture("sRGB");
 	const linearTexture = createSolidTexture("Linear");
 
-	assert.equal(registry.getBaseColorTexture(srgbTexture).isLinear, false);
-	assert.equal(registry.getBaseColorTexture(linearTexture).isLinear, true);
+	assert.equal(registry.getBaseColorTexture(srgbTexture).format, TextureFormat.RGBA8UnormSrgb);
+	assert.equal(registry.getBaseColorTexture(linearTexture).format, TextureFormat.RGBA8Unorm);
+}
+
+function testOneSourceUsesSeparateColorAndDataFormats() {
+	const gl = createTextureRegistryTestGL();
+	const registry = new WebGLTextureRegistry(gl, () => {});
+	const texture = createSolidTexture("sRGB");
+	const color = registry.getBaseColorTexture(texture);
+	const data = registry.getBaseColorTexture(texture, false);
+	assert.notEqual(color.texture, data.texture);
+	assert.equal(color.format, TextureFormat.RGBA8UnormSrgb);
+	assert.equal(data.format, TextureFormat.RGBA8Unorm);
+	assert.equal(gl.texImage2DCalls[0].internalFormat, gl.SRGB8_ALPHA8);
+	assert.equal(gl.texImage2DCalls[1].internalFormat, gl.RGBA);
+	assert.deepEqual(Array.from(gl.texImage2DCalls[0].pixels), [128, 64, 32, 255]);
+	assert.deepEqual(Array.from(gl.texImage2DCalls[1].pixels), [128, 64, 32, 255]);
+	assert.strictEqual(registry.getBaseColorTexture(texture), color);
+	assert.strictEqual(registry.getBaseColorTexture(texture, false), data);
+	registry.destroy();
+}
+
+function testUnavailableSrgbFormatRejectsInsteadOfLosingDecode() {
+	const gl = createTextureRegistryTestGL();
+	delete gl.SRGB8_ALPHA8;
+	const registry = new WebGLTextureRegistry(gl, () => {});
+	assert.throws(() => registry.getBaseColorTexture(createSolidTexture("sRGB")), /sRGB/);
+	assert.equal(gl.texImage2DCalls.length, 0);
+	registry.destroy();
 }
 
 function testCanvasTextureUploadsExternalSourceWithoutPixelCopy() {
@@ -178,6 +206,7 @@ function testCanvasTextureUploadsExternalSourceWithoutPixelCopy() {
 
 		assert.equal(gl.texImage2DCalls.length, 1);
 		assert.equal(gl.texImage2DCalls[0].source, canvas);
+		assert.equal(gl.texImage2DCalls[0].internalFormat, gl.SRGB8_ALPHA8);
 		assert.equal(context.getImageDataCalls, 0);
 		assert.equal(texture.data, null);
 	} finally {
@@ -337,7 +366,7 @@ function testEnvironmentSpecularFloatUploadFallsBackToRGBA32F() {
 	assert.equal(gl.texImage2DCalls[0].pixels[0], 2);
 }
 
-function testEnvironmentSpecularKeepsFloatCacheSeparateFromBaseColor() {
+function testEnvironmentSpecularSharesLinearHDRFormatWithBaseColor() {
 	const gl = createTextureRegistryTestGL({ floatLinearExtension: true });
 	const registry = new WebGLTextureRegistry(gl, () => {});
 	const texture = new Texture({
@@ -346,18 +375,13 @@ function testEnvironmentSpecularKeepsFloatCacheSeparateFromBaseColor() {
 		height: 1,
 		colorSpace: "HDR",
 	});
-
-	registry.getBaseColorTexture(texture);
-	registry.getEnvironmentSpecularTexture(texture);
-
-	assert.equal(gl.texImage2DCalls.length, 2);
-	assert.equal(gl.texImage2DCalls[0].internalFormat, gl.RGBA);
-	assert.equal(gl.texImage2DCalls[0].type, gl.UNSIGNED_BYTE);
-	assert.ok(gl.texImage2DCalls[0].pixels instanceof Uint8Array);
-	assert.equal(gl.texImage2DCalls[0].pixels[0], 255);
-	assert.equal(gl.texImage2DCalls[1].internalFormat, gl.RGBA16F);
-	assert.equal(gl.texImage2DCalls[1].type, gl.HALF_FLOAT);
-	assert.ok(gl.texImage2DCalls[1].pixels instanceof Uint16Array);
+	const color = registry.getBaseColorTexture(texture);
+	const environment = registry.getEnvironmentSpecularTexture(texture);
+	assert.strictEqual(color.texture, environment.texture);
+	assert.equal(gl.texImage2DCalls.length, 1);
+	assert.equal(gl.texImage2DCalls[0].internalFormat, gl.RGBA16F);
+	assert.equal(gl.texImage2DCalls[0].pixels[0], 0x4000);
+	registry.destroy();
 }
 
 function testExplicitR8TextureUploadsSingleChannel() {
@@ -392,7 +416,7 @@ function testExplicitSrgbTextureUsesHardwareDecode() {
 
 	const resolved = registry.getBaseColorTexture(texture);
 
-	assert.equal(resolved.isLinear, true);
+	assert.equal(resolved.format, TextureFormat.RGBA8UnormSrgb);
 	assert.equal(gl.texImage2DCalls[0].internalFormat, gl.SRGB8_ALPHA8);
 	assert.equal(gl.texImage2DCalls[0].format, gl.RGBA);
 }
@@ -592,50 +616,79 @@ function testResolvedTextureCacheObservesFormatChangesWithoutVersionChange() {
 	const gl = createTextureRegistryTestGL();
 	const registry = new WebGLTextureRegistry(gl, () => {});
 	const texture = createSolidTexture("sRGB");
-	texture.format = TextureFormat.RGBA8Unorm;
-	texture.formatExplicit = true;
 	const version = texture.version;
-	assert.equal(registry.getBaseColorTexture(texture).isLinear, false);
-	assert.equal(gl.texImage2DCalls[0].internalFormat, gl.RGBA);
-
-	texture.format = TextureFormat.RGBA8UnormSrgb;
 	const srgb = registry.getBaseColorTexture(texture);
-	assert.equal(srgb.isLinear, true);
-	assert.equal(gl.texImage2DCalls.length, 2);
-	assert.equal(gl.texImage2DCalls[1].internalFormat, gl.SRGB8_ALPHA8);
-	assert.strictEqual(registry.getBaseColorTexture(texture), srgb);
 	texture.format = TextureFormat.RGBA8Unorm;
-	assert.equal(registry.getBaseColorTexture(texture).isLinear, false);
+	texture.colorSpace = "Linear";
+	const linear = registry.getBaseColorTexture(texture);
+	assert.notEqual(srgb.texture, linear.texture);
+	assert.equal(linear.format, TextureFormat.RGBA8Unorm);
+	assert.equal(gl.texImage2DCalls[1].internalFormat, gl.RGBA);
+	assert.strictEqual(registry.getBaseColorTexture(texture), linear);
+	texture.colorSpace = "sRGB";
+	const encoded = registry.getBaseColorTexture(texture);
+	assert.equal(encoded.format, TextureFormat.RGBA8UnormSrgb);
+	assert.strictEqual(encoded.texture, srgb.texture);
 	assert.equal(gl.texImage2DCalls.length, 2);
 	assert.equal(texture.version, version);
 	registry.destroy();
 }
 
-function testResolvedTextureCacheObservesExplicitFormatToggle() {
+function testCompatibleFormatPairPreservesSourceEncoding() {
 	const gl = createTextureRegistryTestGL();
 	const registry = new WebGLTextureRegistry(gl, () => {});
+	const texture = new Texture({
+		data: new Uint8Array([128, 64, 32, 255]),
+		width: 1,
+		height: 1,
+		format: TextureFormat.RGBA8Unorm,
+		colorSpace: "sRGB",
+	});
+	const resolved = registry.getBaseColorTexture(texture);
+	assert.equal(resolved.format, TextureFormat.RGBA8UnormSrgb);
+	assert.equal(gl.texImage2DCalls[0].internalFormat, gl.SRGB8_ALPHA8);
+	assert.strictEqual(registry.getBaseColorTexture(texture), resolved);
+	assert.equal(gl.texImage2DCalls.length, 1);
+	registry.destroy();
+}
+
+function testCustomDecodeOverrideSelectsNativeFormat() {
+	const gl = createTextureRegistryTestGL();
+	const registry = new WebGLTextureRegistry(gl, () => {});
+	const linearTexture = createSolidTexture("Linear");
+	const decoded = registry.getBaseColorTexture(linearTexture, true, "sRGB");
+	const raw = registry.getBaseColorTexture(linearTexture, false, "Linear");
+	assert.equal(decoded.format, TextureFormat.RGBA8UnormSrgb);
+	assert.equal(raw.format, TextureFormat.RGBA8Unorm);
+	assert.notEqual(decoded.texture, raw.texture);
+	assert.strictEqual(registry.getBaseColorTexture(linearTexture, true, "sRGB"), decoded);
+	registry.destroy();
+}
+
+function testDeferredUploadDiscardsStaleSamplingMetadata() {
+	const gl = createTextureRegistryTestGL();
+	const registry = new WebGLTextureRegistry(gl, () => {}, { uploadScheduling: "deferred" });
 	const texture = createSolidTexture("sRGB");
-	texture.format = TextureFormat.RGBA8UnormSrgb;
-	const version = texture.version;
-	assert.equal(registry.getBaseColorTexture(texture).isLinear, false);
-
-	texture.formatExplicit = true;
-	assert.equal(registry.getBaseColorTexture(texture).isLinear, true);
-	assert.equal(gl.texImage2DCalls.length, 2);
-	assert.equal(gl.texImage2DCalls[1].internalFormat, gl.SRGB8_ALPHA8);
-
-	texture.formatExplicit = false;
-	const implicit = registry.getBaseColorTexture(texture);
-	assert.equal(implicit.isLinear, false);
-	assert.strictEqual(registry.getBaseColorTexture(texture), implicit);
-	assert.equal(gl.texImage2DCalls.length, 2);
-	assert.equal(texture.version, version);
+	registry.getBaseColorTexture(texture);
+	texture.colorSpace = "Linear";
+	registry.beginFrame();
+	assert.equal(registry.pendingUploadCount, 0);
+	assert.equal(gl.texImage2DCalls.length, 1);
+	registry.getBaseColorTexture(texture);
+	registry.beginFrame();
+	const resolved = registry.getBaseColorTexture(texture);
+	assert.equal(resolved.format, TextureFormat.RGBA8Unorm);
+	assert.equal(gl.texImage2DCalls.at(-1).internalFormat, gl.RGBA);
 	registry.destroy();
 }
 
 function run() {
+	testOneSourceUsesSeparateColorAndDataFormats();
+	testUnavailableSrgbFormatRejectsInsteadOfLosingDecode();
 	testResolvedTextureCacheObservesFormatChangesWithoutVersionChange();
-	testResolvedTextureCacheObservesExplicitFormatToggle();
+	testCompatibleFormatPairPreservesSourceEncoding();
+	testCustomDecodeOverrideSelectsNativeFormat();
+	testDeferredUploadDiscardsStaleSamplingMetadata();
 	testEnvironmentTextureRespectsTextureColorSpace();
 	testBaseColorTextureRemainsSrgbByDefault();
 	testCanvasTextureUploadsExternalSourceWithoutPixelCopy();
@@ -645,7 +698,7 @@ function run() {
 	testNearestMipmapLinearMapsToNearestMipmapLinear();
 	testEnvironmentSpecularFloatMipChainUploadsAsRGBA16F();
 	testEnvironmentSpecularFloatUploadFallsBackToRGBA32F();
-	testEnvironmentSpecularKeepsFloatCacheSeparateFromBaseColor();
+	testEnvironmentSpecularSharesLinearHDRFormatWithBaseColor();
 	testExplicitR8TextureUploadsSingleChannel();
 	testExplicitSrgbTextureUsesHardwareDecode();
 	testDeferredBaseColorTextureUploadsOnBeginFrame();

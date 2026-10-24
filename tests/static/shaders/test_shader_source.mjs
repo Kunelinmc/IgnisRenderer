@@ -664,7 +664,7 @@ async function testWebGPUAnimationConsumers() {
 	}
 }
 
-async function testSrgbDirectiveSupportsBuiltInConsumers() {
+async function testGpuColorConsumersUseNativeDecoding() {
 	ShaderSource.clearCache();
 	const [webgpuIbl, webgpuDecal, webglIbl] = await Promise.all([
 		ShaderSource.load("webgpu.iblPrefilter"),
@@ -710,20 +710,12 @@ async function testSrgbDirectiveSupportsBuiltInConsumers() {
 	assert.equal(compiledWebgpuIbl.hasErrors, false);
 	assert.equal(compiledWebgpuDecal.hasErrors, false);
 	assert.equal(compiledWebglIbl.hasErrors, false);
-	assert.equal(
-		compiledWebgpuIbl.code.match(/fn srgbToLinear\b/g)?.length,
-		1
-	);
-	assert.equal(
-		compiledWebgpuDecal.code.match(/fn srgbToLinear\b/g)?.length,
-		1
-	);
-	assert.equal(
-		compiledWebglIbl.code.match(/vec3 srgbToLinear\b/g)?.length,
-		1
-	);
-	assert.ok(!compiledWebgpuIbl.code.includes("sRGBToLinear"));
-	assert.ok(!compiledWebglIbl.code.includes("sRGBToLinear"));
+	for (const compiled of [compiledWebgpuIbl, compiledWebgpuDecal, compiledWebglIbl]) {
+		const decodeCalls = compiled.code.match(/\bsrgbToLinear\s*\(/g)?.length ?? 0;
+		const declarations = compiled.code.match(/\b(?:fn|vec3)\s+srgbToLinear\s*\(/g)?.length ?? 0;
+		assert.equal(decodeCalls, declarations, "native samples must not be decoded twice");
+		assert.doesNotMatch(compiled.code, /\b(?:sourceIsLinear|uSourceIsLinear|isLinear)\b/);
+	}
 }
 
 async function testWebGPUSharedNumericalConstants() {
@@ -1160,7 +1152,7 @@ async function run() {
 	await testWebGLPBRSceneVariantCompilesExactUniformBlocks();
 	await testWebGPUCompositeIncludesSharedParts();
 	await testWebGPUAnimationConsumers();
-	await testSrgbDirectiveSupportsBuiltInConsumers();
+	await testGpuColorConsumersUseNativeDecoding();
 	await testWebGPUSharedNumericalConstants();
 	await testCompositeResultsAreCloned();
 	testSyncLoadPopulatesPreparedCache();

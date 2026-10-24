@@ -107,7 +107,6 @@ export class WebGLSceneMaterialUniforms {
 export class WebGLSceneMaterialTextureUniforms {
 	public readonly baseMap: WebGLSceneUniformLocation;
 	public readonly hasBaseMap: WebGLSceneUniformLocation;
-	public readonly baseMapIsLinear: WebGLSceneUniformLocation;
 	public readonly baseMapUV: WebGLSceneUniformLocation;
 	public readonly baseMapTransformA: WebGLSceneUniformLocation;
 	public readonly baseMapTransformB: WebGLSceneUniformLocation;
@@ -124,7 +123,6 @@ export class WebGLSceneMaterialTextureUniforms {
 	public readonly normalScale: WebGLSceneUniformLocation;
 	public readonly emissiveMap: WebGLSceneUniformLocation;
 	public readonly hasEmissiveMap: WebGLSceneUniformLocation;
-	public readonly emissiveMapIsLinear: WebGLSceneUniformLocation;
 	public readonly emissiveMapUV: WebGLSceneUniformLocation;
 	public readonly emissiveMapTransformA: WebGLSceneUniformLocation;
 	public readonly emissiveMapTransformB: WebGLSceneUniformLocation;
@@ -154,7 +152,6 @@ export class WebGLSceneMaterialTextureUniforms {
 		const get = createUniformLookup(gl, program);
 		this.baseMap = get("uBaseMap");
 		this.hasBaseMap = get("uHasBaseMap");
-		this.baseMapIsLinear = get("uBaseMapIsLinear");
 		this.baseMapUV = get("uBaseMapUV");
 		this.baseMapTransformA = get("uBaseMapTransformA");
 		this.baseMapTransformB = get("uBaseMapTransformB");
@@ -175,7 +172,6 @@ export class WebGLSceneMaterialTextureUniforms {
 		this.normalScale = get("uNormalScale");
 		this.emissiveMap = get("uEmissiveMap");
 		this.hasEmissiveMap = get("uHasEmissiveMap");
-		this.emissiveMapIsLinear = get("uEmissiveMapIsLinear");
 		this.emissiveMapUV = get("uEmissiveMapUV");
 		this.emissiveMapTransformA = get("uEmissiveMapTransformA");
 		this.emissiveMapTransformB = get("uEmissiveMapTransformB");
@@ -246,11 +242,9 @@ export class WebGLScenePBRExtensionUniforms {
 export class WebGLSceneEnvironmentUniforms {
 	public readonly envSpecularMap: WebGLSceneUniformLocation;
 	public readonly hasEnvSpecularMap: WebGLSceneUniformLocation;
-	public readonly envSpecularMapIsLinear: WebGLSceneUniformLocation;
 	public readonly envSpecularMaxMipLevel: WebGLSceneUniformLocation;
 	public readonly envSpecularFallbackMap: WebGLSceneUniformLocation;
 	public readonly hasEnvSpecularFallbackMap: WebGLSceneUniformLocation;
-	public readonly envSpecularFallbackMapIsLinear: WebGLSceneUniformLocation;
 	public readonly envSpecularFallbackMaxMipLevel: WebGLSceneUniformLocation;
 	public readonly brdfLUT: WebGLSceneUniformLocation;
 	public readonly localLightProbeCount: WebGLSceneUniformLocation;
@@ -284,13 +278,9 @@ export class WebGLSceneEnvironmentUniforms {
 		const get = createUniformLookup(gl, program);
 		this.envSpecularMap = get("uEnvSpecularMap");
 		this.hasEnvSpecularMap = get("uHasEnvSpecularMap");
-		this.envSpecularMapIsLinear = get("uEnvSpecularMapIsLinear");
 		this.envSpecularMaxMipLevel = get("uEnvSpecularMaxMipLevel");
 		this.envSpecularFallbackMap = get("uEnvSpecularFallbackMap");
 		this.hasEnvSpecularFallbackMap = get("uHasEnvSpecularFallbackMap");
-		this.envSpecularFallbackMapIsLinear = get(
-			"uEnvSpecularFallbackMapIsLinear"
-		);
 		this.envSpecularFallbackMaxMipLevel = get(
 			"uEnvSpecularFallbackMaxMipLevel"
 		);

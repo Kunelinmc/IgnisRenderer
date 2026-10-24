@@ -799,8 +799,10 @@ export class WebGPUFrameServiceOwner {
 	public getTextureForSlotAsync(
 		texture: Texture | null,
 		slotIndex: number,
+		color?: boolean,
+		forceSRGB?: boolean,
 	): Promise<IRenderTexture> {
-		return this._textureRegistry.getTextureForSlotAsync(texture, slotIndex);
+		return this._textureRegistry.getTextureForSlotAsync(texture, slotIndex, color, forceSRGB);
 	}
 
 	public getSamplerForTexture(texture: Texture | null): ISampler {

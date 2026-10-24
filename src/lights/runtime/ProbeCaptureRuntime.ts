@@ -1012,7 +1012,6 @@ function collectCapturedCubeFaces(
 function copyTexturePayload(target: Texture, source: Texture): void {
 	target.colorSpace = source.colorSpace;
 	target.format = source.format;
-	target.formatExplicit = source.formatExplicit;
 	target.wrapS = source.wrapS;
 	target.wrapT = source.wrapT;
 	target.minFilter = source.minFilter;

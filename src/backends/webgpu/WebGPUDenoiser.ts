@@ -14,7 +14,7 @@ import { ShaderSource } from "../../shaders/ShaderSource";
 import type { IWebGPUComputeFacade } from "./ComputeFacade";
 import { WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE } from "./constants";
 
-const DENOISE_PARAM_FLOATS = 16;
+const DENOISE_PARAM_FLOATS = 12;
 const DENOISE_TILE_HALO = 8;
 const MAX_DENOISE_RADIUS = 4;
 const MAX_DENOISE_STEP_WIDTH = 4;
@@ -166,7 +166,7 @@ export function resolveWebGPUDenoiseOptions(
 /**
  * Packs one denoise dispatch parameter block into a pre-allocated array.
  *
- * @param target Sixteen-float destination array.
+ * @param target Twelve-float destination array.
  * @param width Signal width.
  * @param height Signal height.
  * @param stepWidth Pixel step used by this scale.
@@ -227,10 +227,6 @@ export function writeWebGPUDenoiseParams(
 	target[9] = options.mode === "quality" ? 1 : 0;
 	target[10] = options.roughnessAware ? 1 : 0;
 	target[11] = options.varianceGuided ? 1 : 0;
-	target[12] = 0;
-	target[13] = 0;
-	target[14] = 0;
-	target[15] = 0;
 	return target;
 }
 

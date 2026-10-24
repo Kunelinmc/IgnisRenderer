@@ -1,4 +1,3 @@
-import type { Texture } from "../../core/Texture";
 import {
 	WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT,
 	WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT,
@@ -103,10 +102,7 @@ export class WebGPUFrameBindingCache {
 	private _frameEnvironmentUniformBuffer: IRenderBuffer | null = null;
 	private _fogUniformBuffer: IRenderBuffer | null = null;
 	private _environmentBackgroundParamsBuffer: IRenderBuffer | null = null;
-	private readonly _environmentBackgroundParamsData = new Float32Array(8);
-	private readonly _environmentBackgroundParamsFlags = new Uint32Array(
-		this._environmentBackgroundParamsData.buffer,
-	);
+	private readonly _environmentBackgroundParamsData = new Float32Array(4);
 	private readonly _cameraWriter = WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT.createWriter();
 	private readonly _lightWriter = WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT.createWriter();
 	private readonly _shadowWriter = WEBGPU_FRAME_SHADOW_UNIFORM_LAYOUT.createWriter();
@@ -122,7 +118,7 @@ export class WebGPUFrameBindingCache {
 	private readonly _environmentInput: WebGPUFrameEnvironmentUniformInput = {
 		shAmbientCoeffs: null, localLightProbeCount: 0, localLightProbes: [],
 		irradianceProbeGrid: null, reflectionProbeCount: 0, reflectionProbes: [],
-		shAmbientEnabled: false, envSpecularIsLinear: true, hasEnvSpecular: false,
+		shAmbientEnabled: false, hasEnvSpecular: false,
 		hasBRDFLUT: false, envSpecularMaxMipLevel: 0,
 	};
 	private _fogUniformData: Float32Array<ArrayBuffer> = new Float32Array(8);
@@ -227,9 +223,6 @@ export class WebGPUFrameBindingCache {
 		environmentInput.reflectionProbeCount = environmentState.reflectionProbeCount;
 		environmentInput.reflectionProbes = environmentState.reflectionProbes;
 		environmentInput.shAmbientEnabled = environmentState.enableSH && environmentState.hasSHAmbient;
-		environmentInput.envSpecularIsLinear = environmentState.reflectionProbeCount > 0 ||
-			!environmentState.envSpecularTexture ||
-			environmentState.envSpecularTexture.colorSpace !== "sRGB";
 		environmentInput.hasEnvSpecular = !!environmentState.envSpecularTexture;
 		environmentInput.hasBRDFLUT = !!environmentState.brdfLUTTexture;
 		environmentInput.envSpecularMaxMipLevel = environmentState.envSpecularMaxMipLevel;
@@ -246,7 +239,7 @@ export class WebGPUFrameBindingCache {
 		this._backend.writeBuffer(this._getFogUniformBuffer(), this._packFogUniformData(features));
 		this._backend.writeBuffer(
 			this._getEnvironmentBackgroundParamsBuffer(),
-			this._packEnvironmentBackgroundParams(frame, environmentState.environmentTexture),
+			this._packEnvironmentBackgroundParams(frame),
 		);
 
 		const currentShadowAtlas = this._shadowRuntime.atlas;
@@ -646,7 +639,7 @@ export class WebGPUFrameBindingCache {
 	private _getEnvironmentBackgroundParamsBuffer(): IRenderBuffer {
 		if (!this._environmentBackgroundParamsBuffer) {
 			this._environmentBackgroundParamsBuffer = this._backend.createBuffer({
-				size: 8 * 4,
+				size: 4 * 4,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
 				label: "WebGPUEnvironmentBackgroundParams",
 			});
@@ -681,7 +674,6 @@ export class WebGPUFrameBindingCache {
 
 	private _packEnvironmentBackgroundParams(
 		frame: PreparedScene,
-		texture: Texture | null,
 	): Float32Array<ArrayBuffer> {
 		const environment = resolvePreparedSceneEnvironment(frame);
 		const data = this._environmentBackgroundParamsData;
@@ -691,7 +683,6 @@ export class WebGPUFrameBindingCache {
 		data[3] =
 			Math.max(1e-6, environment.backgroundExposure) *
 			Math.max(0, environment.backgroundStrength);
-		this._environmentBackgroundParamsFlags[4] = !texture || texture.colorSpace !== "sRGB" ? 1 : 0;
 		return data;
 	}
 

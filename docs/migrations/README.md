@@ -5,6 +5,49 @@ IgnisRenderer consumers and contributors. Completed implementation history that
 does not require an action is retained in Git rather than in the documentation
 tree.
 
+## Texture Sampling Color Space
+
+Remove uses of `Texture.formatExplicit`; current format and source encoding
+determine native sampling regardless of how the format was initialized.
+
+GPU color texture samples now arrive in linear RGB through native texture formats.
+Remove shader-side source sRGB decoding and the removed per-texture decoding
+uniforms from custom integrations. Display-output encoding remains separate.
+
+Byte color textures default to `rgba8unorm-srgb`; linear byte textures use
+`rgba8unorm`. Floating-point sources default to HDR. An explicit format without a
+`colorSpace` now infers source encoding from that format: non-sRGB integer and
+normalized formats imply linear data. Specify `colorSpace: "sRGB"` when uploading
+sRGB source bytes through a compatible explicit non-sRGB format.
+
+Material data slots use non-sRGB sampling formats. Custom `ShaderMaterial`
+bindings retain their `linear` override by selecting the native sampling resource,
+without shader decode constants. An sRGB source without a compatible sRGB format,
+or a backend fallback that loses sRGB decoding, now throws instead of relying on
+shader conversion. Import current shared WGSL declarations. The background
+parameters now occupy 16 bytes. The environment header places the maximum mip
+level at offset `12` and SH coefficients at offset `16`; its complete buffer is
+4,224 bytes. Remove obsolete decoding-field padding from custom environment
+layouts. Material transform vectors retain their existing aligned layout.
+
+See the [material contract](../contracts/materials.md).
+
+## WebGPU Parameter Uniform Layouts
+
+Custom integrations must adopt the compact parameter sizes listed in the
+[WebGPU contract](../contracts/webgpu.md). Denoiser and SSRF trace buffers now
+contain twelve scalar words, and SSGI trace buffers contain sixteen. Animation
+parameters contain six scalar words in both scene and shadow consumers.
+
+Remove unused tail padding from gamma, tone-mapping, presentation, occlusion,
+and SSR composition buffers. These standalone uniforms may occupy fewer than
+16 bytes. The IBL prefilter buffer remains 32 bytes, but its source mip count
+moves to byte offset `24` and its zero padding moves to the final word.
+
+Replace `writeSSGIDenoiseParams()` in tooling with `resolveSSGIOptions()` to
+inspect normalized settings. The obsolete eight-float packing helper has been
+removed; GPU SSGI denoising uses the shared denoiser's 48-byte parameter block.
+
 ## Probe Capture Dirty Reason
 
 Replace the removed `reflection-probe` dirty reason and
@@ -83,8 +126,8 @@ followed by `jitterNdc` and `prevJitterNdc`. Replace `cameraPosition` and
 
 Move ambient color, light counts, lighting enablement, and clustered enablement
 reads to `frameLights`; shadow enablement to `frameShadows`; and SH/IBL state
-to `frameEnvironment`. Counts and flags use `u32`. Background decoding uses
-`environmentBackground.inputIsLinear`. Existing binding numbers remain stable,
+to `frameEnvironment`. Counts and flags use `u32`. Background texture formats
+provide linear samples directly. Existing binding numbers remain stable,
 but buffer sizes and offsets change. Import the shared frame declarations
 instead of copying their layouts into custom shaders.
 

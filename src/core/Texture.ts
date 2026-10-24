@@ -1,7 +1,17 @@
 import type { IVector2 } from "../maths/types";
 import type { RGBA } from "../foundation/Color";
 import { clamp } from "../maths/Common";
-import { TextureFormat } from "./TextureFormat";
+import { getTextureFormatInfo, TextureFormat } from "./TextureFormat";
+
+const LINEAR_FORMATS = new Map<TextureFormat, TextureFormat>();
+const SRGB_FORMATS = new Map<TextureFormat, TextureFormat>();
+for (const format of Object.values(TextureFormat)) {
+	if (!getTextureFormatInfo(format).isSRGB) continue;
+	const linear = format.slice(0, -5) as TextureFormat;
+	LINEAR_FORMATS.set(format, linear);
+	SRGB_FORMATS.set(format, format);
+	SRGB_FORMATS.set(linear, format);
+}
 
 export type TextureFilter =
 	| "Nearest"
@@ -66,7 +76,6 @@ export class Texture {
 	width: number;
 	height: number;
 	format: TextureFormat;
-	formatExplicit: boolean;
 	wrapS: TextureWrap;
 	wrapT: TextureWrap;
 	minFilter: TextureFilter;
@@ -76,7 +85,8 @@ export class Texture {
 	rotation: number;
 	/**
 	 * The color space of this texture's data.
-	 * Used by samplers and lighting to decide whether gamma decode is needed.
+	 * GPU resource resolution chooses a compatible sampling format from this
+	 * source encoding; CPU consumers decode it when sampling color data.
 	 */
 	colorSpace: TextureColorSpace;
 
@@ -100,8 +110,9 @@ export class Texture {
 		if (!params || typeof params !== "object" || ArrayBuffer.isView(params)) {
 			throw new TypeError("Texture requires a parameter object.");
 		}
-		const resolvedColorSpace = params.colorSpace ?? "sRGB";
 		const resolvedData = params.data ?? params.levels?.[0]?.data ?? null;
+		const resolvedColorSpace = params.colorSpace ??
+			inferDefaultTextureColorSpace(resolvedData, params.format);
 		const resolvedWidth = Math.max(
 			0,
 			Math.floor(params.width ?? params.levels?.[0]?.width ?? 0)
@@ -117,7 +128,6 @@ export class Texture {
 		this.format =
 			params.format ??
 			inferDefaultTextureFormat(resolvedData, resolvedColorSpace);
-		this.formatExplicit = !!params.format;
 		this.wrapS = "Repeat";
 		this.wrapT = "Repeat";
 		this.minFilter = "Linear";
@@ -267,6 +277,7 @@ export class Texture {
 			this.repeat.y,
 			this.rotation,
 			this.colorSpace,
+			this.format,
 		].join("|");
 		if (signature === this._samplingSignature) return;
 		this._samplingSignature = signature;
@@ -434,6 +445,31 @@ export class Texture {
 	}
 }
 
+/**
+ * Resolves the native format that preserves a source's color or data semantics.
+ *
+ * @internal Texture resource upload contract; consumers should configure
+ * `Texture.colorSpace` and let the rendering backend resolve native resources.
+ * @param texture - Source storage layout and encoding metadata.
+ * @param color - Whether RGB represents color rather than unencoded data.
+ * @returns A compatible format with the required hardware decoding semantics.
+ * @throws When an sRGB color source has no compatible sRGB format.
+ */
+export function resolveTextureSamplingFormat(
+	texture: Pick<Texture, "format" | "colorSpace">,
+	color = true
+): TextureFormat {
+	getTextureFormatInfo(texture.format);
+	if (!color || texture.colorSpace !== "sRGB") {
+		return LINEAR_FORMATS.get(texture.format) ?? texture.format;
+	}
+	const srgbFormat = SRGB_FORMATS.get(texture.format);
+	if (!srgbFormat) {
+		throw new Error(`Texture format "${texture.format}" has no compatible sRGB sampling format.`);
+	}
+	return srgbFormat;
+}
+
 function inferDefaultTextureFormat(
 	data: TextureData | null,
 	colorSpace: TextureColorSpace
@@ -441,7 +477,20 @@ function inferDefaultTextureFormat(
 	if (data instanceof Float32Array || colorSpace === "HDR") {
 		return TextureFormat.RGBA16Float;
 	}
-	return TextureFormat.RGBA8Unorm;
+	return colorSpace === "sRGB" ? TextureFormat.RGBA8UnormSrgb : TextureFormat.RGBA8Unorm;
+}
+
+function inferDefaultTextureColorSpace(
+	data: TextureData | null,
+	format: TextureFormat | undefined
+): TextureColorSpace {
+	if (format) {
+		const info = getTextureFormatInfo(format);
+		if (info.isSRGB) return "sRGB";
+		return info.componentType === "float" || info.componentType === "ufloat" ?
+			"HDR" : "Linear";
+	}
+	return data instanceof Float32Array ? "HDR" : "sRGB";
 }
 
 function normalizeTextureLevels(

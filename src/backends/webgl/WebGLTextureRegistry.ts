@@ -1,15 +1,15 @@
-import type { Texture } from "../../core/Texture";
+import { resolveTextureSamplingFormat, type Texture } from "../../core/Texture";
 import { clamp } from "../../maths/Common";
 import { Logger } from "../../foundation/Logger";
 import { float32ToFloat16Bits } from "../../foundation/Float16";
-import { TextureFormat } from "../../core/TextureFormat";
+import { isTextureFormatSRGB, TextureFormat } from "../../core/TextureFormat";
 
 interface TextureEntry {
 	texture: WebGLTexture;
 	version: number;
 	width: number;
 	height: number;
-	isLinear: boolean;
+	sourceColorSpace: Texture["colorSpace"];
 	uploadKind: WebGLTextureUploadKind;
 	actualFormat: TextureFormat;
 }
@@ -35,9 +35,10 @@ export interface WebGLTextureRegistryOptions {
 	onUploadPending?: () => void;
 }
 
+/** @internal WebGL resource binding result; use material texture properties. */
 export interface ResolvedWebGLTexture {
 	texture: WebGLTexture;
-	isLinear: boolean;
+	format: TextureFormat;
 }
 
 type WebGLTextureUploadKind = string;
@@ -49,13 +50,25 @@ interface WebGLTextureUploadFormat {
 	format: number;
 	type: number;
 	isFloat: boolean;
-	hardwareSRGB: boolean;
 	channelCount: number;
 }
 
 interface WebGLTextureResolveOptions {
 	preferFloat?: boolean;
+	colorSpace?: Texture["colorSpace"];
 }
+
+const DEFAULT_RESOLVE_OPTIONS: WebGLTextureResolveOptions = {};
+const COLOR_SPACE_RESOLVE_OPTIONS: Record<
+	Texture["colorSpace"], WebGLTextureResolveOptions
+> = {
+	sRGB: { colorSpace: "sRGB" },
+	Linear: { colorSpace: "Linear" },
+	HDR: { colorSpace: "HDR" },
+};
+const ENVIRONMENT_SPECULAR_RESOLVE_OPTIONS: WebGLTextureResolveOptions = {
+	preferFloat: true,
+};
 
 interface PendingTextureUpload {
 	texture: Texture;
@@ -64,9 +77,10 @@ interface PendingTextureUpload {
 	uploadFormat: WebGLTextureUploadFormat;
 	cacheKey: string;
 	version: number;
+	samplingRevision: number;
 	width: number;
 	height: number;
-	isLinear: boolean;
+	sourceColorSpace: Texture["colorSpace"];
 	estimatedBytes: number;
 	queued: boolean;
 }
@@ -74,14 +88,13 @@ interface PendingTextureUpload {
 interface DeferredTextureUploadRequest {
 	texture: Texture;
 	label: string;
-	srgbDefault: boolean;
 	targetTexture: WebGLTexture;
 	uploadFormat: WebGLTextureUploadFormat;
 	cacheKey: string;
 	cached: TextureEntry | undefined;
 	width: number;
 	height: number;
-	isLinear: boolean;
+	sourceColorSpace: Texture["colorSpace"];
 }
 
 interface ResolvedTextureCacheEntry {
@@ -89,9 +102,8 @@ interface ResolvedTextureCacheEntry {
 	version: number;
 	width: number;
 	height: number;
-	isLinear: boolean;
+	sourceColorSpace: Texture["colorSpace"];
 	format: TextureFormat;
-	formatExplicit: boolean;
 }
 
 export const DEFAULT_DEFERRED_UPLOADS_PER_FRAME = 4;
@@ -164,8 +176,25 @@ export class WebGLTextureRegistry {
 		this.processPendingUploads();
 	}
 
-	public getBaseColorTexture(texture: Texture | null): ResolvedWebGLTexture {
-		return this._resolveTexture(texture, "base-color", true);
+	/**
+	 * Resolves WebGL material texture resources; consumers should use material maps.
+	 * @internal WebGL binding bridge. Non-color slots must pass `false`.
+	 * @param color - Whether to interpret source RGB as color rather than raw data.
+	 * @param colorSpace - Optional ShaderMaterial source-encoding override.
+	 * @returns A native texture and its actual sampling format.
+	 */
+	public getBaseColorTexture(
+		texture: Texture | null,
+		color = true,
+		colorSpace?: Texture["colorSpace"]
+	): ResolvedWebGLTexture {
+		const label = color ? "base-color" : "data";
+		return this._resolveTexture(
+			texture,
+			colorSpace ? `${label}-${colorSpace}` : label,
+			color,
+			colorSpace ? COLOR_SPACE_RESOLVE_OPTIONS[colorSpace] : DEFAULT_RESOLVE_OPTIONS
+		);
 	}
 
 	public getEnvironmentTexture(texture: Texture | null): ResolvedWebGLTexture {
@@ -175,9 +204,9 @@ export class WebGLTextureRegistry {
 	public getEnvironmentSpecularTexture(
 		texture: Texture | null
 	): ResolvedWebGLTexture {
-		return this._resolveTexture(texture, "env-specular", true, {
-			preferFloat: true,
-		});
+		return this._resolveTexture(
+			texture, "env-specular", true, ENVIRONMENT_SPECULAR_RESOLVE_OPTIONS
+		);
 	}
 
 	public getBRDFLUTTexture(texture: Texture | null): ResolvedWebGLTexture {
@@ -216,7 +245,7 @@ export class WebGLTextureRegistry {
 		}
 		this._neutralNormalResult = {
 			texture: this._neutralNormalTexture,
-			isLinear: true,
+			format: TextureFormat.RGBA8Unorm,
 		};
 		return this._neutralNormalResult;
 	}
@@ -253,7 +282,7 @@ export class WebGLTextureRegistry {
 		}
 		this._whiteTextureResult = {
 			texture: this._whiteTexture,
-			isLinear: true,
+			format: TextureFormat.RGBA8Unorm,
 		};
 		return this._whiteTextureResult;
 	}
@@ -275,8 +304,8 @@ export class WebGLTextureRegistry {
 	private _resolveTexture(
 		texture: Texture | null,
 		label: string,
-		srgbDefault: boolean,
-		options: WebGLTextureResolveOptions = {}
+		color: boolean,
+		options: WebGLTextureResolveOptions = DEFAULT_RESOLVE_OPTIONS
 	): ResolvedWebGLTexture {
 		if (!texture) {
 			return this.getWhiteTexture();
@@ -305,8 +334,7 @@ export class WebGLTextureRegistry {
 			return this.getWhiteTexture();
 		}
 
-		const isLinear =
-			texture.colorSpace === "Linear" || texture.colorSpace === "HDR";
+		const sourceColorSpace = options.colorSpace ?? texture.colorSpace;
 		const resolvedEntries = this._resolvedByLabel.get(texture);
 		const resolvedCached = resolvedEntries?.get(label);
 		if (
@@ -314,16 +342,15 @@ export class WebGLTextureRegistry {
 			resolvedCached.version === texture.version &&
 			resolvedCached.width === width &&
 			resolvedCached.height === height &&
-			resolvedCached.isLinear === isLinear &&
-			resolvedCached.format === texture.format &&
-			resolvedCached.formatExplicit === texture.formatExplicit
+			resolvedCached.sourceColorSpace === sourceColorSpace &&
+			resolvedCached.format === texture.format
 		) {
 			return resolvedCached.result;
 		}
 		const uploadFormat = this._resolveUploadFormat(
 			texture,
 			label,
-			isLinear,
+			color,
 			options
 		);
 		const cacheKey = uploadFormat.kind;
@@ -334,15 +361,15 @@ export class WebGLTextureRegistry {
 			cached.version === texture.version &&
 			cached.width === width &&
 			cached.height === height &&
-			cached.isLinear === isLinear &&
+			cached.sourceColorSpace === sourceColorSpace &&
 			cached.uploadKind === uploadFormat.kind &&
 			cached.actualFormat === uploadFormat.textureFormat
 		) {
 			const result: ResolvedWebGLTexture = {
 				texture: cached.texture,
-				isLinear: uploadFormat.hardwareSRGB || isLinear || !srgbDefault,
+				format: uploadFormat.textureFormat,
 			};
-			this._cacheResolvedTexture(texture, label, result, width, height, isLinear);
+			this._cacheResolvedTexture(texture, label, result, width, height, sourceColorSpace);
 			return result;
 		}
 
@@ -365,14 +392,13 @@ export class WebGLTextureRegistry {
 			return this._queueDeferredTextureUpload({
 				texture,
 				label,
-				srgbDefault,
 				targetTexture: glTexture,
 				uploadFormat,
 				cacheKey,
 				cached,
 				width,
 				height,
-				isLinear,
+				sourceColorSpace,
 			});
 		}
 
@@ -392,7 +418,7 @@ export class WebGLTextureRegistry {
 			version: texture.version,
 			width,
 			height,
-			isLinear,
+			sourceColorSpace,
 			uploadKind: uploadFormat.kind,
 			actualFormat: uploadFormat.textureFormat,
 		});
@@ -401,9 +427,9 @@ export class WebGLTextureRegistry {
 		}
 		const result: ResolvedWebGLTexture = {
 			texture: glTexture,
-			isLinear: uploadFormat.hardwareSRGB || isLinear || !srgbDefault,
+			format: uploadFormat.textureFormat,
 		};
-		this._cacheResolvedTexture(texture, label, result, width, height, isLinear);
+		this._cacheResolvedTexture(texture, label, result, width, height, sourceColorSpace);
 		return result;
 	}
 
@@ -413,7 +439,7 @@ export class WebGLTextureRegistry {
 		result: ResolvedWebGLTexture,
 		width: number,
 		height: number,
-		isLinear: boolean,
+		sourceColorSpace: Texture["colorSpace"],
 	): void {
 		let entries = this._resolvedByLabel.get(texture);
 		if (!entries) {
@@ -425,9 +451,8 @@ export class WebGLTextureRegistry {
 			version: texture.version,
 			width,
 			height,
-			isLinear,
+			sourceColorSpace,
 			format: texture.format,
-			formatExplicit: texture.formatExplicit,
 		});
 	}
 
@@ -466,6 +491,7 @@ export class WebGLTextureRegistry {
 			}
 			if (
 				pending.version !== pending.texture.version ||
+				pending.samplingRevision !== pending.texture.samplingRevision ||
 				pending.width !== (pending.texture.width | 0) ||
 				pending.height !== (pending.texture.height | 0)
 			) {
@@ -514,9 +540,10 @@ export class WebGLTextureRegistry {
 				uploadFormat: request.uploadFormat,
 				cacheKey: request.cacheKey,
 				version: request.texture.version,
+				samplingRevision: request.texture.samplingRevision,
 				width: request.width,
 				height: request.height,
-				isLinear: request.isLinear,
+				sourceColorSpace: request.sourceColorSpace,
 				estimatedBytes,
 				queued: false,
 			};
@@ -526,9 +553,10 @@ export class WebGLTextureRegistry {
 			pending.targetTexture = request.targetTexture;
 			pending.uploadFormat = request.uploadFormat;
 			pending.version = request.texture.version;
+			pending.samplingRevision = request.texture.samplingRevision;
 			pending.width = request.width;
 			pending.height = request.height;
-			pending.isLinear = request.isLinear;
+			pending.sourceColorSpace = request.sourceColorSpace;
 			pending.estimatedBytes = estimatedBytes;
 		}
 
@@ -542,10 +570,7 @@ export class WebGLTextureRegistry {
 		if (visibleTexture) {
 			return {
 				texture: visibleTexture,
-				isLinear:
-					request.uploadFormat.hardwareSRGB ||
-					request.isLinear ||
-					!request.srgbDefault,
+				format: request.uploadFormat.textureFormat,
 			};
 		}
 		return this.getWhiteTexture();
@@ -558,7 +583,7 @@ export class WebGLTextureRegistry {
 			version: pending.version,
 			width: pending.width,
 			height: pending.height,
-			isLinear: pending.isLinear,
+			sourceColorSpace: pending.sourceColorSpace,
 			uploadKind: pending.uploadFormat.kind,
 			actualFormat: pending.uploadFormat.textureFormat,
 		});
@@ -568,7 +593,7 @@ export class WebGLTextureRegistry {
 	}
 
 	private _shouldDeferUpload(label: string): boolean {
-		return this._uploadScheduling === "deferred" && label === "base-color";
+		return this._uploadScheduling === "deferred" && label.startsWith("base-color");
 	}
 
 	private _notifyUploadPending(): void {
@@ -696,26 +721,22 @@ export class WebGLTextureRegistry {
 	private _resolveUploadFormat(
 		texture: Texture,
 		label: string,
-		isLinear: boolean,
+		color: boolean,
 		options: WebGLTextureResolveOptions
 	): WebGLTextureUploadFormat {
-		const gl = this._gl;
-		const requestedFormat = texture.format ?? TextureFormat.RGBA8Unorm;
-		if (texture.formatExplicit) {
-			const requestedUpload = this._resolveRequestedUploadFormat(
-				requestedFormat,
-				label
-			);
-			if (requestedUpload) {
-				return requestedUpload;
-			}
+		const source = options.colorSpace ?
+			{ format: texture.format, colorSpace: options.colorSpace } : texture;
+		const requestedFormat = resolveTextureSamplingFormat(source, color);
+		const requestedUpload = this._resolveRequestedUploadFormat(requestedFormat, label);
+		if (requestedUpload) return requestedUpload;
+		if (isTextureFormatSRGB(requestedFormat)) {
+			throw new Error(`WebGL cannot preserve sRGB sampling for "${requestedFormat}"`);
 		}
-		if (options.preferFloat && isLinear && hasFloat32PixelData(texture)) {
+		if (options.preferFloat && hasFloat32PixelData(texture)) {
 			const floatFormat = this._resolveFloatUploadFormat(label);
-			if (floatFormat) {
-				return floatFormat;
-			}
+			if (floatFormat) return floatFormat;
 		}
+		const gl = this._gl;
 		return {
 			kind: "rgba8",
 			textureFormat: TextureFormat.RGBA8Unorm,
@@ -723,7 +744,6 @@ export class WebGLTextureRegistry {
 			format: gl.RGBA,
 			type: gl.UNSIGNED_BYTE,
 			isFloat: false,
-			hardwareSRGB: false,
 			channelCount: 4,
 		};
 	}
@@ -762,7 +782,6 @@ export class WebGLTextureRegistry {
 					format: gl.RGBA,
 					type: gl.UNSIGNED_BYTE,
 					isFloat: false,
-					hardwareSRGB: false,
 					channelCount: 4,
 				};
 			case TextureFormat.RGBA8UnormSrgb:
@@ -774,16 +793,10 @@ export class WebGLTextureRegistry {
 						format: gl.RGBA,
 						type: gl.UNSIGNED_BYTE,
 						isFloat: false,
-						hardwareSRGB: true,
 						channelCount: 4,
 					};
 				}
-				this._warnFormatFallback(
-					label,
-					requestedFormat,
-					TextureFormat.RGBA8Unorm
-				);
-				return null;
+				throw new Error("WebGL sRGB texture sampling requires SRGB8_ALPHA8");
 			case TextureFormat.R16Float:
 				return this._createFloatWebGLUploadFormat(
 					requestedFormat,
@@ -861,7 +874,6 @@ export class WebGLTextureRegistry {
 				format: gl.RGBA,
 				type: gl.HALF_FLOAT,
 				isFloat: true,
-				hardwareSRGB: false,
 				channelCount: 4,
 			};
 		}
@@ -876,7 +888,6 @@ export class WebGLTextureRegistry {
 				format: gl.RGBA,
 				type: gl.FLOAT,
 				isFloat: true,
-				hardwareSRGB: false,
 				channelCount: 4,
 			};
 		}
@@ -909,7 +920,6 @@ export class WebGLTextureRegistry {
 			format,
 			type,
 			isFloat: false,
-			hardwareSRGB: false,
 			channelCount,
 		};
 	}
@@ -938,7 +948,6 @@ export class WebGLTextureRegistry {
 			format,
 			type: gl.HALF_FLOAT,
 			isFloat: true,
-			hardwareSRGB: false,
 			channelCount,
 		};
 	}
@@ -967,7 +976,6 @@ export class WebGLTextureRegistry {
 			format,
 			type: gl.FLOAT,
 			isFloat: true,
-			hardwareSRGB: false,
 			channelCount,
 		};
 	}

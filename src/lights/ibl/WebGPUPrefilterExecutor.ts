@@ -5,7 +5,7 @@ import {
 	resolveWebGPUTextureUploadFormat,
 } from "../../backends/webgpu/texture";
 import { WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE } from "../../backends/webgpu/constants";
-import { TextureFormat } from "../../core/TextureFormat";
+import { getTextureFormatInfo, TextureFormat } from "../../core/TextureFormat";
 import {
 	AddressMode,
 	BufferUsage,
@@ -102,7 +102,6 @@ export class WebGPUPrefilterExecutor implements IBLPrefilterExecutorLike {
 							request.envMap.height,
 							mipPlan.roughness,
 							resolveSampleCountByRoughness(mipPlan.roughness),
-							resolveTextureIsLinear(request.envMap),
 							Math.max(1, request.envMap.mipmaps.length || 1),
 						),
 						0,
@@ -165,6 +164,11 @@ async function createWebGPUResources(
 			mipLevelCount: Math.max(1, envMap.mipmaps.length || 1),
 			label: "IBLPrefilterInputTexture",
 		});
+		if (getTextureFormatInfo(inputTextureFormat).isSRGB &&
+			inputTexture.format !== inputTextureFormat) {
+			inputTexture.destroy();
+			throw new Error("WebGPU IBL sRGB sampling format fallback would lose native decoding.");
+		}
 		return { runtime, sampler, kernel, inputTexture, inputTextureFormat };
 	} catch (error) {
 		runtime.destroy();
@@ -241,7 +245,6 @@ function createPrefilterParamsBuffer(
 	sourceHeight: number,
 	roughness: number,
 	sampleCount: number,
-	sourceIsLinear: boolean,
 	sourceMipLevelCount: number,
 ): ArrayBuffer {
 	const buffer = new ArrayBuffer(PREFILTER_PARAMS_SIZE);
@@ -252,8 +255,7 @@ function createPrefilterParamsBuffer(
 	view.setUint32(12, sourceHeight, true);
 	view.setFloat32(16, roughness, true);
 	view.setUint32(20, sampleCount, true);
-	view.setUint32(24, sourceIsLinear ? 1 : 0, true);
-	view.setUint32(28, Math.max(1, Math.floor(sourceMipLevelCount)), true);
+	view.setUint32(24, Math.max(1, Math.floor(sourceMipLevelCount)), true);
 	return buffer;
 }
 
@@ -262,10 +264,6 @@ function resolveSampleCountByRoughness(roughness: number): number {
 		GPU_MAX_SAMPLE_COUNT + (GPU_MIN_SAMPLE_COUNT - GPU_MAX_SAMPLE_COUNT) * roughness,
 	);
 	return Math.max(GPU_MIN_SAMPLE_COUNT, Math.min(GPU_MAX_SAMPLE_COUNT, sampleCount));
-}
-
-function resolveTextureIsLinear(texture: Texture): boolean {
-	return texture.colorSpace === "HDR" || texture.colorSpace === "Linear";
 }
 
 function destroyWebGPUResources(resources: WebGPUPrefilterResources): void {

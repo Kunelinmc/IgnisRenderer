@@ -262,11 +262,7 @@ export const WEBGPU_FRAME_ENVIRONMENT_UNIFORM_LAYOUT = new StructuredBufferLayou
 		{ name: "shAmbientEnabled", type: U32 },
 		{ name: "hasEnvSpecular", type: U32 },
 		{ name: "hasBRDFLUT", type: U32 },
-		{ name: "envSpecularIsLinear", type: U32 },
 		{ name: "envSpecularMaxMipLevel", type: F32 },
-		{ name: "_pad0", type: U32 },
-		{ name: "_pad1", type: U32 },
-		{ name: "_pad2", type: U32 },
 		{
 			name: "shAmbientCoeffs",
 			type: arrayOf(VEC4_F32, WEBGPU_SH_COEFFICIENT_COUNT),

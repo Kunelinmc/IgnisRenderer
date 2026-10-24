@@ -5,9 +5,6 @@ struct OcclusionCandidate {
 
 struct OcclusionParams {
 	depthBias: f32,
-	_reserved0: f32,
-	_reserved1: f32,
-	_reserved2: f32,
 };
 
 @group(0) @binding(0) var hiZTex: texture_2d<f32>;

@@ -64,7 +64,7 @@ void main() {
 	);
 	if (uHasBaseMap == 1) {
 		vec4 texel = texture(uBaseMap, baseUv);
-		vec3 texColor = uBaseMapIsLinear == 1 ? texel.rgb : srgbToLinear(texel.rgb);
+		vec3 texColor = texel.rgb;
 		albedo *= texColor;
 		alpha *= texel.a;
 	}
@@ -104,7 +104,7 @@ void main() {
 			uSpecularColorMapTransformA,
 			uSpecularColorMapTransformB
 		);
-		specularColor *= srgbToLinear(texture(uSpecularColorMap, specularColorUv).rgb);
+		specularColor *= texture(uSpecularColorMap, specularColorUv).rgb;
 	}
 #endif
 #if WEBGL_MATERIAL_TRANSMISSION || WEBGL_MATERIAL_MODEL_FULL
@@ -276,7 +276,7 @@ void main() {
 			uSheenColorMapTransformA,
 			uSheenColorMapTransformB
 		);
-		sheenColor *= srgbToLinear(texture(uSheenColorMap, sheenColorUv).rgb);
+		sheenColor *= texture(uSheenColorMap, sheenColorUv).rgb;
 	}
 #endif
 #if WEBGL_MATERIAL_SHEEN_ROUGHNESS_MAP
@@ -366,7 +366,7 @@ void main() {
 		);
 		vec3 emissiveTexel = texture(uEmissiveMap, emissiveUv).rgb;
 		emissive *=
-			uEmissiveMapIsLinear == 1 ? emissiveTexel : srgbToLinear(emissiveTexel);
+			emissiveTexel;
 	}
 #endif
 

@@ -297,7 +297,9 @@ function testReadOnlyTextureBindingValidation() {
 	};
 	const registry = new WebGPUTextureRegistry(backend, { writeTexture() {} });
 	const map = new Texture();
-	const resource = { width: map.width, height: map.height, _gpuResource: {} };
+	const resource = {
+		width: map.width, height: map.height, format: map.format, _gpuResource: {},
+	};
 	registry.registerExternalTexture(map, resource);
 	const sampler = registry.getSamplerForTexture(map);
 	const initialAllocations = allocations;

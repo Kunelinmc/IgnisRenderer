@@ -969,7 +969,7 @@ inputs and target these `sceneFrameBindGroupLayout` resources:
 | `packFrameCameraUniformData` | `0` | `FrameCameraUniforms` | 272 bytes |
 | `packFrameLightUniformData` | `10` | `FrameLightUniforms` | 1,712 bytes |
 | `packFrameShadowUniformData` | `11` | `FrameShadowUniforms` | 6,544 bytes |
-| `packFrameEnvironmentUniformData` | `12` | `FrameEnvironmentUniforms` | 4,240 bytes |
+| `packFrameEnvironmentUniformData` | `12` | `FrameEnvironmentUniforms` | 4,224 bytes |
 
 `FrameCameraUniforms` must contain unjittered `viewProjection`,
 `prevViewProjection`, `inverseView`, and `inverseProjection` matrices at byte
@@ -995,14 +995,39 @@ Clustered lighting must retain its perspective-only fallback policy.
 `FrameLightUniforms` must prepend a 48-byte header containing `ambientColor`,
 `lightCounts: vec4<u32>`, `lightingEnabled`, and `clusteredLightingEnabled`.
 `FrameShadowUniforms` must prepend a 16-byte `shadowsEnabled` header.
-`FrameEnvironmentUniforms` must prepend a 32-byte header containing
-`shAmbientEnabled`, `hasEnvSpecular`, `hasBRDFLUT`, `envSpecularIsLinear`, and
-`envSpecularMaxMipLevel`. Flags must use `u32` values `0` or `1`; maximum mip
-must use non-negative `f32`. Headers must use explicit zero scalar padding.
+`FrameEnvironmentUniforms` must prepend a 16-byte header containing
+`shAmbientEnabled`, `hasEnvSpecular`, and `hasBRDFLUT` as `u32` values `0` or `1`
+at offsets `0`, `4`, and `8`, followed by non-negative `envSpecularMaxMipLevel`
+as `f32` at offset `12`. `shAmbientCoeffs` must begin at offset `16`.
+Environment uniforms must not retain padding for removed fields. Required
+alignment padding must follow the final active member of a packed header.
 SH enablement must combine configured enablement and available SH data.
-Background parameters must contain tint/exposure and a separate `inputIsLinear`
-flag in a 32-byte buffer. Background and IBL decoding must follow their own
-texture sources, preserving the linear probe-atlas path.
+Background parameters must contain only the 16-byte `tintExposureStrength`
+vector, without padding. Background and IBL sources must use native formats that
+return linear RGB, preserving the linear probe-atlas path without shader decoding flags.
+
+Built-in standalone parameter uniforms must use their active WGSL payload size
+rather than an unconditional 16-byte size rounding. Buffer offsets and members
+must still meet their own alignment requirements. These parameter layouts must
+use the following sizes:
+
+| Uniform | Size | Layout requirement |
+| --- | --- | --- |
+| `DenoiseParams` | 48 bytes | Twelve scalar words, without a trailing vector |
+| SSGI `TraceParams` | 64 bytes | Sixteen scalar words |
+| SSRF `TraceParams` | 48 bytes | Twelve scalar words |
+| SSR `ComposeParams` | 8 bytes | One inverse-size `vec2<f32>` |
+| `GammaParams` | 8 bytes | HDR enablement and headroom |
+| `ToneMappingParams` | 12 bytes | Exposure, headroom, and HDR enablement |
+| `PresentParams` | 8 bytes | HDR enablement and transparent-output state |
+| `OcclusionParams` | 4 bytes | Depth bias only |
+| Scene and shadow `AnimationParams` | 24 bytes | Six scalar words |
+| `PrefilterParams` | 32 bytes | Source mip count at offset `24`; zero tail padding at `28` |
+
+CPU writers, allocations, and every matching shader declaration must agree on
+these layouts. Alignment gaps preceding arrays or vectors must remain in place
+unless the active fields are reordered together; moving padding alone must not
+change the alignment of later members.
 
 Frame packers must return `ArrayBuffer` and accept optional reusable writers.
 Each view scope's `WebGPUFrameBindingCache` must own its writers and validate

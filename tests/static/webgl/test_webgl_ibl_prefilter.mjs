@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 import { Texture } from "../../../src/core/Texture.ts";
+import { TextureFormat } from "../../../src/core/TextureFormat.ts";
 import { WebGLBackend } from "../../../src/backends/webgl/WebGLBackend.ts";
 import { IBLPrefilter } from "../../../src/lights/ibl/IBLPrefilter.ts";
 import { WebGLPrefilterExecutor } from "../../../src/lights/ibl/WebGLPrefilterExecutor.ts";
@@ -32,7 +33,10 @@ function createRasterFacade(options = {}) {
 	const resources = {
 		createTexture(desc) {
 			const texture = { ...desc, requestedFormat: desc.format, destroy() {} };
-			calls.push(["texture", desc.label]);
+			if (desc.label === "IBLPrefilterSource" && options.sourceFormat) {
+				texture.format = options.sourceFormat;
+			}
+			calls.push(["texture", desc.label, desc]);
 			return texture;
 		},
 		createSampler() { return {}; },
@@ -40,8 +44,8 @@ function createRasterFacade(options = {}) {
 		createRenderPipeline(desc) { return { desc }; },
 		createBindingGroup(desc) { return { desc }; },
 		createBuffer() { throw new Error("not used"); },
-		writeTexture(_texture, _data, layout) {
-			calls.push(["write", layout.mipLevel ?? 0]);
+		writeTexture(texture, data, layout) {
+			calls.push(["write", layout.mipLevel ?? 0, texture, data]);
 		},
 		async readTexture() {
 			return {
@@ -54,7 +58,7 @@ function createRasterFacade(options = {}) {
 		setPipeline() {},
 		setBindingGroup() {},
 		setViewport() {},
-		setUniforms(uniforms) { calls.push(["uniforms", uniforms.length]); },
+		setUniforms(uniforms) { calls.push(["uniforms", uniforms.length, uniforms]); },
 		draw(count) { calls.push(["draw", count]); },
 		endRenderPass() { calls.push(["end"]); },
 	};
@@ -121,6 +125,39 @@ async function testAdapterPropagatesAvailabilityAndFailure() {
 	);
 }
 
+async function testSourceEncodingIsOwnedByNativeFormat() {
+	const raster = createRasterFacade();
+	const source = new Texture({
+		width: 1, height: 1,
+		data: new Uint8Array([128, 64, 32, 127]), colorSpace: "sRGB",
+	});
+	await new WebGLPrefilterExecutor(raster.facade).execute(createRequest(source));
+	const desc = raster.calls.find(([kind, label]) =>
+		kind === "texture" && label === "IBLPrefilterSource")[2];
+	assert.equal(desc.format, TextureFormat.RGBA8UnormSrgb);
+	const upload = raster.calls.find(([kind]) => kind === "write")[3];
+	assert.deepEqual(Array.from(upload), [128, 64, 32, 127]);
+	const uniforms = raster.calls.find(([kind]) => kind === "uniforms")[2];
+	assert.equal(uniforms.some((entry) => entry.name === "uSourceIsLinear"), false);
+	const fallback = createRasterFacade({ sourceFormat: TextureFormat.RGBA8Unorm });
+	await assert.rejects(
+		new WebGLPrefilterExecutor(fallback.facade).execute(createRequest(source)),
+		/sampling format/
+	);
+}
+
+async function testExplicitFloat32SourceRetainsHDRValues() {
+	const raster = createRasterFacade();
+	const source = new Texture({
+		width: 1, height: 1, format: TextureFormat.RGBA32Float,
+		data: new Float32Array([4, 2, 0.5, 1]),
+	});
+	await new WebGLPrefilterExecutor(raster.facade).execute(createRequest(source));
+	const upload = raster.calls.find(([kind]) => kind === "write")[3];
+	assert.ok(upload instanceof Float32Array);
+	assert.deepEqual(Array.from(upload), [4, 2, 0.5, 1]);
+}
+
 function createQueuedBackendServices(id, calls) {
 	return {
 		frame: {},
@@ -181,6 +218,8 @@ async function testAutoFallsBackWhileContextLost() {
 	backend.destroy();
 }
 
+await testSourceEncodingIsOwnedByNativeFormat();
+await testExplicitFloat32SourceRetainsHDRValues();
 await testAdapterUsesAuxiliaryRasterCapability();
 await testAdapterPropagatesAvailabilityAndFailure();
 await testExplicitLostRequestRestoresWithNewGeneration();

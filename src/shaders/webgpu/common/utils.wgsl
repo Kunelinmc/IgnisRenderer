@@ -1,4 +1,3 @@
-#import <ignis/color/srgb>
 #import <ignis/postprocess/fog>
 #import <ignis/webgpu/constants>
 fn saturate(value: f32) -> f32 {
@@ -173,8 +172,7 @@ fn sampleColorTexture(
 		uv2,
 		uv3
 	);
-	let isLinear = materialCommon.textureTransformB[slotIndex].z > 0.5;
-	return select(vec4<f32>(srgbToLinear(sampled.rgb), sampled.a), sampled, isLinear);
+	return sampled;
 }
 
 fn applyNormalMap(
@@ -1306,9 +1304,6 @@ fn sampleEnvironmentSpecularFromDirection(
 		uv,
 		level
 	).rgb;
-	if (layerCount <= 1u && frameEnvironment.envSpecularIsLinear == 0u) {
-		sampled = srgbToLinear(sampled);
-	}
 	return sampled;
 }
 

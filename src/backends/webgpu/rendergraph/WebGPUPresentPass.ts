@@ -46,7 +46,7 @@ export class WebGPUPresentPass {
 	private _binding: IBindingGroup | null = null;
 	private _bindingSource: IRenderTexture | null = null;
 	private _params: IRenderBuffer | null = null;
-	private readonly _paramData = new Float32Array(4);
+	private readonly _paramData = new Float32Array(2);
 
 	constructor(host: WebGPUFrameHost) {
 		this._host = host;
@@ -190,7 +190,7 @@ export class WebGPUPresentPass {
 		if (!this._params) {
 			this._params = this._host.createBuffer({
 				label: "WebGPUPresentParams",
-				size: 16,
+				size: 8,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
 			});
 		}

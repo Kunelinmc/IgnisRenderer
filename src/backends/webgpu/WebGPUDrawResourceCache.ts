@@ -521,7 +521,7 @@ export class WebGPUDrawResourceCache {
 		data: WebGPUMaterialUniformData,
 	): Promise<WebGPUMaterialResource> {
 		const textures = await Promise.all(data.common.textureSlots.map((slot, index) =>
-			this._textures.getTextureForSlotAsync(slot.map, index),
+			this._textures.getTextureForSlotAsync(slot.map, index, slot.color, slot.forceSRGB),
 		));
 		this._assertActive();
 		const samplers = data.common.textureSlots.map((slot) =>

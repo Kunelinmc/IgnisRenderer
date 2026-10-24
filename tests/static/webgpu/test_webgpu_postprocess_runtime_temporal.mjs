@@ -343,6 +343,10 @@ async function testSSRAndVolumetricReportHistoryUpdates() {
 	const composeBinding = backend.bindingGroups.find(
 		(group) => group.label === "WebGPUSSR_ComposeBinding"
 	);
+	const composeParams = composeBinding.entries[4].resource;
+	assert.equal(composeParams.size, 8);
+	assert.deepEqual(Array.from(composeParams.lastWrite), [1 / 32, 1 / 16]);
+	assert.equal(backend.writeCalls.findLast((call) => call[1] === composeParams)[2].byteLength, 8);
 	assert.strictEqual(
 		traceBinding.entries[8].resource,
 		ssrHistories.ssrHistoryWrite

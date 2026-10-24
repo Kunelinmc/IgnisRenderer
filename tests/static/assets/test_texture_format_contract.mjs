@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
-import { Texture } from "../../../src/core/Texture.ts";
+import { Texture, resolveTextureSamplingFormat } from "../../../src/core/Texture.ts";
+import { CubeTexture } from "../../../src/core/CubeTexture.ts";
 import { float16BitsToFloat32 } from "../../../src/foundation/Float16.ts";
 import { TextureUsage } from "../../../src/backends/types.ts";
 import {
@@ -19,6 +20,76 @@ import { FakeWebGPUBackend } from "../../helpers/fakes.mjs";
 
 function nearlyEqual(actual, expected, epsilon = 1e-4) {
 	assert.ok(Math.abs(actual - expected) <= epsilon, `${actual} != ${expected}`);
+}
+
+function testTextureDefaultsPreserveSamplingEncoding() {
+	const pixels = new Uint8Array([128, 64, 32, 127]);
+	const srgb = new Texture({ data: pixels, width: 1, height: 1 });
+	const linear = new Texture({ data: pixels, width: 1, height: 1, colorSpace: "Linear" });
+	const hdr = new Texture({ data: new Float32Array([0.5, 2, 4, 1]) });
+	assert.equal(srgb.format, TextureFormat.RGBA8UnormSrgb);
+	assert.equal(linear.format, TextureFormat.RGBA8Unorm);
+	assert.equal(hdr.format, TextureFormat.RGBA16Float);
+	assert.equal(hdr.colorSpace, "HDR");
+	assert.equal(srgb.data, pixels);
+}
+
+function testExplicitFormatInfersSourceEncoding() {
+	for (const [format, colorSpace] of [
+		[TextureFormat.RGBA8UnormSrgb, "sRGB"],
+		[TextureFormat.BC7RGBAUnormSrgb, "sRGB"],
+		[TextureFormat.R8Unorm, "Linear"],
+		[TextureFormat.RGBA8Unorm, "Linear"],
+		[TextureFormat.RGBA16Float, "HDR"],
+	]) {
+		assert.equal(new Texture({ format }).colorSpace, colorSpace);
+	}
+}
+
+function testFormatMutationInvalidatesSamplingRevision() {
+	const texture = new Texture();
+	const revision = texture.samplingRevision;
+	texture.format = TextureFormat.RGBA16Float;
+	assert.ok(texture.samplingRevision > revision);
+}
+
+function testColorAndDataSamplingResolveCompatibleFormats() {
+	for (const [linear, srgb] of [
+		[TextureFormat.RGBA8Unorm, TextureFormat.RGBA8UnormSrgb],
+		[TextureFormat.BGRA8Unorm, TextureFormat.BGRA8UnormSrgb],
+		[TextureFormat.BC1RGBAUnorm, TextureFormat.BC1RGBAUnormSrgb],
+		[TextureFormat.ETC2RGBA8Unorm, TextureFormat.ETC2RGBA8UnormSrgb],
+		[TextureFormat.ASTC5x4Unorm, TextureFormat.ASTC5x4UnormSrgb],
+	]) {
+		const texture = new Texture({ format: linear, colorSpace: "sRGB" });
+		assert.equal(resolveTextureSamplingFormat(texture), srgb);
+		assert.equal(resolveTextureSamplingFormat(texture, false), linear);
+		texture.format = srgb;
+		texture.colorSpace = "Linear";
+		assert.equal(resolveTextureSamplingFormat(texture), linear);
+		assert.equal(resolveTextureSamplingFormat(texture, false), linear);
+	}
+}
+
+function testUnsupportedSrgbEncodingIsRejectedBeforeUpload() {
+	for (const format of [TextureFormat.R8Unorm, TextureFormat.RGBA16Float]) {
+		const texture = new Texture({ format, colorSpace: "sRGB" });
+		assert.throws(() => resolveTextureSamplingFormat(texture), /sRGB sampling format/);
+		assert.equal(resolveTextureSamplingFormat(texture, false), format);
+	}
+}
+
+function testCubeReplacementPreservesSamplingEncoding() {
+	const faces = Array.from({ length: 6 }, () => new Uint8Array([128, 64, 32, 255]));
+	const cube = new CubeTexture({ faces });
+	cube.replaceFaces({ faces });
+	assert.equal(cube.format, TextureFormat.RGBA8UnormSrgb);
+	cube.replaceFaces({ faces, colorSpace: "Linear" });
+	assert.equal(cube.format, TextureFormat.RGBA8Unorm);
+	const hdrFaces = Array.from({ length: 6 }, () => new Float32Array([2, 4, 1, 1]));
+	const hdr = new CubeTexture({ faces: hdrFaces });
+	assert.equal(hdr.colorSpace, "HDR");
+	assert.equal(hdr.format, TextureFormat.RGBA16Float);
 }
 
 function testTextureParamsKeepMipLevelMetadata() {
@@ -214,6 +285,12 @@ async function testComputeRuntimeRejectsPackedRGBAReadback() {
 }
 
 async function run() {
+	testTextureDefaultsPreserveSamplingEncoding();
+	testExplicitFormatInfersSourceEncoding();
+	testFormatMutationInvalidatesSamplingRevision();
+	testColorAndDataSamplingResolveCompatibleFormats();
+	testUnsupportedSrgbEncodingIsRejectedBeforeUpload();
+	testCubeReplacementPreservesSamplingEncoding();
 	testTextureParamsKeepMipLevelMetadata();
 	testTextureRejectsLegacyPositionalInitialization();
 	testTextureFormatRegistryHandlesCompressedBlocks();

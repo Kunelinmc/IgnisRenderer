@@ -10,7 +10,7 @@ import type {
 	ShaderLanguage,
 } from "./runtime";
 
-export const SHADER_MATERIAL_SOURCE_ABI_REVISION = 2;
+export const SHADER_MATERIAL_SOURCE_ABI_REVISION = 3;
 
 export interface ShaderMaterialSourceOptions {
 	readonly material: ShaderMaterial;
@@ -186,7 +186,6 @@ function createWGSLTextureBlocks(
 	if (bindings.length <= 0) return [];
 	for (const [name, declaration] of [
 		["ignisSelectShaderMaterialUv", /\bfn\s+ignisSelectShaderMaterialUv\b/m],
-		["ignisDecodeShaderMaterialSample", /\bfn\s+ignisDecodeShaderMaterialSample\b/m],
 	] as const) {
 		assertWGSLDeclarationAvailable(source, declaration, name);
 	}
@@ -202,7 +201,6 @@ function createWGSLTextureBlocks(
 		const levelFunctionName = `ignisSampleTextureLevel_${token}`;
 		const slotConst = `IGNIS_TEXTURE_SLOT_${symbolToken}`;
 		const uvConst = `IGNIS_TEXTURE_UVSET_${symbolToken}`;
-		const linearConst = `IGNIS_TEXTURE_LINEAR_${symbolToken}`;
 		const textureBinding = binding.slot * 2 + 1;
 		const samplerBinding = textureBinding + 1;
 		assertWGSLBindingAvailable(source, textureBinding);
@@ -220,7 +218,6 @@ function createWGSLTextureBlocks(
 			`@group(1) @binding(${samplerBinding}) var ${samplerName}: sampler;`,
 			`const ${slotConst}: u32 = ${binding.slot}u;`,
 			`const ${uvConst}: u32 = ${binding.uvSet}u;`,
-			`const ${linearConst}: bool = ${binding.linear ? "true" : "false"};`,
 		);
 		wrappers.push(
 			`fn ${functionName}(\n` +
@@ -230,7 +227,7 @@ function createWGSLTextureBlocks(
 			`\tlet uv = ignisSelectShaderMaterialUv(` +
 			`uv0, uv1, uv2, uv3, ${uvConst});\n` +
 			`\tlet sampled = textureSample(${textureName}, ${samplerName}, uv);\n` +
-			`\treturn ignisDecodeShaderMaterialSample(sampled, ${linearConst});\n}\n\n` +
+			"\treturn sampled;\n}\n\n" +
 			`fn ${levelFunctionName}(\n` +
 			"\tuv0: vec2<f32>,\n\tuv1: vec2<f32>,\n" +
 			"\tuv2: vec2<f32>,\n\tuv3: vec2<f32>,\n\tlevel: f32\n" +
@@ -239,7 +236,7 @@ function createWGSLTextureBlocks(
 			`uv0, uv1, uv2, uv3, ${uvConst});\n` +
 			`\tlet sampled = textureSampleLevel(` +
 			`${textureName}, ${samplerName}, uv, level);\n` +
-			`\treturn ignisDecodeShaderMaterialSample(sampled, ${linearConst});\n}`,
+			"\treturn sampled;\n}",
 		);
 	}
 	return [
@@ -308,7 +305,6 @@ function createGLSLTextureBlocks(
 	if (bindings.length <= 0) return [];
 	for (const name of [
 		"ignisSelectShaderMaterialUv",
-		"ignisDecodeShaderMaterialSample",
 	]) {
 		if (new RegExp(`\\b(?:vec[234]\\s+)?${name}\\s*\\(`, "m").test(source)) {
 			throw new Error(
@@ -334,25 +330,23 @@ function createGLSLTextureBlocks(
 		}
 		const slotConst = `IGNIS_TEXTURE_SLOT_${symbolToken}`;
 		const uvConst = `IGNIS_TEXTURE_UVSET_${symbolToken}`;
-		const linearConst = `IGNIS_TEXTURE_LINEAR_${symbolToken}`;
 		declarations.push(
 			`uniform sampler2D ${binding.webglUniform};`,
 			`const int ${slotConst} = ${binding.slot};`,
 			`const int ${uvConst} = ${binding.uvSet};`,
-			`const bool ${linearConst} = ${binding.linear ? "true" : "false"};`,
 		);
 		wrappers.push(
 			`vec4 ${functionName}(vec2 uv0, vec2 uv1, vec2 uv2, vec2 uv3) {\n` +
 			`\tvec2 uv = ignisSelectShaderMaterialUv(` +
 			`uv0, uv1, uv2, uv3, ${uvConst});\n` +
 			`\tvec4 sampled = texture(${binding.webglUniform}, uv);\n` +
-			`\treturn ignisDecodeShaderMaterialSample(sampled, ${linearConst});\n}\n\n` +
+			"\treturn sampled;\n}\n\n" +
 			`vec4 ${levelFunctionName}(` +
 			"vec2 uv0, vec2 uv1, vec2 uv2, vec2 uv3, float lod) {\n" +
 			`\tvec2 uv = ignisSelectShaderMaterialUv(` +
 			`uv0, uv1, uv2, uv3, ${uvConst});\n` +
 			`\tvec4 sampled = textureLod(${binding.webglUniform}, uv, lod);\n` +
-			`\treturn ignisDecodeShaderMaterialSample(sampled, ${linearConst});\n}`,
+			"\treturn sampled;\n}",
 		);
 	}
 	return [

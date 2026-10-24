@@ -63,10 +63,10 @@ function createBinderHost(gl, pointLights) {
 		},
 		_textures: {
 			getEnvironmentSpecularTexture() {
-				return { texture: null, isLinear: false };
+				return { texture: null };
 			},
 			getBRDFLUTTexture() {
-				return { texture: null, isLinear: false };
+				return { texture: null };
 			},
 		},
 		_clusteredLighting: {

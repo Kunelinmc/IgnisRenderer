@@ -1,11 +1,9 @@
-#import <ignis/color/srgb>
 #import <ignis/webgpu/constants>
 
 struct ToneMappingParams {
 	exposure: f32,
 	hdrHeadroom: f32,
 	hdrEnabled: f32,
-	_pad0: f32,
 }
 
 @group(0) @binding(0) var srcTex: texture_2d<f32>;

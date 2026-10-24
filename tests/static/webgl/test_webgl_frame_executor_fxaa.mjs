@@ -1373,15 +1373,15 @@ function testGlobalUniformsBindLightProbeIBLTextures() {
 		getEnvironmentSpecularTexture(texture) {
 			if (texture === envProbeMap) {
 				envSpecularMapCalls++;
-				return { texture: envTexture, isLinear: true };
+				return { texture: envTexture };
 			}
 			assert.equal(texture, null);
 			fallbackMapCalls++;
-			return { texture: null, isLinear: true };
+			return { texture: null };
 		},
 		getBRDFLUTTexture(texture) {
 			assert.ok(texture);
-			return { texture: brdfTexture, isLinear: true };
+			return { texture: brdfTexture };
 		},
 	};
 	executor._session.lightState = {
@@ -1425,7 +1425,7 @@ function testGlobalUniformsBindLightProbeIBLTextures() {
 	);
 	assert.equal(uniform1i.get("uEnvSpecularMap"), 0);
 	assert.equal(uniform1i.get("uHasEnvSpecularMap"), 1);
-	assert.equal(uniform1i.get("uEnvSpecularMapIsLinear"), 1);
+	assert.equal(uniform1i.get("uEnvSpecularMapIsLinear"), undefined);
 	assert.equal(uniform1i.get("uBrdfLUT"), 1);
 
 	const uniform1f = new Map(

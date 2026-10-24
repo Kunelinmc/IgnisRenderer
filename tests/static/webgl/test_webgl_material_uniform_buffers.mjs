@@ -331,7 +331,7 @@ function testDrawPathBindsCachedUniformBuffersWithoutReuploading() {
 			getGeometry: () => ({ vao: {}, topology: 4, indexCount: 3, indexType: 5123 }),
 		},
 		textures: {
-			getBaseColorTexture: () => ({ texture: null, isLinear: true }),
+			getBaseColorTexture: () => ({ texture: null }),
 		},
 		materialSnapshots: snapshots,
 		materialBuffers: buffers,

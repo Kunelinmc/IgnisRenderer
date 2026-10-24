@@ -209,8 +209,6 @@ export class WebGPUGammaImplementation implements PostProcessPassImplementation<
 		const display = context.shared.getDisplayOutputState?.();
 		resources.paramData[0] = display?.activeDynamicRange === "hdr" ? 1 : 0;
 		resources.paramData[1] = display?.requested.hdrHeadroom ?? 4;
-		resources.paramData[2] = 0;
-		resources.paramData[3] = 0;
 		context.shared.compute.writeBuffer(resources.params, resources.paramData);
 		const binding = context.shared.getCachedBindGroup(
 			`gamma-${target === targets.postPing ? "ping" : "pong"}`,
@@ -244,7 +242,7 @@ export class WebGPUGammaImplementation implements PostProcessPassImplementation<
 				module: null,
 				pipeline: null,
 				params: null,
-				paramData: new Float32Array(4),
+				paramData: new Float32Array(2),
 			};
 			this._resources.set(shared, resources);
 		}
@@ -268,7 +266,7 @@ export class WebGPUGammaImplementation implements PostProcessPassImplementation<
 		if (!resources.params) {
 			resources.params = shared.compute.createBuffer({
 				label: "WebGPUGammaParams",
-				size: 16,
+				size: 8,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
 			});
 		}

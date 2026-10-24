@@ -1,5 +1,5 @@
 import { clamp } from "../../maths/Common";
-import type { Texture, TextureData } from "../../core/Texture";
+import { resolveTextureSamplingFormat, type Texture, type TextureData } from "../../core/Texture";
 import { float32ToFloat16Bits } from "../../foundation/Float16";
 import {
 	getTextureFormatBytesPerRow,
@@ -34,13 +34,13 @@ export function createTextureUploadData(texture: Texture): {
 }
 
 /**
- * Resolves the WebGPU upload texture format needed to preserve source data.
+ * Resolves the WebGPU color sampling format needed to preserve source encoding.
  *
  * @param texture - Texture metadata and mip data to upload.
- * @returns Explicit texture format metadata, falling back to legacy inference.
+ * @returns The compatible native format whose samples are linear RGB.
  */
 export function resolveWebGPUTextureUploadFormat(texture: Texture): TextureFormat {
-	return texture.format ?? resolveLegacyTextureUploadFormat(texture);
+	return resolveTextureSamplingFormat(texture);
 }
 
 export function createTextureMipUploadLevels(
@@ -144,18 +144,6 @@ export function createTextureFormatUploadData(
 		default:
 			return toRawOrConvertedTextureData(data, width, height, format, info);
 	}
-}
-
-function resolveLegacyTextureUploadFormat(texture: Texture): TextureFormat {
-	if (texture.data instanceof Float32Array) {
-		return TextureFormat.RGBA16Float;
-	}
-	for (const mip of texture.mipmaps) {
-		if (mip instanceof Float32Array) {
-			return TextureFormat.RGBA16Float;
-		}
-	}
-	return TextureFormat.RGBA8Unorm;
 }
 
 function toUnorm8TextureData(

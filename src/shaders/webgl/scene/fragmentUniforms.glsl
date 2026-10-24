@@ -119,7 +119,6 @@ __WEBGL_MATERIAL_ALPHA_UNIFORMS__
 uniform vec4 uAlpha;
 __WEBGL_MATERIAL_BASE_MAP_UNIFORMS__
 uniform sampler2D uBaseMap;
-uniform int uBaseMapIsLinear;
 __WEBGL_MATERIAL_BASE_MAP_LEGACY_UNIFORMS__
 uniform int uHasBaseMap;
 uniform int uBaseMapUV;
@@ -142,7 +141,6 @@ uniform vec2 uNormalMapTransformB;
 uniform float uNormalScale;
 __WEBGL_MATERIAL_EMISSIVE_MAP_UNIFORMS__
 uniform sampler2D uEmissiveMap;
-uniform int uEmissiveMapIsLinear;
 __WEBGL_MATERIAL_EMISSIVE_MAP_LEGACY_UNIFORMS__
 uniform int uHasEmissiveMap;
 uniform int uEmissiveMapUV;
@@ -180,11 +178,9 @@ uniform vec2 uAnisotropyMapTransformB;
 __WEBGL_SCENE_ENVIRONMENT_SPECULAR_UNIFORMS__
 uniform sampler2D uEnvSpecularMap;
 uniform int uHasEnvSpecularMap;
-uniform int uEnvSpecularMapIsLinear;
 uniform float uEnvSpecularMaxMipLevel;
 uniform sampler2D uEnvSpecularFallbackMap;
 uniform int uHasEnvSpecularFallbackMap;
-uniform int uEnvSpecularFallbackMapIsLinear;
 uniform float uEnvSpecularFallbackMaxMipLevel;
 uniform sampler2D uBrdfLUT;
 __WEBGL_SCENE_LOCAL_LIGHT_PROBE_UNIFORMS__

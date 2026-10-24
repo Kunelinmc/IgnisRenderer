@@ -2,7 +2,6 @@
 precision highp float;
 __WEBGL_SHADOW_TRANSMITTANCE_DEFINE__
 #import <ignis/webgl/constants>
-#import <ignis/color/srgb>
 #import <ignis/postprocess/fog>
 
 const int MAX_DIRECTIONAL_LIGHTS = __WEBGL_MAX_DIRECTIONAL_LIGHTS__;

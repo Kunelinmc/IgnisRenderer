@@ -240,6 +240,12 @@ The cached culling state and bindings must be invalidated when:
   already executing when loss occurs must reject and must not replay.
 - WebGL fragment acceleration must require `EXT_color_buffer_float` and either
   `OES_texture_float_linear` or `OES_texture_half_float_linear`.
+- GPU prefilter source textures must provide linear RGB through their native
+  sampling format, following the material texture-format contract. Prefilter
+  shaders must not perform source sRGB decoding. WebGL source staging must accept
+  `rgba8unorm`, `rgba8unorm-srgb`, `rgba16float`, and `rgba32float`; other source
+  layouts must be rejected rather than interpreted as RGBA data. A native format
+  fallback that changes the source sampling encoding must also be rejected.
 - If `acceleration` is `auto`, a ready backend executor must take priority over
   Worker and single-thread CPU execution.
 - Executor failures after execution starts must be surfaced and must not cause

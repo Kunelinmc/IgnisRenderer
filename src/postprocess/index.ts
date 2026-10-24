@@ -83,7 +83,6 @@ export {
 	resolveSSGIOptions,
 	resolveSSGITransientDescriptors,
 	writeSSGIComposeParams,
-	writeSSGIDenoiseParams,
 	writeSSGITraceParams,
 	type ResolvedSSGIOptions,
 	type SSGIOptions,

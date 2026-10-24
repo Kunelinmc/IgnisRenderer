@@ -23,7 +23,6 @@ interface WebGLEnvironmentProgram {
 		environmentBasisUp: WebGLUniformLocation | null;
 		environmentBasisBackward: WebGLUniformLocation | null;
 		environmentIsOrthographic: WebGLUniformLocation | null;
-		environmentMapIsLinear: WebGLUniformLocation | null;
 		environmentBackgroundTint: WebGLUniformLocation | null;
 		environmentBackgroundExposure: WebGLUniformLocation | null;
 		environmentBackgroundStrength: WebGLUniformLocation | null;
@@ -64,10 +63,6 @@ export class WebGLEnvironmentRenderer implements WebGLProgramWarmupContributor {
 					environmentIsOrthographic: gl.getUniformLocation(
 						program,
 						"uEnvironmentIsOrthographic",
-					),
-					environmentMapIsLinear: gl.getUniformLocation(
-						program,
-						"uEnvironmentMapIsLinear",
 					),
 					environmentBackgroundTint: gl.getUniformLocation(
 						program,
@@ -153,9 +148,6 @@ export class WebGLEnvironmentRenderer implements WebGLProgramWarmupContributor {
 		}
 		if (uniforms.environmentIsOrthographic) {
 			gl.uniform1f(uniforms.environmentIsOrthographic, isOrthographic ? 1 : 0);
-		}
-		if (uniforms.environmentMapIsLinear) {
-			gl.uniform1i(uniforms.environmentMapIsLinear, resolved.isLinear ? 1 : 0);
 		}
 		if (uniforms.environmentBackgroundTint) {
 			gl.uniform3f(

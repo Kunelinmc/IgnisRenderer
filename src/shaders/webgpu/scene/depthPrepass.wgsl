@@ -18,8 +18,6 @@ struct AnimationParams {
 	prevMorphOffset: f32,
 	vertexCount: f32,
 	morphSemanticMask: f32,
-	_pad0: f32,
-	_pad1: f32,
 }
 
 struct StaticInstance {

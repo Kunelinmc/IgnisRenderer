@@ -17,7 +17,6 @@ struct TraceParams {
 	depthThreshold: f32,
 	historyClamp: f32,
 	historyValid: f32,
-	_pad0: vec4<f32>,
 }
 
 struct ComposeParams {

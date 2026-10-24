@@ -148,9 +148,12 @@ export interface WebGLScenePassDeps {
 		} | null;
 	};
 	readonly textures: {
-		getBaseColorTexture(texture: any | null): {
+		getBaseColorTexture(
+			texture: any | null,
+			color?: boolean,
+			colorSpace?: "sRGB" | "Linear" | "HDR"
+		): {
 			texture: WebGLTexture | null;
-			isLinear: boolean;
 		};
 	};
 	readonly materialSnapshots: WebGLMaterialSnapshotCache;
@@ -575,11 +578,11 @@ function drawWebGLLegacyPacket(
 	}
 
 	const resolvedMap = deps.textures.getBaseColorTexture(uniforms.baseMap);
-	const resolvedNormalMap = deps.textures.getBaseColorTexture(uniforms.normalMap);
+	const resolvedNormalMap = deps.textures.getBaseColorTexture(uniforms.normalMap, false);
 	const resolvedMetallicRoughnessMap = deps.textures.getBaseColorTexture(
-		uniforms.metallicRoughnessMap
+		uniforms.metallicRoughnessMap, false
 	);
-	const resolvedSpecularMap = deps.textures.getBaseColorTexture(uniforms.specularMap);
+	const resolvedSpecularMap = deps.textures.getBaseColorTexture(uniforms.specularMap, false);
 	const resolvedSpecularColorMap = deps.textures.getBaseColorTexture(
 		uniforms.specularColorMap
 	);
@@ -587,16 +590,16 @@ function drawWebGLLegacyPacket(
 		uniforms.emissiveMap
 	);
 	const resolvedOcclusionMap = deps.textures.getBaseColorTexture(
-		uniforms.occlusionMap
+		uniforms.occlusionMap, false
 	);
 	const resolvedIridescenceMap = deps.textures.getBaseColorTexture(
-		uniforms.iridescenceMap
+		uniforms.iridescenceMap, false
 	);
 	const resolvedIridescenceThicknessMap = deps.textures.getBaseColorTexture(
-		uniforms.iridescenceThicknessMap
+		uniforms.iridescenceThicknessMap, false
 	);
 	const resolvedAnisotropyMap = deps.textures.getBaseColorTexture(
-		uniforms.anisotropyMap
+		uniforms.anisotropyMap, false
 	);
 	const pbrExtensionUniforms = sceneProgram.uniforms.pbrExtensionUniforms ?? {};
 	const transmissionBackgroundMap =
@@ -656,7 +659,9 @@ function drawWebGLLegacyPacket(
 		const transformB = pbrExtensionUniforms[`u${prefix}MapTransformB`];
 		const transform = resolveTextureUVTransform(texture);
 		const unit = samplerUnit(samplerName);
-		const resolved = deps.textures.getBaseColorTexture(texture);
+		const resolved = deps.textures.getBaseColorTexture(
+			texture, prefix === "SheenColor"
+		);
 		gl.activeTexture(gl.TEXTURE0 + unit);
 		gl.bindTexture(gl.TEXTURE_2D, resolved.texture);
 		if (sampler) gl.uniform1i(sampler, unit);
@@ -861,12 +866,6 @@ function drawWebGLLegacyPacket(
 	if (sceneProgram.uniforms.hasBaseMap) {
 		gl.uniform1i(sceneProgram.uniforms.hasBaseMap, uniforms.baseMap ? 1 : 0);
 	}
-	if (sceneProgram.uniforms.baseMapIsLinear) {
-		gl.uniform1i(
-			sceneProgram.uniforms.baseMapIsLinear,
-			resolvedMap.isLinear ? 1 : 0
-		);
-	}
 	if (sceneProgram.uniforms.baseMapUV) {
 		gl.uniform1i(sceneProgram.uniforms.baseMapUV, uniforms.baseMapUV);
 	}
@@ -953,12 +952,6 @@ function drawWebGLLegacyPacket(
 	}
 	if (sceneProgram.uniforms.hasEmissiveMap) {
 		gl.uniform1i(sceneProgram.uniforms.hasEmissiveMap, uniforms.emissiveMap ? 1 : 0);
-	}
-	if (sceneProgram.uniforms.emissiveMapIsLinear) {
-		gl.uniform1i(
-			sceneProgram.uniforms.emissiveMapIsLinear,
-			resolvedEmissiveMap.isLinear ? 1 : 0
-		);
 	}
 	if (sceneProgram.uniforms.emissiveMapUV) {
 		gl.uniform1i(sceneProgram.uniforms.emissiveMapUV, uniforms.emissiveMapUV);
@@ -1298,33 +1291,19 @@ function bindWebGLExactMaterialTextures(
 	state: ReturnType<WebGLMaterialSnapshotCache["resolve"]>["data"],
 ): void {
 	if (sceneProgram.samplerLayout.units.uBaseMap !== undefined) {
-		const resolved = bindWebGLMaterialTexture(
+		bindWebGLMaterialTexture(
 			deps,
 			sceneProgram,
 			"uBaseMap",
 			state.common.baseMap,
 		);
-		setWebGLRuntimeMaterialUniform(
-			deps,
-			sceneProgram,
-			"uBaseMapIsLinear",
-			sceneProgram.uniforms.baseMapIsLinear,
-			resolved.isLinear ? 1 : 0,
-		);
 	}
 	if (sceneProgram.samplerLayout.units.uEmissiveMap !== undefined) {
-		const resolved = bindWebGLMaterialTexture(
+		bindWebGLMaterialTexture(
 			deps,
 			sceneProgram,
 			"uEmissiveMap",
 			state.common.emissiveMap,
-		);
-		setWebGLRuntimeMaterialUniform(
-			deps,
-			sceneProgram,
-			"uEmissiveMapIsLinear",
-			sceneProgram.uniforms.emissiveMapIsLinear,
-			resolved.isLinear ? 1 : 0,
 		);
 	}
 	if (state.shadingFamily !== "pbr") return;
@@ -1344,9 +1323,12 @@ function bindWebGLMaterialTexture(
 	sceneProgram: WebGLSceneProgram,
 	name: string,
 	state: WebGLMaterialTextureState,
-): { texture: WebGLTexture | null; isLinear: boolean } {
+): { texture: WebGLTexture | null } {
 	const gl = deps.gl;
-	const resolved = deps.textures.getBaseColorTexture(state.texture);
+	const resolved = deps.textures.getBaseColorTexture(
+		state.texture, name === "uBaseMap" || name === "uEmissiveMap" ||
+			name === "uSpecularColorMap" || name === "uSheenColorMap"
+	);
 	const unit = getWebGLSceneSamplerUnit(sceneProgram.samplerLayout, name);
 	if (deps.drawState.boundMaterialTextures.get(unit) !== resolved.texture) {
 		gl.activeTexture(gl.TEXTURE0 + unit);
@@ -1704,12 +1686,6 @@ function drawWebGLLegacyDepthPrepassPacket(
 	if (sceneProgram.uniforms.hasBaseMap) {
 		gl.uniform1i(sceneProgram.uniforms.hasBaseMap, uniforms.baseMap ? 1 : 0);
 	}
-	if (sceneProgram.uniforms.baseMapIsLinear) {
-		gl.uniform1i(
-			sceneProgram.uniforms.baseMapIsLinear,
-			resolvedMap.isLinear ? 1 : 0
-		);
-	}
 	if (sceneProgram.uniforms.baseMapUV) {
 		gl.uniform1i(sceneProgram.uniforms.baseMapUV, uniforms.baseMapUV);
 	}
@@ -1828,7 +1804,9 @@ export function bindWebGLShaderMaterialTextures(
 			sceneProgram.samplerLayout,
 			binding.webglUniform,
 		);
-		const resolved = deps.textures.getBaseColorTexture(binding.texture);
+		const resolved = deps.textures.getBaseColorTexture(
+			binding.texture, !binding.linear, binding.linear ? "Linear" : "sRGB"
+		);
 		gl.activeTexture(gl.TEXTURE0 + textureUnit);
 		gl.bindTexture(gl.TEXTURE_2D, resolved.texture);
 		gl.uniform1i(uniform, textureUnit);

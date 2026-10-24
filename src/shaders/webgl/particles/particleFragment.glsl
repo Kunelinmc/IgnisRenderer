@@ -1,6 +1,5 @@
 #version 300 es
 precision highp float;
-#import <ignis/color/srgb>
 #import <ignis/postprocess/fog>
 
 in vec2 vUv;
@@ -11,7 +10,6 @@ in float vViewDepth;
 uniform sampler2D uParticleMap;
 uniform vec4 uUvTransformA;
 uniform vec2 uUvTransformB;
-uniform int uMapIsLinear;
 uniform vec4 uFogParams0;
 uniform vec4 uFogParams1;
 uniform int uOITPassMode;
@@ -39,9 +37,6 @@ void main() {
 	);
 	vec2 finalUv = rotatedUv + uUvTransformA.zw;
 	vec4 sampled = texture(uParticleMap, finalUv);
-	if (uMapIsLinear == 0) {
-		sampled.rgb = srgbToLinear(sampled.rgb);
-	}
 
 	vec4 color = sampled * vColor;
 	color.a *= radialMask;

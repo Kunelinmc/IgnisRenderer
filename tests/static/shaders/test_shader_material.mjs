@@ -1123,6 +1123,25 @@ function testTextureBindingGeneratedSourceBlocks() {
 	const webglGenerated = webglBlocks.map((block) => block.code).join("\n");
 	assert.ok(webglGenerated.includes("uniform sampler2D uNoiseTex;"));
 	assert.ok(webglGenerated.includes("ignisSampleTexture_noise_map"));
+
+	material.setTextureBinding({
+		name: "noise-map",
+		texture: null,
+		slot: 13,
+		uvSet: 1,
+		linear: false,
+		webglUniform: "uNoiseTex",
+	});
+	assert.deepEqual(
+		createWebGPUShaderMaterialSourceBlocks(material, "fragment", webgpu.fragmentCode),
+		webgpuBlocks,
+		"changing texture decoding must select a resource without specializing WGSL"
+	);
+	assert.deepEqual(
+		createWebGLShaderMaterialSourceBlocks(material, "fragment", webgl.fragmentCode),
+		webglBlocks,
+		"changing texture decoding must select a resource without specializing GLSL"
+	);
 }
 
 function testTextureBindingUvSetGreaterThanOneIsPreserved() {

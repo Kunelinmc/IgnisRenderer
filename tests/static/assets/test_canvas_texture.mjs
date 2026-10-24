@@ -123,7 +123,7 @@ function testWebGPURegistryUsesExternalCanvasUploadPath() {
 	try {
 		registry.getTextureForSlot(texture, WEBGPU_TEXTURE_SLOT.BASE_COLOR);
 		assert.equal(backend.createTextureCalls.length, 1);
-		assert.equal(backend.createTextureCalls[0].format, TextureFormat.RGBA8Unorm);
+		assert.equal(backend.createTextureCalls[0].format, TextureFormat.RGBA8UnormSrgb);
 		assert.ok(
 			(backend.createTextureCalls[0].usage & TextureUsage.CopyDst) !== 0
 		);
