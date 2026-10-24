@@ -147,14 +147,28 @@ export class WebGLSceneRuntime {
 
 	public renderEnvironment(context: FrameContext): void {
 		if (
-			this._services.isIncrementalPartial(context) ||
 			!context.features.enableEnvironment ||
 			!context.scene.environment.backgroundEnabled ||
 			!context.scene.environment.backgroundTexture
 		) {
 			return;
 		}
-		this._services.renderEnvironment(context);
+		if (!this._services.isIncrementalPartial(context)) {
+			this._services.renderEnvironment(context);
+			return;
+		}
+		const width = this._services.getWidth();
+		const height = this._services.getHeight();
+		const { gl } = this._services;
+		gl.enable(gl.SCISSOR_TEST);
+		try {
+			for (const rect of this._services.resolveDirtyRects(context, width, height)) {
+				this._services.setScissorRect(rect.x, rect.y, rect.width, rect.height, height);
+				this._services.renderEnvironment(context);
+			}
+		} finally {
+			gl.disable(gl.SCISSOR_TEST);
+		}
 	}
 
 	public renderOpaqueDepthPrepass(context: FrameContext): Set<string> {

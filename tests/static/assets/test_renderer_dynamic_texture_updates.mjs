@@ -4,6 +4,7 @@ import { Texture } from "../../../src/core/Texture.ts";
 import { PostProcessPass } from "../../../src/postprocess/index.ts";
 import { Renderer } from "../../../src/rendering/Renderer.ts";
 import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
+import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";
 import { MeshAsset } from "../../../src/meshes/MeshAsset.ts";
 import { MeshInstance } from "../../../src/meshes/MeshInstance.ts";
 
@@ -272,6 +273,28 @@ async function run() {
 		material.roughness = 0.2;
 		await renderer.renderFrame(80);
 		assert.equal(backend.beginFrameCount, 4);
+
+		const customTexture = new Texture({ width: 1, height: 1, data: new Uint8Array(4) });
+		const shaderMaterial = new ShaderMaterial({
+			textureBindings: [{ name: "customMap", texture: customTexture }],
+		});
+		renderer.scene.add(new MeshInstance({ mesh: MeshAsset.fromFaces([{
+			material: shaderMaterial,
+			vertices: [
+				{ x: -1, y: 0, z: -2 },
+				{ x: 0, y: 0, z: -2 },
+				{ x: -1, y: 1, z: -2 },
+			],
+		}]) }));
+		await renderer.renderFrame(96);
+		assert.equal((await renderer.renderFrame(112)).rendered, false);
+		customTexture.offset.x = 0.25;
+		assert.equal((await renderer.renderFrame(128)).rendered, true,
+			"sampling-only custom texture changes must wake an on-demand renderer");
+		assert.equal((await renderer.renderFrame(144)).rendered, false);
+		customTexture.markNeedsUpdate();
+		assert.equal((await renderer.renderFrame(160)).rendered, true);
+		assert.equal((await renderer.renderFrame(176)).rendered, false);
 
 		dynamicTexture.dispose();
 		console.log("Renderer dynamic texture update tests passed");

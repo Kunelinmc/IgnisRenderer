@@ -118,6 +118,10 @@ This document defines logical post-process declarations, planning, backend execu
 
 #### Common Planning
 
+- A renderer-level post-process configuration invalidation must request complete
+  scene replay before post-process execution, including when it coincides with
+  a local scene edit. Replaying an in-place pass over the preceding frame's
+  display-domain output must not substitute for reconstruction of its input.
 - `PostProcessPlanner` must resolve enabled passes, deterministic schedule
   order, incremental start, active-backend implementation, execution
   declaration, eligibility, and resource descriptors exactly once per frame.

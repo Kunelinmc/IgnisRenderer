@@ -43,6 +43,10 @@ entries and public definition subclasses are not supported.
 
 ## Planning
 
+Scene edits while an enabled shadow binding is active must conservatively
+invalidate full-frame scene coverage. Updating a caster's shadow map without
+redrawing affected receivers must not be treated as a completed local update.
+
 `ShadowPlanner` must derive projection and filter fallback, cascade count, and
 resolution degradation from immutable definition snapshots, light state,
 camera state, caster bounds, and backend identity. A plan must not change after

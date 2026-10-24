@@ -37,6 +37,7 @@ import { getWarmupStartDelay } from "../pipeline/WarmupScheduler";
 import {
 	buildDirtyTileCoverage,
 	DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
+	getDefaultIncrementalRegistry,
 	IncrementalFramePlanner,
 	makeFullScreenRect,
 	mergeIncrementalRenderingOptions,
@@ -690,18 +691,31 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		transient.set(PARTICLE_SIM_DELTA_TIME_SECONDS_KEY, deltaTimeSeconds);
 		transient.set(ANIMATION_SIM_DELTA_TIME_MS_KEY, this._deltaTime);
 
-		const incremental = await this._coordinator.executeFrame(
-			this,
-			now,
-			this._deltaTime,
-			frameDirtyReasonMask,
-			backendInvalidation.dirtyRects,
-			backendInvalidation.requiresFullFrame,
-			hasParticleSystems,
-			hasActiveAnimations,
-			deltaTimeSeconds,
-			transient,
-		);
+		let incremental: IncrementalFrameStatus;
+		try {
+			incremental = await this._coordinator.executeFrame(
+				this,
+				now,
+				this._deltaTime,
+				frameDirtyReasonMask,
+				backendInvalidation.dirtyRects,
+				backendInvalidation.requiresFullFrame,
+				hasParticleSystems,
+				hasActiveAnimations,
+				deltaTimeSeconds,
+				transient,
+			);
+		} catch (error) {
+			// Failed attachments and preparation history cannot support partial reuse.
+			this._pendingDirtyReasonMask |= frameDirtyReasonMask |
+				renderDirtyReasonToMask("unknown");
+			this._pendingBackendDirtyRects = backendInvalidation.dirtyRects.concat(
+				this._pendingBackendDirtyRects,
+			);
+			this._pendingBackendInvalidationRequiresFullFrame = true;
+			this._frameDirty = true;
+			throw error;
+		}
 
 		this.emit("frameend", { now, deltaTime: this._deltaTime });
 		return { rendered: true, incremental };
@@ -1005,14 +1019,20 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 
 	private _markFrameDirty(reason: RenderDirtyReason = "unknown"): void {
 		this._frameDirty = true;
-		const reasonMask = this.pipeline.incremental.getDirtyReasonMask(reason);
+		const registry = this.pipeline.incremental;
+		const reasonMask = registry.getDirtyReasonMask(reason);
 		this._pendingDirtyReasonMask |= reasonMask;
-		this._scene.invalidate(reason);
+		this._scene._invalidateRenderState(registry.doesDirtyReasonInvalidateSceneBounds(reason));
 	}
 
 	private _consumeDirtyReasonMask(): number {
 		const sceneReasonMask = this._scene.consumeDirtyReasonMask();
-		const combinedMask = this._pendingDirtyReasonMask | sceneReasonMask;
+		let combinedMask = this._pendingDirtyReasonMask;
+		// Scene reasons use the standalone registry; local custom bits may differ.
+		for (const descriptor of getDefaultIncrementalRegistry()
+			.getDirtyReasonDescriptorsForMask(sceneReasonMask)) {
+			combinedMask |= this.pipeline.incremental.getDirtyReasonMask(descriptor.id);
+		}
 		this._pendingDirtyReasonMask = 0;
 		return combinedMask >>> 0;
 	}

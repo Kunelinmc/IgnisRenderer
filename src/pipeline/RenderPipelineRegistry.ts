@@ -104,7 +104,7 @@ export class RenderPipelineRegistry {
 
 	constructor(options: RenderPipelineRegistryOptions = {}) {
 		this._incrementalRegistry =
-			options.incrementalRegistry ?? getDefaultIncrementalRegistry();
+			options.incrementalRegistry ?? getDefaultIncrementalRegistry().clone();
 		this._stageGraph = new RendererStageGraph();
 		for (const stage of options.stages ?? []) {
 			this._registerPipelineStage(stage, true);
@@ -116,7 +116,7 @@ export class RenderPipelineRegistry {
 	}
 
 	/**
-	 * Registers a custom dirty reason in the shared incremental registry.
+	 * Registers a custom dirty reason in this pipeline's incremental registry.
 	 *
 	 * @param descriptor Dirty reason behavior used by incremental planning.
 	 * @returns Allocated dirty reason mask.

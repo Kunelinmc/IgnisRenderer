@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import { Texture } from "../../../src/core/Texture.ts";
 import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
+import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";
 import { MeshAsset } from "../../../src/meshes/MeshAsset.ts";
 import { MeshInstance } from "../../../src/meshes/MeshInstance.ts";
 
@@ -49,6 +50,29 @@ import { MeshInstance } from "../../../src/meshes/MeshInstance.ts";
 	instance.position.x = 2;
 	instance.updateWorldMatrix();
 	assert.ok(instance.worldTransformRevision > initial);
+}
+
+{
+	const texture = new Texture({
+		width: 1, height: 1, data: new Uint8Array([255, 255, 255, 255]),
+	});
+	const material = new ShaderMaterial({
+		textureBindings: [{ name: "customMap", texture }],
+	});
+	let revision = material.revision;
+	for (const change of [
+		() => { texture.offset.x = 0.2; },
+		() => { texture.markNeedsUpdate(); },
+		() => { texture.minFilter = "Nearest"; },
+	]) {
+		const contentRevision = ShaderMaterial.contentRevision;
+		change();
+		assert.ok(material.revision > revision,
+			"bound shader textures must advance the canonical material revision");
+		assert.ok(ShaderMaterial.contentRevision > contentRevision);
+		revision = material.revision;
+		assert.equal(material.revision, revision, "stable bindings must not invalidate again");
+	}
 }
 
 console.log("Material and transform revision tests passed");

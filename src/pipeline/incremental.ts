@@ -254,6 +254,8 @@ export interface IncrementalPlanInput {
 	reasonMask: number;
 	features: ResolvedFeatureState;
 	hasEnabledShadows?: boolean;
+	/** Whether the prepared view contains enabled planar-reflection receivers. */
+	hasEnabledReflections?: boolean;
 	postProcess: ResolvedPostProcessState;
 	registry?: IncrementalRegistry;
 }
@@ -430,6 +432,7 @@ const DIRTY_REASON_SEEDS: readonly DirtyReasonSeed[] = [
 		id: "postfx",
 		mask: RENDER_DIRTY_REASON_MASK.postfx,
 		groups: ["postfx"],
+		forceFullFrame: true,
 	},
 	{
 		id: "interaction",
@@ -455,16 +458,19 @@ const DIRTY_REASON_SEEDS: readonly DirtyReasonSeed[] = [
 		id: "postfx-light",
 		mask: RENDER_DIRTY_REASON_MASK["postfx-light"],
 		groups: ["postfx"],
+		forceFullFrame: true,
 	},
 	{
 		id: "postfx-standard",
 		mask: RENDER_DIRTY_REASON_MASK["postfx-standard"],
 		groups: ["postfx"],
+		forceFullFrame: true,
 	},
 	{
 		id: "postfx-cinematic",
 		mask: RENDER_DIRTY_REASON_MASK["postfx-cinematic"],
 		groups: ["postfx"],
+		forceFullFrame: true,
 		temporalHistoryReset: true,
 	},
 	{
@@ -530,6 +536,25 @@ export class IncrementalRegistry {
 				true
 			);
 		}
+	}
+
+	/**
+	 * Snapshots registration state for an independent rendering runtime.
+	 *
+	 * @returns A registry whose later mutations cannot affect this registry.
+	 * @internal Owned by pipeline composition; applications should register
+	 * runtime behavior through `Renderer.pipeline`.
+	 */
+	public clone(): IncrementalRegistry {
+		const registry = new IncrementalRegistry();
+		registry._dirtyReasons = new Map(this._dirtyReasons);
+		registry._dirtyReasonsByMask = new Map(this._dirtyReasonsByMask);
+		registry._framePasses = new Map(this._framePasses);
+		registry._postProcessPasses = new Map(this._postProcessPasses);
+		registry._nextCustomDirtyReasonBit = this._nextCustomDirtyReasonBit;
+		registry._nextFramePassOrder = this._nextFramePassOrder;
+		registry._nextPostProcessOrder = this._nextPostProcessOrder;
+		return registry;
 	}
 
 	/**
@@ -960,8 +985,8 @@ export class IncrementalRegistry {
 const DEFAULT_INCREMENTAL_REGISTRY = new IncrementalRegistry();
 
 /**
- * Returns the shared incremental registry. Post-process metadata is populated
- * by explicit logical-pass registration, including renderer defaults.
+ * Returns the standalone incremental registry used to seed renderer-local
+ * registries. Post-process metadata requires explicit logical-pass registration.
  */
 export function getDefaultIncrementalRegistry(): IncrementalRegistry {
 	return DEFAULT_INCREMENTAL_REGISTRY;
@@ -1043,6 +1068,8 @@ export class IncrementalFramePlanner {
 	public static plan(input: IncrementalPlanInput): IncrementalPlan {
 		const reasonMask = input.reasonMask >>> 0;
 		const registry = input.registry ?? DEFAULT_INCREMENTAL_REGISTRY;
+		const requiresSceneReplay = input.hasEnabledShadows === true ||
+			input.hasEnabledReflections === true;
 		if (!input.enabled) {
 			return {
 				firstPass: null,
@@ -1057,15 +1084,15 @@ export class IncrementalFramePlanner {
 			return {
 				firstPass: null,
 				postProcessStartPass: null,
-				forceFullFrame: false,
-				temporalHistoryReset: false,
+				forceFullFrame: requiresSceneReplay,
+				temporalHistoryReset: requiresSceneReplay,
 				reasonMask,
 			};
 		}
 
 		const candidates: FramePassStage[] = [];
-		let temporalHistoryReset = false;
-		let forceFullFrame = false;
+		let temporalHistoryReset = requiresSceneReplay;
+		let forceFullFrame = requiresSceneReplay;
 		for (const descriptor of registry.getDirtyReasonDescriptorsForMask(reasonMask)) {
 			forceFullFrame ||= descriptor.forceFullFrame === true;
 			temporalHistoryReset ||= descriptor.temporalHistoryReset === true;
@@ -1088,6 +1115,8 @@ export class IncrementalFramePlanner {
 			isPostProcessStage(firstPass, registry, input.postProcess) ?
 				firstPass
 			:	null;
+		// In-place implementations cannot replay from the previous display output.
+		forceFullFrame ||= postProcessStartPass !== null;
 		return {
 			firstPass: postProcessStartPass ? "postprocess" : firstPass,
 			postProcessStartPass,
@@ -1436,7 +1465,8 @@ function resolveDirtyReasonFirstPass(
 			case "simulation":
 				return "particle-sim";
 			case "geometry":
-				return input.hasEnabledShadows ? "shadow" : "main-opaque";
+				return input.hasEnabledShadows ? "shadow" :
+					input.hasEnabledReflections ? "reflection" : "main-opaque";
 			case "postfx":
 				return registry.resolveFirstEnabledPostProcessStage(input.postProcess);
 			case "interaction":

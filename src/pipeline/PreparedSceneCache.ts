@@ -8,15 +8,15 @@ import {
 } from "../decals";
 import {
 	buildDirtyTileCoverage,
-	computePostProcessInflationRadius,
+	getDefaultIncrementalRegistry,
 	getDirtyTileCoverageAreaRatio,
 	inflateDirtyRects,
 	makeFullScreenRect,
 	mergeDirtyRects,
-	scaleFullFrameFallbackAreaRatioForPostProcess,
 	tileCoverageToDirtyRects,
 	type DirtyRect,
 	type IncrementalRenderingOptions,
+	type IncrementalRegistry,
 } from "./incremental";
 import type {
 	DecalPacket,
@@ -48,6 +48,7 @@ interface MaterialSignatureState {
 }
 
 interface CachedSignatureState extends MatrixSignatureState, MaterialSignatureState {
+	materialIdentity: Material;
 	rect: DirtyRect | null;
 }
 
@@ -114,6 +115,8 @@ export interface PreparedSceneCacheBuildInput {
 	features: ResolvedFeatureState;
 	postProcess: ResolvedPostProcessState;
 	incrementalOptions: IncrementalRenderingOptions;
+	/** Runtime-local metadata; omitted only by standalone preparation callers. */
+	incrementalRegistry?: IncrementalRegistry;
 	occlusionVisibilityProvider?: OcclusionVisibilityProvider | null;
 	occlusionCullingOptions?: OcclusionCullingOptions;
 	/** Renderer-accumulated backend invalidation regions for this frame. */
@@ -391,7 +394,8 @@ export class PreparedSceneCache {
 			width,
 			height
 		);
-		const inflationRadius = computePostProcessInflationRadius(input.postProcess);
+		const registry = input.incrementalRegistry ?? getDefaultIncrementalRegistry();
+		const inflationRadius = registry.computePostProcessInflationRadius(input.postProcess);
 		if (inflationRadius > 0) {
 			dirtyRects = mergeDirtyRects(
 				inflateDirtyRects(dirtyRects, inflationRadius, width, height),
@@ -413,12 +417,19 @@ export class PreparedSceneCache {
 			width,
 			height
 		);
+		// Rectangle merging may fill gaps between tiles; report the area we execute.
+		const executionCoverage = buildDirtyTileCoverage(
+			tileDirtyRects,
+			width,
+			height,
+			input.incrementalOptions.dirtyTileSize,
+		);
 		const dirtyAreaRatio = getDirtyTileCoverageAreaRatio(
-			dirtyTileCoverage,
+			executionCoverage,
 			width,
 			height
 		);
-		const fallbackAreaRatio = scaleFullFrameFallbackAreaRatioForPostProcess(
+		const fallbackAreaRatio = registry.scaleFullFrameFallbackAreaRatioForPostProcess(
 			input.incrementalOptions.fullFrameFallbackAreaRatio,
 			input.postProcess
 		);
@@ -439,10 +450,10 @@ export class PreparedSceneCache {
 		return {
 			frame,
 			dirtyRects: tileDirtyRects,
-			dirtyTiles: dirtyTileCoverage.dirtyTiles.slice(),
-			dirtyTileSize: dirtyTileCoverage.tileSize,
-			dirtyTileColumns: dirtyTileCoverage.tileColumns,
-			dirtyTileRows: dirtyTileCoverage.tileRows,
+			dirtyTiles: executionCoverage.dirtyTiles.slice(),
+			dirtyTileSize: executionCoverage.tileSize,
+			dirtyTileColumns: executionCoverage.tileColumns,
+			dirtyTileRows: executionCoverage.tileRows,
 			dirtyAreaRatio,
 			forceFullFrame: false,
 			packetRects,
@@ -633,6 +644,7 @@ function createPacketState(
 		matrixSignatureB: SIGNATURE_INIT_B,
 		materialSignatureA: SIGNATURE_INIT_A,
 		materialSignatureB: SIGNATURE_INIT_B,
+		materialIdentity: packet.submission.material.effective,
 		rect,
 	};
 	writeSharedSignatures(
@@ -652,6 +664,7 @@ function createDecalState(
 		matrixSignatureB: SIGNATURE_INIT_B,
 		materialSignatureA: SIGNATURE_INIT_A,
 		materialSignatureB: SIGNATURE_INIT_B,
+		materialIdentity: packet.material,
 		rect,
 	};
 	writeSharedSignatures(state, packet.worldMatrix, packet.material, signatures, true);
@@ -678,6 +691,7 @@ function packetStateEquals(
 		left.boundsRadius === right.boundsRadius &&
 		left.matrixSignatureA === right.matrixSignatureA &&
 		left.matrixSignatureB === right.matrixSignatureB &&
+		left.materialIdentity === right.materialIdentity &&
 		left.materialSignatureA === right.materialSignatureA &&
 		left.materialSignatureB === right.materialSignatureB
 	);
@@ -690,6 +704,7 @@ function decalStateEquals(
 	return (
 		left.matrixSignatureA === right.matrixSignatureA &&
 		left.matrixSignatureB === right.matrixSignatureB &&
+		left.materialIdentity === right.materialIdentity &&
 		left.materialSignatureA === right.materialSignatureA &&
 		left.materialSignatureB === right.materialSignatureB
 	);
@@ -764,6 +779,8 @@ function writeMaterialSignature(
 	state.materialSignatureA = SIGNATURE_INIT_A;
 	state.materialSignatureB = SIGNATURE_INIT_B;
 
+	// The canonical revision covers material-specific factors and texture state.
+	mixMaterialFloat(state, material.revision);
 	mixMaterialString(state, material.type);
 	mixMaterialString(state, material.shading);
 	mixMaterialFloat(state, material.opacity);
