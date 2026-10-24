@@ -10,6 +10,7 @@ import { WebGLClusteredLightingRuntime } from "../../../src/backends/webgl/WebGL
 function createFakeGL() {
 	let textureId = 0;
 	let boundTexture = null;
+	let uploadCount = 0;
 	const uploads = new Map();
 	return {
 		TEXTURE_2D: 0x0de1,
@@ -41,6 +42,7 @@ function createFakeGL() {
 			_type,
 			pixels
 		) {
+			uploadCount++;
 			uploads.set(boundTexture, {
 				width,
 				height,
@@ -49,6 +51,9 @@ function createFakeGL() {
 		},
 		getUpload(texture) {
 			return uploads.get(texture);
+		},
+		get uploadCount() {
+			return uploadCount;
 		},
 	};
 }
@@ -348,6 +353,26 @@ function testFragmentLightBudgetClampsRequestedClusterCapacity() {
 	});
 }
 
+function testUnchangedFrameSkipsClusterRebuild() {
+	const gl = createFakeGL();
+	const runtime = new WebGLClusteredLightingRuntime(gl);
+	const context = createPerspectiveContext();
+	const lights = createLightState();
+
+	runtime.prepare(context, lights, 4096);
+	const state = runtime.getState();
+	const uploadCountAfterFirstPrepare = gl.uploadCount;
+
+	runtime.prepare(context, lights, 4096);
+	assert.equal(runtime.getState(), state);
+	assert.equal(gl.uploadCount, uploadCountAfterFirstPrepare);
+
+	lights.clusteredLights[0].position[2] = -7;
+	runtime.prepare(context, lights, 4096);
+	assert.equal(gl.uploadCount, uploadCountAfterFirstPrepare * 2);
+	assert.notEqual(runtime.getState(), state);
+}
+
 function run() {
 	testPerspectiveBuildsClusterTextures();
 	testNonPerspectiveFallsBackWithWarning();
@@ -355,6 +380,7 @@ function run() {
 	testClusterHeadersUseFixedClusterSpans();
 	testClusterOverflowClampsFixedSpanCount();
 	testFragmentLightBudgetClampsRequestedClusterCapacity();
+	testUnchangedFrameSkipsClusterRebuild();
 	console.log("WebGL clustered lighting runtime tests passed");
 }
 

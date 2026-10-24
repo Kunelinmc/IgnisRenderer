@@ -54,6 +54,8 @@ function testResolvedFeaturesDriveVariantsAndSnapshots() {
 		assert.equal(inactive.materialVariant.clearcoat, false);
 		assert.equal(inactive.materialVariant.clearcoatMap, false);
 		assert.equal(inactive.materialVariant.sheenColorMap, false);
+		assert.equal(Reflect.set(inactive.materialVariant, "clearcoatMap", true), false);
+		assert.equal(inactive.materialVariant.clearcoatMap, false);
 		material.clearcoat = 1;
 		material.sheenColorFactor = { r: 255, g: 0, b: 0 };
 		material.specularColor = { r: 0, g: 0, b: 0 };
@@ -165,6 +167,59 @@ function testRevisionCacheAndUniformBuffersAreReused() {
 	assert.equal(gl.calls.subData.length, 2);
 	buffers.destroy();
 	assert.equal(gl.calls.deleted.length, 2);
+}
+
+function testPreparedRevisionAvoidsDuplicateScanAndObservesNextPreparation() {
+	const snapshots = new WebGLMaterialSnapshotCache();
+	const material = new PBRMaterial({ roughness: 0.4 });
+	let scans = 0;
+	const refresh = material.refreshRevision.bind(material);
+	material.refreshRevision = () => { scans++; return refresh(); };
+	const revision = material.revision;
+	snapshots.beginFrame();
+	const first = snapshots.resolve(material, revision);
+	assert.strictEqual(snapshots.resolve(material), first);
+	assert.equal(scans, 0, "prepared material must not be scanned again by WebGL");
+
+	material.roughness = 0.8;
+	material.albedo.r = 64;
+	const nextRevision = material.revision;
+	assert.ok(nextRevision > revision);
+	snapshots.beginFrame();
+	const next = snapshots.resolve(material, nextRevision);
+	assert.notStrictEqual(next, first);
+	assert.equal(next.revision, nextRevision);
+	assert.equal(scans, 0);
+
+	material.roughness = 0.2;
+	snapshots.beginFrame();
+	assert.notStrictEqual(snapshots.resolve(material), next);
+	snapshots.resolve(material);
+	assert.equal(scans, 1, "standalone resolution must refresh once per frame");
+}
+
+function testMutableVariantChangesRepackMaterialBuffers() {
+	const gl = createBufferCaptureGL();
+	const snapshots = new WebGLMaterialSnapshotCache();
+	const buffers = new WebGLMaterialBufferCache(gl);
+	const material = new PBRMaterial({ map: {}, normalMap: {} });
+	const variant = createTestBuiltinSceneVariant({ material: { model: "pbr" } }).material;
+	const snapshot = snapshots.resolve(material);
+	buffers.resolve(material, snapshot, variant);
+	assert.deepEqual(gl.calls.data, [64, 144]);
+
+	variant.baseMap = true;
+	buffers.resolve(material, snapshot, variant);
+	assert.deepEqual(gl.calls.data, [64, 144, 96]);
+
+	variant.normalMap = true;
+	buffers.resolve(material, snapshot, variant);
+	assert.deepEqual(gl.calls.data, [64, 144, 96, 176]);
+
+	variant.baseMap = false;
+	buffers.resolve(material, snapshot, variant);
+	assert.deepEqual(gl.calls.data, [64, 144, 96, 176, 64]);
+	buffers.destroy();
 }
 
 function testAllocationFailureReleasesPartialResources() {
@@ -356,7 +411,9 @@ async function testExactAndCompatibilityShaderABIsRemainDistinct() {
 testMaterialFamiliesAreSeparated();
 testResolvedFeaturesDriveVariantsAndSnapshots();
 testStd140PackingUsesOnlyActiveTransformSlots();
+testMutableVariantChangesRepackMaterialBuffers();
 testRevisionCacheAndUniformBuffersAreReused();
+testPreparedRevisionAvoidsDuplicateScanAndObservesNextPreparation();
 testAllocationFailureReleasesPartialResources();
 testBufferCacheEvictsOldestMaterial();
 testProgramBlocksUseStableBindingPoints();

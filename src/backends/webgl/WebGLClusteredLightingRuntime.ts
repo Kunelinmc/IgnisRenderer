@@ -69,6 +69,18 @@ const DEFAULT_CLUSTER_OPTIONS: ClusteredRuntimeOptions = {
 
 const CLUSTER_FLAG_OVERFLOW = 1;
 
+const HASH_FLOAT = new Float32Array(1);
+const HASH_INT = new Int32Array(HASH_FLOAT.buffer);
+
+function hashFloat(seed: number, value: number): number {
+	HASH_FLOAT[0] = Number.isFinite(value) ? value : 0;
+	return Math.imul(seed ^ HASH_INT[0], 0x9e3779b1) >>> 0;
+}
+
+function hashInt(seed: number, value: number): number {
+	return Math.imul(seed ^ (value | 0), 0x85ebca6b) >>> 0;
+}
+
 export class WebGLClusteredLightingRuntime {
 	private _gl: WebGL2RenderingContext;
 	private _headerTexture: WebGLTexture | null = null;
@@ -78,6 +90,8 @@ export class WebGLClusteredLightingRuntime {
 	private _clusterFlags = new Uint8Array(0);
 	private _clusterIndices = new Float32Array(0);
 	private _headerData = new Float32Array(0);
+	private _lastSignatureA: number | null = null;
+	private _lastSignatureB: number | null = null;
 	private _state: WebGLClusteredLightingState = {
 		enabled: false,
 		screenWidth: 1,
@@ -104,12 +118,7 @@ export class WebGLClusteredLightingRuntime {
 	}
 
 	public getState(): WebGLClusteredLightingState {
-		return {
-			...this._state,
-			headerTexture: this._headerTexture,
-			indexTexture: this._indexTexture,
-			lightTexture: this._lightTexture,
-		};
+		return this._state;
 	}
 
 	public prepare(
@@ -167,6 +176,26 @@ export class WebGLClusteredLightingRuntime {
 			return;
 		}
 
+		const signature = this._computeSignature(
+			context,
+			lights,
+			width,
+			height,
+			options,
+			near,
+			far
+		);
+		if (
+			this._lastSignatureA === signature[0] &&
+			this._lastSignatureB === signature[1] &&
+			this._state.enabled &&
+			this._headerTexture &&
+			this._indexTexture &&
+			this._lightTexture
+		) {
+			return;
+		}
+
 		const tileSizePx = options.tileSizePx;
 		const tilesX = Math.max(1, Math.ceil(width / tileSizePx));
 		const tilesY = Math.max(1, Math.ceil(height / tileSizePx));
@@ -178,7 +207,9 @@ export class WebGLClusteredLightingRuntime {
 		const sourceLights = this._collectClusteredLights(lights);
 		const maxLights = Math.max(1, Math.floor(options.maxLights));
 		const maxLightsPerCluster = Math.max(1, Math.floor(options.maxLightsPerCluster));
-		const activeLights = sourceLights.slice(0, maxLights);
+		const activeLights = sourceLights.length > maxLights ?
+			sourceLights.slice(0, maxLights)
+		:	sourceLights;
 		if (sourceLights.length > activeLights.length) {
 			Logger.warn(
 				`WebGL clustered lighting clamps lights to ${maxLights}; extra lights are skipped`,
@@ -266,9 +297,21 @@ export class WebGLClusteredLightingRuntime {
 			return;
 		}
 
-		const headerPixels = padTextureData(headerData, headerShape.texelCount);
-		const indexPixels = padTextureData(indexData, indexShape.texelCount);
-		const lightPixels = padTextureData(lightData, lightShape.texelCount);
+		const headerPixels = padTextureData(
+			"header",
+			headerData,
+			headerShape.texelCount
+		);
+		const indexPixels = padTextureData(
+			"index",
+			indexData,
+			indexShape.texelCount
+		);
+		const lightPixels = padTextureData(
+			"light",
+			lightData,
+			lightShape.texelCount
+		);
 
 		try {
 			this._headerTexture = uploadFloatTexture(
@@ -304,6 +347,8 @@ export class WebGLClusteredLightingRuntime {
 			return;
 		}
 
+		this._lastSignatureA = signature[0];
+		this._lastSignatureB = signature[1];
 		this._state = {
 			enabled: true,
 			screenWidth: width,
@@ -347,6 +392,8 @@ export class WebGLClusteredLightingRuntime {
 		height: number,
 		options: ClusteredRuntimeOptions
 	): void {
+		this._lastSignatureA = null;
+		this._lastSignatureB = null;
 		this._state = {
 			enabled: false,
 			screenWidth: Math.max(1, width),
@@ -400,9 +447,98 @@ export class WebGLClusteredLightingRuntime {
 		};
 	}
 
+	private _computeSignature(
+		context: FrameContext,
+		lights: WebGLLightState,
+		width: number,
+		height: number,
+		options: ClusteredRuntimeOptions,
+		near: number,
+		far: number,
+	): [number, number] {
+		let hashA = hashInt(0x9e3779b9, width);
+		let hashB = hashInt(0x85ebca6b, height);
+		const mixInt = (value: number): void => {
+			hashA = hashInt(hashA, value);
+			hashB = hashInt(hashB, value ^ 0x5bf03635);
+		};
+		const mixFloat = (value: number): void => {
+			hashA = hashFloat(hashA, value);
+			hashB = hashFloat(hashB, value);
+		};
+		const mixVec3 = (value: Vec3Tuple): void => {
+			mixFloat(value[0]);
+			mixFloat(value[1]);
+			mixFloat(value[2]);
+		};
+
+		mixInt(options.tileSizePx);
+		mixInt(options.zSlices);
+		mixInt(options.maxLights);
+		mixInt(options.maxLightsPerCluster);
+		mixInt(context.viewCamera.type === CameraType.Perspective ? 1 : 0);
+		mixFloat(near);
+		mixFloat(far);
+		mixFloat(context.viewCamera.fov);
+		mixFloat(context.viewCamera.aspectRatio);
+
+		const view = context.viewCamera.viewMatrix.elements;
+		for (let row = 0; row < 4; row++) {
+			for (let column = 0; column < 4; column++) {
+				mixFloat(view[row][column]);
+			}
+		}
+		const projection = context.viewCamera.viewProjectionMatrix.elements;
+		for (let row = 0; row < 4; row++) {
+			for (let column = 0; column < 4; column++) {
+				mixFloat(projection[row][column]);
+			}
+		}
+
+		const clustered = lights.clusteredLights;
+		if (clustered.length > 0) {
+			mixInt(clustered.length);
+			for (let i = 0; i < clustered.length; i++) {
+				const light = clustered[i];
+				mixInt(light.type);
+				mixVec3(light.position);
+				mixFloat(light.range);
+				mixVec3(light.direction);
+				mixFloat(light.outerCos);
+				mixFloat(light.innerCos);
+				mixVec3(light.color);
+				mixInt(light.castsShadow ? 1 : 0);
+				mixInt(light.shadowIndex);
+			}
+		} else {
+			mixInt(lights.pointLights.length);
+			for (let i = 0; i < lights.pointLights.length; i++) {
+				const light = lights.pointLights[i];
+				mixInt(0);
+				mixVec3(light.position);
+				mixFloat(light.range);
+				mixVec3(light.color);
+			}
+			mixInt(lights.spotLights.length);
+			for (let i = 0; i < lights.spotLights.length; i++) {
+				const light = lights.spotLights[i];
+				mixInt(1);
+				mixVec3(light.position);
+				mixFloat(light.range);
+				mixVec3(light.direction);
+				mixFloat(light.outerCos);
+				mixFloat(light.innerCos);
+				mixVec3(light.color);
+				mixInt(lights.spotShadows[i]?.enabled === true ? 1 : 0);
+				mixInt(i);
+			}
+		}
+		return [hashA, hashB];
+	}
+
 	private _collectClusteredLights(lights: WebGLLightState): ClusteredLightRecord[] {
 		if ((lights.clusteredLights?.length ?? 0) > 0) {
-			return lights.clusteredLights.slice();
+			return lights.clusteredLights;
 		}
 
 		const fallback: ClusteredLightRecord[] = [];
@@ -631,13 +767,32 @@ function resolveTextureShape(
 	};
 }
 
-function padTextureData(data: Float32Array, texelCapacity: number): Float32Array {
+const PADDED_TEXTURE_SCRATCHES: Record<
+	"header" | "index" | "light",
+	Float32Array
+> = {
+	header: new Float32Array(0),
+	index: new Float32Array(0),
+	light: new Float32Array(0),
+};
+
+function padTextureData(
+	role: "header" | "index" | "light",
+	data: Float32Array,
+	texelCapacity: number
+): Float32Array {
 	const required = texelCapacity * 4;
 	if (data.length === required) {
 		return data;
 	}
-	const output = new Float32Array(required);
-	output.set(data.subarray(0, Math.min(data.length, required)));
+	let output = PADDED_TEXTURE_SCRATCHES[role];
+	if (output.length !== required) {
+		output = new Float32Array(required);
+		PADDED_TEXTURE_SCRATCHES[role] = output;
+	} else {
+		output.fill(0);
+	}
+	output.set(data.length <= required ? data : data.subarray(0, required));
 	return output;
 }
 

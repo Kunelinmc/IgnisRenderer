@@ -31,7 +31,13 @@ import {
 	MAX_REFLECTION_PROBES,
 	MAX_SPOT_LIGHTS,
 } from "../../../src/backends/constants.ts";
-import { WEBGL_FULL_SCENE_VARIANT } from "../../../src/shaders/webgl/sceneVariants.ts";
+import {
+	getWebGLSceneDepthVariantKey,
+	getWebGLSceneVariantKey,
+	normalizeWebGLSceneDepthVariantDescriptor,
+	normalizeWebGLSceneVariantDescriptor,
+	WEBGL_FULL_SCENE_VARIANT,
+} from "../../../src/shaders/webgl/sceneVariants.ts";
 import {
 	FXAA_EDGE_THRESHOLD_MIN,
 	FXAA_QUALITY,
@@ -300,6 +306,69 @@ async function testWebGLSceneVariants() {
 		)
 	);
 	assert.ok(!compiled.code.includes("__WEBGL_MAX_DIRECTIONAL_LIGHTS__"));
+}
+
+function testWebGLVariantKeysObserveMutableDescriptors() {
+	const depth = {
+		alphaMask: false,
+		baseMap: false,
+		skinProfile: "static",
+		morphPosition: false,
+	};
+	assert.equal(getWebGLSceneDepthVariantKey(depth), "mask:0|base:0|skin:static|morphp:0");
+	depth.alphaMask = true;
+	assert.equal(getWebGLSceneDepthVariantKey(depth), "mask:1|base:0|skin:static|morphp:0");
+	depth.baseMap = true;
+	assert.equal(getWebGLSceneDepthVariantKey(depth), "mask:1|base:1|skin:static|morphp:0");
+	depth.alphaMask = false;
+	assert.equal(getWebGLSceneDepthVariantKey(depth), "mask:0|base:0|skin:static|morphp:0");
+
+	for (const freezeRoot of [false, true]) {
+		const variant = structuredClone(WEBGL_FULL_SCENE_VARIANT);
+		if (freezeRoot) Object.freeze(variant);
+		getWebGLSceneVariantKey(variant);
+		if (!freezeRoot) variant.output = "single";
+		variant.scene.shadows = false;
+		const sceneKey = getWebGLSceneVariantKey(variant);
+		assert.match(sceneKey, freezeRoot ? /^out:mrt\|/ : /^out:single\|/);
+		assert.ok(sceneKey.includes("|shd:0|"));
+		assert.ok(sceneKey.includes("|base:1|"));
+		variant.material.baseMap = false;
+		const key = getWebGLSceneVariantKey(variant);
+		assert.ok(key.includes("|shd:0|"));
+		assert.ok(key.includes("|base:0|"));
+	}
+}
+
+function testWebGLNormalizedVariantsAreImmutableSnapshots() {
+	const input = structuredClone(WEBGL_FULL_SCENE_VARIANT);
+	for (const variant of [
+		normalizeWebGLSceneVariantDescriptor(input),
+		normalizeWebGLSceneVariantDescriptor(),
+	]) {
+		const key = getWebGLSceneVariantKey(variant);
+		assert.equal(Reflect.set(variant, "output", "single"), false);
+		assert.equal(Reflect.set(variant.scene, "shadows", false), false);
+		assert.equal(Reflect.set(variant.material, "baseMap", false), false);
+		assert.equal(variant.output, "mrt");
+		assert.equal(variant.scene.shadows, true);
+		assert.equal(variant.material.baseMap, true);
+		assert.equal(getWebGLSceneVariantKey(variant), key);
+	}
+	input.scene.shadows = false;
+	input.material.baseMap = false;
+	assert.equal(normalizeWebGLSceneVariantDescriptor(input).material.baseMap, false);
+
+	for (const variant of [
+		normalizeWebGLSceneDepthVariantDescriptor({
+			alphaMask: true, baseMap: true, skinProfile: "static", morphPosition: false,
+		}),
+		normalizeWebGLSceneDepthVariantDescriptor(),
+	]) {
+		getWebGLSceneDepthVariantKey(variant);
+		assert.equal(Reflect.set(variant, "alphaMask", false), false);
+		assert.equal(getWebGLSceneDepthVariantKey(variant), "mask:1|base:1|skin:static|morphp:0");
+	}
 }
 
 async function testWebGLScenePrunedVariant() {
@@ -1079,6 +1148,8 @@ function testShadowSamplingRotationIsSpatiallyStable() {
 }
 
 async function run() {
+	testWebGLVariantKeysObserveMutableDescriptors();
+	testWebGLNormalizedVariantsAreImmutableSnapshots();
 	testShaderSourceKeyTypes();
 	await testLoadsRawAndCompositeParts();
 	await testConcurrentLoadsShareResultCache();

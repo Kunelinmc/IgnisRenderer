@@ -141,14 +141,27 @@ export const WEBGL_ALPHA_MAP_DEPTH_VARIANT: WebGLSceneDepthVariantDescriptor = {
 	morphPosition: false,
 };
 
+// Draw-time variant resolution hands already-normalized descriptors between
+// the scene pass and the program repository. Tracking them avoids repeating the
+// deep copy (and the key rebuild) for every draw. Only immutable normalized
+// snapshots may participate in identity-based reuse.
+const normalizedSceneVariants = new WeakSet<object>();
+const sceneVariantKeys = new WeakMap<object, string>();
+const normalizedDepthVariants = new WeakSet<object>();
+const depthVariantKeys = new WeakMap<object, string>();
+
+/**
+ * @internal WebGL shader specialization; returns an immutable snapshot,
+ * including scene and material flags, without freezing the caller's descriptor.
+ */
 export function normalizeWebGLSceneVariantDescriptor(
 	variant?: WebGLSceneVariantDescriptor
 ): WebGLSceneVariantDescriptor {
-	const base = WEBGL_FULL_SCENE_VARIANT;
-	if (!variant) {
-		return cloneWebGLSceneVariantDescriptor(base);
+	variant ??= WEBGL_FULL_SCENE_VARIANT;
+	if (normalizedSceneVariants.has(variant)) {
+		return variant;
 	}
-	return {
+	const normalized: WebGLSceneVariantDescriptor = {
 		output: variant.output === "single" ? "single" : "mrt",
 		materialGBuffer: variant.output !== "single" && variant.materialGBuffer === true,
 		oit: variant.oit === true,
@@ -194,15 +207,24 @@ export function normalizeWebGLSceneVariantDescriptor(
 		skinProfile: normalizeSkinProfile(variant.skinProfile),
 		morphSemanticMask: Math.max(0, Math.floor(variant.morphSemanticMask ?? 0)) & 3,
 	};
+	Object.freeze(normalized.scene);
+	Object.freeze(normalized.material);
+	Object.freeze(normalized);
+	normalizedSceneVariants.add(normalized);
+	return normalized;
 }
 
 export function getWebGLSceneVariantKey(
 	variant?: WebGLSceneVariantDescriptor
 ): string {
+	if (variant) {
+		const cached = sceneVariantKeys.get(variant);
+		if (cached !== undefined) return cached;
+	}
 	const normalized = normalizeWebGLSceneVariantDescriptor(variant);
 	const scene = normalized.scene;
 	const material = normalized.material;
-	return [
+	const key = [
 		`out:${normalized.output}`,
 		`gbuf:${bit(normalized.materialGBuffer)}`,
 		`oit:${bit(normalized.oit)}`,
@@ -241,47 +263,49 @@ export function getWebGLSceneVariantKey(
 		`skin:${normalized.skinProfile}`,
 		`morph:${normalized.morphSemanticMask}`,
 	].join("|");
+	sceneVariantKeys.set(normalized, key);
+	return key;
 }
 
 export function getWebGLSceneDepthVariantKey(
 	variant?: WebGLSceneDepthVariantDescriptor
 ): string {
+	if (variant) {
+		const cached = depthVariantKeys.get(variant);
+		if (cached !== undefined) return cached;
+	}
 	const normalized = normalizeWebGLSceneDepthVariantDescriptor(variant);
-	return [
+	const key = [
 		`mask:${bit(normalized.alphaMask)}`,
 		`base:${bit(normalized.baseMap)}`,
 		`skin:${normalized.skinProfile}`,
 		`morphp:${bit(normalized.morphPosition)}`,
 	].join("|");
+	depthVariantKeys.set(normalized, key);
+	return key;
 }
 
+/**
+ * @internal WebGL depth shader specialization; returns an immutable snapshot
+ * without freezing the caller's descriptor.
+ */
 export function normalizeWebGLSceneDepthVariantDescriptor(
 	variant?: WebGLSceneDepthVariantDescriptor
 ): WebGLSceneDepthVariantDescriptor {
-	if (!variant) {
-		return { ...WEBGL_ALPHA_MAP_DEPTH_VARIANT };
+	variant ??= WEBGL_ALPHA_MAP_DEPTH_VARIANT;
+	if (normalizedDepthVariants.has(variant)) {
+		return variant;
 	}
 	const alphaMask = variant.alphaMask === true;
-	return {
+	const normalized: WebGLSceneDepthVariantDescriptor = {
 		alphaMask,
 		baseMap: alphaMask && variant.baseMap === true,
 		skinProfile: normalizeSkinProfile(variant.skinProfile),
 		morphPosition: variant.morphPosition === true,
 	};
-}
-
-function cloneWebGLSceneVariantDescriptor(
-	variant: WebGLSceneVariantDescriptor
-): WebGLSceneVariantDescriptor {
-	return {
-		output: variant.output,
-		materialGBuffer: variant.materialGBuffer,
-		oit: variant.oit,
-		scene: { ...variant.scene },
-		material: { ...variant.material },
-		skinProfile: variant.skinProfile,
-		morphSemanticMask: variant.morphSemanticMask,
-	};
+	Object.freeze(normalized);
+	normalizedDepthVariants.add(normalized);
+	return normalized;
 }
 
 function normalizeSkinProfile(value: WebGLSceneSkinProfile): WebGLSceneSkinProfile {

@@ -84,6 +84,16 @@ interface DeferredTextureUploadRequest {
 	isLinear: boolean;
 }
 
+interface ResolvedTextureCacheEntry {
+	result: ResolvedWebGLTexture;
+	version: number;
+	width: number;
+	height: number;
+	isLinear: boolean;
+	format: TextureFormat;
+	formatExplicit: boolean;
+}
+
 export const DEFAULT_DEFERRED_UPLOADS_PER_FRAME = 4;
 export const DEFAULT_DEFERRED_UPLOAD_BYTES_PER_FRAME = 32 * 1024 * 1024;
 
@@ -91,6 +101,10 @@ export class WebGLTextureRegistry {
 	private _gl: WebGL2RenderingContext;
 	private _maxTextureSize: number;
 	private _cache = new WeakMap<Texture, Map<string, TextureEntry>>();
+	private _resolvedByLabel = new WeakMap<
+		Texture,
+		Map<string, ResolvedTextureCacheEntry>
+	>();
 	private _pendingUploadsByTexture = new WeakMap<
 		Texture,
 		Map<string, PendingTextureUpload>
@@ -98,7 +112,9 @@ export class WebGLTextureRegistry {
 	private _pendingUploadQueue: PendingTextureUpload[] = [];
 	private _owned = new Set<WebGLTexture>();
 	private _whiteTexture: WebGLTexture | null = null;
+	private _whiteTextureResult: ResolvedWebGLTexture | null = null;
 	private _neutralNormalTexture: WebGLTexture | null = null;
+	private _neutralNormalResult: ResolvedWebGLTexture | null = null;
 	private _supportsFloatLinearFiltering: boolean | null = null;
 	private _uploadScheduling: "immediate" | "deferred";
 	private _maxUploadsPerFrame: number;
@@ -169,6 +185,9 @@ export class WebGLTextureRegistry {
 	}
 
 	public getNeutralNormalTexture(): ResolvedWebGLTexture {
+		if (this._neutralNormalResult) {
+			return this._neutralNormalResult;
+		}
 		if (!this._neutralNormalTexture) {
 			const tex = this._createTexture();
 			if (!tex) {
@@ -195,10 +214,17 @@ export class WebGLTextureRegistry {
 			);
 			gl.bindTexture(gl.TEXTURE_2D, null);
 		}
-		return { texture: this._neutralNormalTexture, isLinear: true };
+		this._neutralNormalResult = {
+			texture: this._neutralNormalTexture,
+			isLinear: true,
+		};
+		return this._neutralNormalResult;
 	}
 
 	public getWhiteTexture(): ResolvedWebGLTexture {
+		if (this._whiteTextureResult) {
+			return this._whiteTextureResult;
+		}
 		if (!this._whiteTexture) {
 			const tex = this._createTexture();
 			if (!tex) {
@@ -225,7 +251,11 @@ export class WebGLTextureRegistry {
 			);
 			gl.bindTexture(gl.TEXTURE_2D, null);
 		}
-		return { texture: this._whiteTexture, isLinear: true };
+		this._whiteTextureResult = {
+			texture: this._whiteTexture,
+			isLinear: true,
+		};
+		return this._whiteTextureResult;
 	}
 
 	public destroy(): void {
@@ -235,8 +265,11 @@ export class WebGLTextureRegistry {
 		this._owned.clear();
 		this._pendingUploadQueue = [];
 		this._pendingUploadsByTexture = new WeakMap();
+		this._resolvedByLabel = new WeakMap();
 		this._whiteTexture = null;
+		this._whiteTextureResult = null;
 		this._neutralNormalTexture = null;
+		this._neutralNormalResult = null;
 	}
 
 	private _resolveTexture(
@@ -274,6 +307,19 @@ export class WebGLTextureRegistry {
 
 		const isLinear =
 			texture.colorSpace === "Linear" || texture.colorSpace === "HDR";
+		const resolvedEntries = this._resolvedByLabel.get(texture);
+		const resolvedCached = resolvedEntries?.get(label);
+		if (
+			resolvedCached &&
+			resolvedCached.version === texture.version &&
+			resolvedCached.width === width &&
+			resolvedCached.height === height &&
+			resolvedCached.isLinear === isLinear &&
+			resolvedCached.format === texture.format &&
+			resolvedCached.formatExplicit === texture.formatExplicit
+		) {
+			return resolvedCached.result;
+		}
 		const uploadFormat = this._resolveUploadFormat(
 			texture,
 			label,
@@ -292,10 +338,12 @@ export class WebGLTextureRegistry {
 			cached.uploadKind === uploadFormat.kind &&
 			cached.actualFormat === uploadFormat.textureFormat
 		) {
-			return {
+			const result: ResolvedWebGLTexture = {
 				texture: cached.texture,
 				isLinear: uploadFormat.hardwareSRGB || isLinear || !srgbDefault,
 			};
+			this._cacheResolvedTexture(texture, label, result, width, height, isLinear);
+			return result;
 		}
 
 		const pending = this._getPendingUpload(texture, cacheKey);
@@ -335,6 +383,7 @@ export class WebGLTextureRegistry {
 			uploadFormat
 		);
 		if (!uploadOk) {
+			this._resolvedByLabel.get(texture)?.delete(label);
 			return this.getWhiteTexture();
 		}
 		const entries = cachedEntries ?? new Map<string, TextureEntry>();
@@ -350,10 +399,36 @@ export class WebGLTextureRegistry {
 		if (!cachedEntries) {
 			this._cache.set(texture, entries);
 		}
-		return {
+		const result: ResolvedWebGLTexture = {
 			texture: glTexture,
 			isLinear: uploadFormat.hardwareSRGB || isLinear || !srgbDefault,
 		};
+		this._cacheResolvedTexture(texture, label, result, width, height, isLinear);
+		return result;
+	}
+
+	private _cacheResolvedTexture(
+		texture: Texture,
+		label: string,
+		result: ResolvedWebGLTexture,
+		width: number,
+		height: number,
+		isLinear: boolean,
+	): void {
+		let entries = this._resolvedByLabel.get(texture);
+		if (!entries) {
+			entries = new Map();
+			this._resolvedByLabel.set(texture, entries);
+		}
+		entries.set(label, {
+			result,
+			version: texture.version,
+			width,
+			height,
+			isLinear,
+			format: texture.format,
+			formatExplicit: texture.formatExplicit,
+		});
 	}
 
 	/**

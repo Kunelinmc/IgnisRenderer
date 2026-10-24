@@ -60,6 +60,7 @@ export class WebGLTransparencyRuntime {
 	private _sceneColorCopyReady = false;
 	private _transparentPackets: DrawPacket[] = [];
 	private _legacyPackets: DrawPacket[] = [];
+	private readonly _singlePacketScratch: DrawPacket[] = [];
 
 	constructor(host: WebGLTransparencyRuntimeHost) {
 		this._host = host;
@@ -219,11 +220,13 @@ export class WebGLTransparencyRuntime {
 					);
 					gl.generateMipmap(gl.TEXTURE_2D);
 				}
-				this._host.renderPackets(context, [packet], true, {
+				this._singlePacketScratch[0] = packet;
+				this._host.renderPackets(context, this._singlePacketScratch, true, {
 					blendMode: "disabled",
 				});
 			} else {
-				this._host.renderPackets(context, [packet], true);
+				this._singlePacketScratch[0] = packet;
+				this._host.renderPackets(context, this._singlePacketScratch, true);
 			}
 		}
 	}
@@ -247,7 +250,8 @@ export class WebGLTransparencyRuntime {
 	public renderTransmissionPacket(context: FrameContext, index: number): void {
 		const packet = context.scene.transparentPackets[index];
 		if (!packet || !materialUsesTransmission(packet.submission.material.effective)) return;
-		this._host.renderPackets(context, [packet], true, {
+		this._singlePacketScratch[0] = packet;
+		this._host.renderPackets(context, this._singlePacketScratch, true, {
 			blendMode: "disabled",
 		});
 	}

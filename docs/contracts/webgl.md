@@ -10,6 +10,17 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
 
 ### Backend lifecycle and execution
 
+- Whole-frame graph compilation may reuse the previous compiled graph only
+  when the complete logical frame plan is unchanged, including resource
+  descriptors and physical bindings, ordered stages and dependencies, node
+  payloads, post-process composition, exports, and diagnostics. The cache must
+  be bounded and backend-local. Every reuse must start a fresh graph analysis
+  attempt; skipped-node aliases and commit or abort state must not carry over.
+- Built-in material snapshots may consume a submission's prepared material
+  revision without rescanning authoring fields. Standalone material resolution
+  must retain its per-frame refresh behavior. Subsequent scene preparation
+  must continue to observe direct and nested material mutations.
+
 - WebGL must execute scene-view render-target jobs inside the active frame
   context rather than through an idle-only reentrant context request.
 - Each job must own isolated camera, lighting, clustered-lighting, framebuffer,
@@ -354,6 +365,18 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   slots, resolve native textures, or consume texture units. Texture decode
   state that may change when a deferred upload replaces a fallback texture
   must remain runtime binding state rather than revision-only block data.
+- Scene and depth variant key caches must observe mutations to caller-owned
+  descriptors, including nested scene and material flags. Identity-based key
+  reuse must be limited to immutable descriptors. Normalization must produce
+  immutable snapshots, including nested scene and material objects, without
+  freezing caller-owned inputs. Material buffer layout key caches must also
+  observe mutable material variant flags. Material snapshots must publish
+  immutable material variant flags so scene and depth draws can reuse layout
+  keys safely.
+- Resolved texture cache shortcuts must compare `Texture.format` and
+  `Texture.formatExplicit` as well as version, dimensions, and color-space
+  state. Direct format changes must re-evaluate upload format and decode state
+  even when `Texture.version` is unchanged.
 - `ShaderMaterial`, its custom bindings, and the `full` compatibility scene
   specialization must retain the individual-uniform ABI. They must not be
   required to declare Ignis material uniform blocks.

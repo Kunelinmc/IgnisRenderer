@@ -113,6 +113,7 @@ export class WebGLShadowRasterPass {
 	private _shadowAtlasTileSize = 0;
 	private _shadowMvpMatrix = Matrix4.identity();
 	private readonly _shadowMvpScratch = new Float32Array(16);
+	private _activeShadowProgram: WebGLProgram | null = null;
 
 	constructor(host: WebGLShadowRasterPassHost) {
 		this._host = host;
@@ -197,6 +198,7 @@ export class WebGLShadowRasterPass {
 			return;
 
 		const gl = this._host.gl;
+		this._activeShadowProgram = null;
 		try {
 			gl.bindFramebuffer(gl.FRAMEBUFFER, this._shadowFramebuffer);
 			gl.disable(gl.BLEND);
@@ -242,6 +244,7 @@ export class WebGLShadowRasterPass {
 		if (!slice) return;
 		this._setSliceViewport(slice);
 		this._host.gl.clear(this._host.gl.DEPTH_BUFFER_BIT);
+		this._host.gl.disable(this._host.gl.CULL_FACE);
 		for (const submission of plan.casterSubmissions) {
 			this._drawShadowSubmission(submission, slice.viewProjectionMatrix);
 		}
@@ -255,6 +258,7 @@ export class WebGLShadowRasterPass {
 		this._setSliceViewport(slice);
 		this._host.gl.clear(this._host.gl.COLOR_BUFFER_BIT);
 		if (plan.transmitterSubmissions.length === 0) return;
+		this._host.gl.disable(this._host.gl.CULL_FACE);
 		for (const submission of plan.transmitterSubmissions) {
 			this._drawShadowTransmittanceSubmission(
 				submission,
@@ -285,7 +289,10 @@ export class WebGLShadowRasterPass {
 			this._shadowMvpMatrix,
 		);
 		const gl = this._host.gl;
-		gl.useProgram(shadowProgram.program);
+		if (this._activeShadowProgram !== shadowProgram.program) {
+			gl.useProgram(shadowProgram.program);
+			this._activeShadowProgram = shadowProgram.program;
+		}
 		if (
 			this._host.animationPayloads &&
 			!this._host.animationPayloads.bind(
@@ -303,10 +310,8 @@ export class WebGLShadowRasterPass {
 				Matrix4.toColumnMajorArray(this._shadowMvpMatrix, this._shadowMvpScratch),
 			);
 		}
-		gl.disable(gl.CULL_FACE);
 		gl.bindVertexArray(geometry.vao);
 		gl.drawElements(geometry.topology, geometry.indexCount, geometry.indexType, 0);
-		gl.bindVertexArray(null);
 	}
 
 	private _drawShadowTransmittanceSubmission(
@@ -324,7 +329,10 @@ export class WebGLShadowRasterPass {
 			return;
 		}
 		const gl = this._host.gl;
-		gl.useProgram(shadowProgram.program);
+		if (this._activeShadowProgram !== shadowProgram.program) {
+			gl.useProgram(shadowProgram.program);
+			this._activeShadowProgram = shadowProgram.program;
+		}
 		if (
 			this._host.animationPayloads &&
 			!this._host.animationPayloads.bind(
@@ -354,10 +362,8 @@ export class WebGLShadowRasterPass {
 			transmittance.g,
 			transmittance.b,
 		);
-		gl.disable(gl.CULL_FACE);
 		gl.bindVertexArray(geometry.vao);
 		gl.drawElements(geometry.topology, geometry.indexCount, geometry.indexType, 0);
-		gl.bindVertexArray(null);
 	}
 
 	private _resolveDepthProgram(key: ShadowDeformationKey): WebGLShadowDepthProgram | null {
@@ -499,6 +505,7 @@ export class WebGLShadowRasterPass {
 
 	private _restoreFrameBaseline(plan: WebGLShadowRasterPlan): void {
 		const gl = this._host.gl;
+		this._activeShadowProgram = null;
 		gl.bindTexture(gl.TEXTURE_2D, null);
 		gl.disable(gl.BLEND);
 		gl.disable(gl.CULL_FACE);
@@ -513,12 +520,20 @@ export class WebGLShadowRasterPass {
 	}
 }
 
+const SHADOW_PROFILE_KEY_CACHE = new WeakMap<object, ShadowDeformationKey>();
+
 function profileKey(geometry: WebGLGeometryHandle): ShadowDeformationKey {
+	const cached = SHADOW_PROFILE_KEY_CACHE.get(geometry);
+	if (cached !== undefined) {
+		return cached;
+	}
 	const skinProfile =
 		geometry.skinProfile === "skin4" || geometry.skinProfile === "skin8" ?
 			geometry.skinProfile : "static";
-	return `${skinProfile}:${geometry.morphPositionTexture ? 1 : 0}` as
+	const key = `${skinProfile}:${geometry.morphPositionTexture ? 1 : 0}` as
 		ShadowDeformationKey;
+	SHADOW_PROFILE_KEY_CACHE.set(geometry, key);
+	return key;
 }
 
 function getShadowSource(

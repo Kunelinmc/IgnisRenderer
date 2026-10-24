@@ -53,16 +53,29 @@ export class WebGLFrameGraphCompiler {
 	private readonly _attempts = new RenderGraphAttemptTracker();
 	private _compiled: WebGLCompiledFrameGraph | null = null;
 	private _lastFramePlan: WebGLFrameGraphFramePlan | null = null;
+	private _cachedPlanKey: string | null = null;
+	private _cachedFrame: WebGLCompiledFrameGraph | null = null;
 	private _legacyResources: RenderGraphResourceDescriptor[] = [];
 	private _legacyStages: WebGLFrameGraphStagePlan[] = [];
 
 	public compileFrame(plan: WebGLFrameGraphFramePlan): WebGLCompiledFrameGraph {
+		// Plans contain logical metadata only, not frame contexts or native handles.
+		// Compare all fields rather than assuming transient plan identity is stable.
+		const key = JSON.stringify(plan);
+		if (this._cachedFrame && this._cachedPlanKey === key) {
+			this._compiled = this._cachedFrame;
+			this._lastFramePlan = plan;
+			this._attempts.begin(this._compiled.graph);
+			return this._compiled;
+		}
 		const built = createDefinition(plan);
 		const graph = this._compiler.compile(built.definition);
 		const stages = plan.stages.map((stage) =>
 			projectStage(stage, built.stageNodeIds.get(stage) ?? [], graph));
 		this._compiled = Object.freeze({ graph, stages: Object.freeze(stages) });
 		this._lastFramePlan = plan;
+		this._cachedPlanKey = key;
+		this._cachedFrame = this._compiled;
 		this._attempts.begin(graph);
 		return this._compiled;
 	}

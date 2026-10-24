@@ -43,6 +43,24 @@ const IDENTITY_MATRIX4_COLUMN_MAJOR = new Float32Array([
 	0, 0, 0, 1,
 ]);
 
+const CAMERA_MATRIX_SCRATCH = new Float32Array(16);
+
+// Packed uniform data is uploaded synchronously, so one scratch per byte
+// length can be reused across programs and draw passes.
+const PACKED_UNIFORM_SCRATCHES = new Map<number, Float32Array>();
+
+function acquirePackedScratch(length: number): Float32Array {
+	const resolvedLength = Math.max(0, length);
+	let scratch = PACKED_UNIFORM_SCRATCHES.get(resolvedLength);
+	if (scratch) {
+		scratch.fill(0);
+		return scratch;
+	}
+	scratch = new Float32Array(resolvedLength);
+	PACKED_UNIFORM_SCRATCHES.set(resolvedLength, scratch);
+	return scratch;
+}
+
 function flattenVec4<T>(
 	values: T[],
 	mapper: (value: T) => Vec4Tuple,
@@ -52,7 +70,7 @@ function flattenVec4<T>(
 		typeof maxCount === "number" && Number.isFinite(maxCount) ?
 			Math.max(0, Math.floor(maxCount))
 		:	0;
-	const packed = new Float32Array(resolvedMaxCount * 4);
+	const packed = acquirePackedScratch(resolvedMaxCount * 4);
 	const count = Math.min(resolvedMaxCount, values.length);
 	for (let i = 0; i < count; i++) {
 		const value = mapper(values[i]);
@@ -69,14 +87,17 @@ function flattenShadowViewProjection(
 	values: WebGLShadowData[],
 	maxCount: number
 ): Float32Array {
-	const packed = new Float32Array(maxCount * 16);
+	const packed = acquirePackedScratch(maxCount * 16);
 	const count = Math.min(maxCount, values.length);
 	for (let i = 0; i < count; i++) {
 		const matrix = values[i]?.viewProjectionMatrix;
 		if (!matrix) {
 			continue;
 		}
-		packed.set(Matrix4.toColumnMajorArray(matrix), i * 16);
+		packed.set(
+			Matrix4.toColumnMajorArray(matrix, CAMERA_MATRIX_SCRATCH),
+			i * 16
+		);
 	}
 	return packed;
 }
@@ -86,7 +107,7 @@ function flattenShadowCascadeViewProjection(
 	maxCount: number
 ): Float32Array {
 	const cascadesPerLight = 4;
-	const packed = new Float32Array(maxCount * cascadesPerLight * 16);
+	const packed = acquirePackedScratch(maxCount * cascadesPerLight * 16);
 	const count = Math.min(maxCount, values.length);
 	for (let lightIndex = 0; lightIndex < count; lightIndex++) {
 		const shadow = values[lightIndex];
@@ -104,7 +125,10 @@ function flattenShadowCascadeViewProjection(
 				continue;
 			}
 			const offset = (lightIndex * cascadesPerLight + cascadeIndex) * 16;
-			packed.set(Matrix4.toColumnMajorArray(matrix), offset);
+			packed.set(
+				Matrix4.toColumnMajorArray(matrix, CAMERA_MATRIX_SCRATCH),
+				offset
+			);
 		}
 	}
 	return packed;
@@ -115,7 +139,7 @@ function flattenShadowCascadeSplits(
 	maxCount: number
 ): Float32Array {
 	const cascadesPerLight = 4;
-	const packed = new Float32Array(maxCount * cascadesPerLight * 4);
+	const packed = acquirePackedScratch(maxCount * cascadesPerLight * 4);
 	const count = Math.min(maxCount, values.length);
 	for (let lightIndex = 0; lightIndex < count; lightIndex++) {
 		const shadow = values[lightIndex];
@@ -140,7 +164,7 @@ function flattenShadowParamsA(
 	values: WebGLShadowData[],
 	maxCount: number
 ): Float32Array {
-	const packed = new Float32Array(maxCount * 4);
+	const packed = acquirePackedScratch(maxCount * 4);
 	const count = Math.min(maxCount, values.length);
 	for (let i = 0; i < count; i++) {
 		const shadow = values[i];
@@ -158,7 +182,7 @@ function flattenShadowDepthProjectionParams(
 	maxCount: number,
 ): Float32Array {
 	const cascadesPerLight = 4;
-	const packed = new Float32Array(maxCount * cascadesPerLight * 4);
+	const packed = acquirePackedScratch(maxCount * cascadesPerLight * 4);
 	const count = Math.min(maxCount, values.length);
 	for (let lightIndex = 0; lightIndex < count; lightIndex++) {
 		const params = values[lightIndex].depthProjectionParams;
@@ -178,7 +202,7 @@ function flattenShadowParamsB(
 	values: WebGLShadowData[],
 	maxCount: number
 ): Float32Array {
-	const packed = new Float32Array(maxCount * 4);
+	const packed = acquirePackedScratch(maxCount * 4);
 	const count = Math.min(maxCount, values.length);
 	for (let i = 0; i < count; i++) {
 		const shadow = values[i];
@@ -195,7 +219,7 @@ function flattenShadowParamsC(
 	values: WebGLShadowData[],
 	maxCount: number
 ): Float32Array {
-	const packed = new Float32Array(maxCount * 4);
+	const packed = acquirePackedScratch(maxCount * 4);
 	const count = Math.min(maxCount, values.length);
 	for (let i = 0; i < count; i++) {
 		const shadow = values[i];
@@ -219,7 +243,7 @@ function flattenShadowParamsD(
 	values: WebGLShadowData[],
 	maxCount: number
 ): Float32Array {
-	const packed = new Float32Array(maxCount * 4);
+	const packed = acquirePackedScratch(maxCount * 4);
 	const count = Math.min(maxCount, values.length);
 	for (let i = 0; i < count; i++) {
 		const shadow = values[i];
@@ -237,7 +261,7 @@ function flattenReflectionProbeRows(
 	matrixKey: "worldToProbeMatrix" | "probeToWorldMatrix",
 	row: 0 | 1 | 2
 ): Float32Array {
-	const packed = new Float32Array(MAX_REFLECTION_PROBES * 4);
+	const packed = acquirePackedScratch(MAX_REFLECTION_PROBES * 4);
 	const count = Math.min(MAX_REFLECTION_PROBES, values.length);
 	for (let i = 0; i < count; i++) {
 		const matrix = values[i][matrixKey].elements;
@@ -254,7 +278,7 @@ function flattenReflectionProbeVec4(
 	values: WebGLReflectionProbeUniform[],
 	mapper: (probe: WebGLReflectionProbeUniform) => Vec4Tuple
 ): Float32Array {
-	const packed = new Float32Array(MAX_REFLECTION_PROBES * 4);
+	const packed = acquirePackedScratch(MAX_REFLECTION_PROBES * 4);
 	const count = Math.min(MAX_REFLECTION_PROBES, values.length);
 	for (let i = 0; i < count; i++) {
 		const mapped = mapper(values[i]);
@@ -271,7 +295,7 @@ function flattenLocalLightProbeRows(
 	values: WebGLLocalLightProbeUniform[],
 	row: 0 | 1 | 2
 ): Float32Array {
-	const packed = new Float32Array(MAX_LOCAL_LIGHT_PROBES * 4);
+	const packed = acquirePackedScratch(MAX_LOCAL_LIGHT_PROBES * 4);
 	const count = Math.min(MAX_LOCAL_LIGHT_PROBES, values.length);
 	for (let i = 0; i < count; i++) {
 		const matrix = values[i].worldToProbeMatrix.elements;
@@ -288,7 +312,7 @@ function flattenLocalLightProbeVec4(
 	values: WebGLLocalLightProbeUniform[],
 	mapper: (probe: WebGLLocalLightProbeUniform) => Vec4Tuple
 ): Float32Array {
-	const packed = new Float32Array(MAX_LOCAL_LIGHT_PROBES * 4);
+	const packed = acquirePackedScratch(MAX_LOCAL_LIGHT_PROBES * 4);
 	const count = Math.min(MAX_LOCAL_LIGHT_PROBES, values.length);
 	for (let i = 0; i < count; i++) {
 		const mapped = mapper(values[i]);
@@ -304,7 +328,7 @@ function flattenLocalLightProbeVec4(
 function toFiniteColumnMajorMat4(
 	matrix: Matrix4 | number[][]
 ): Float32Array | null {
-	const values = Matrix4.toColumnMajorArray(matrix);
+	const values = Matrix4.toColumnMajorArray(matrix, CAMERA_MATRIX_SCRATCH);
 	for (let i = 0; i < values.length; i++) {
 		if (!Number.isFinite(values[i])) {
 			return null;
@@ -313,13 +337,21 @@ function toFiniteColumnMajorMat4(
 	return values;
 }
 
+interface WebGLSanitizedFloat32Array {
+	values: Float32Array;
+	hadInvalid: boolean;
+}
+
+// The sanitized result is consumed immediately by the caller's uniform upload.
+const SANITIZE_RESULT: WebGLSanitizedFloat32Array = {
+	values: new Float32Array(0),
+	hadInvalid: false,
+};
+
 function sanitizeFloat32Array(
 	values: Float32Array,
 	fallback: number
-): {
-	values: Float32Array;
-	hadInvalid: boolean;
-} {
+): WebGLSanitizedFloat32Array {
 	let hadInvalid = false;
 	for (let i = 0; i < values.length; i++) {
 		if (!Number.isFinite(values[i])) {
@@ -327,7 +359,9 @@ function sanitizeFloat32Array(
 			hadInvalid = true;
 		}
 	}
-	return { values, hadInvalid };
+	SANITIZE_RESULT.values = values;
+	SANITIZE_RESULT.hadInvalid = hadInvalid;
+	return SANITIZE_RESULT;
 }
 
 function logWebGLGlobalUniformWarning(key: string, message: string): void {

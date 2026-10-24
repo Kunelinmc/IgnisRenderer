@@ -24,7 +24,7 @@ function createFakeGLRecorder() {
 			uniform3fvCalls.set(location, values.slice());
 		},
 		uniform4fv(location, values) {
-			uniform4fvCalls.set(location, values);
+			uniform4fvCalls.set(location, values.slice());
 		},
 		activeTexture() {},
 		bindTexture() {},
@@ -242,10 +242,34 @@ function testLocalLightProbeSHUsesFreedTextureUnit() {
 	assert.equal(gl._calls.uniform1iCalls.get(localLightProbeCoeffs), 0);
 }
 
+function testRepeatedBindsRepackChangedLights() {
+	const gl = createFakeGLRecorder();
+	const pointLights = createPointLights(6);
+	const host = createBinderHost(gl, pointLights);
+	const frameContext = createFrameContext();
+	const pointLightPositionRange = { id: "point-position-range" };
+	const sceneProgram = {
+		samplerLayout: { units: {}, activeSamplerNames: [], required: 0, available: 16 },
+		uniforms: { pointLightPositionRange },
+	};
+
+	bindWebGLGlobalUniforms(host, sceneProgram, frameContext);
+	const firstPacked = gl._calls.uniform4fvCalls.get(pointLightPositionRange);
+
+	pointLights[5].position = [9, 9, 9];
+	pointLights[5].range = 42;
+	bindWebGLGlobalUniforms(host, sceneProgram, frameContext);
+	const secondPacked = gl._calls.uniform4fvCalls.get(pointLightPositionRange);
+
+	assert.deepEqual(Array.from(firstPacked.slice(20, 24)), [6, 7, 8, 15]);
+	assert.deepEqual(Array.from(secondPacked.slice(20, 24)), [9, 9, 9, 42]);
+}
+
 function run() {
 	testPointLightUniformPackingUsesConfiguredBudget();
 	testSHAmbientCoefficientsUseUniformVectors();
 	testLocalLightProbeSHUsesFreedTextureUnit();
+	testRepeatedBindsRepackChangedLights();
 	console.log("WebGL global uniform binder light packing tests passed");
 }
 

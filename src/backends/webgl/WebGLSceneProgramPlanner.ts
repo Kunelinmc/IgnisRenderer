@@ -71,7 +71,7 @@ export function planWebGLScenePrograms(
 			material,
 			deformation,
 			materialSnapshot: material instanceof ShaderMaterial ? null
-				: materialSnapshots?.resolve(material) ?? null,
+				: materialSnapshots?.resolve(material, packet?.submission.material.revision) ?? null,
 		});
 	}
 	for (const { material, deformation, materialSnapshot } of entries) {

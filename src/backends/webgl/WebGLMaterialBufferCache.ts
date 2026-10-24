@@ -36,6 +36,7 @@ interface WebGLMaterialBufferEntry {
 /** @internal Owns revision-stable std140 buffers for built-in WebGL materials. */
 export class WebGLMaterialBufferCache {
 	private readonly _entries = new Map<Material, WebGLMaterialBufferEntry>();
+	private _lastTouched: Material | null = null;
 
 	public constructor(
 		private readonly _gl: WebGL2RenderingContext,
@@ -119,6 +120,7 @@ export class WebGLMaterialBufferCache {
 			if (entry.lightingBuffer) this._gl.deleteBuffer(entry.lightingBuffer);
 		}
 		this._entries.clear();
+		this._lastTouched = null;
 	}
 
 	private _createBuffer(label: string): WebGLBuffer {
@@ -144,8 +146,12 @@ export class WebGLMaterialBufferCache {
 	}
 
 	private _touch(material: Material, entry: WebGLMaterialBufferEntry): void {
+		if (this._lastTouched === material) {
+			return;
+		}
 		this._entries.delete(material);
 		this._entries.set(material, entry);
+		this._lastTouched = material;
 	}
 
 	private _trim(): void {
@@ -155,20 +161,30 @@ export class WebGLMaterialBufferCache {
 				| undefined;
 			if (!oldest) break;
 			this._entries.delete(oldest[0]);
+			this._lastTouched = null;
 			this._gl.deleteBuffer(oldest[1].commonBuffer);
 			if (oldest[1].lightingBuffer) this._gl.deleteBuffer(oldest[1].lightingBuffer);
 		}
 	}
 }
 
+const MATERIAL_BUFFER_LAYOUT_KEYS = new WeakMap<object, string>();
+
 export function getWebGLMaterialBufferLayoutKey(
 	variant: WebGLSceneMaterialVariant,
 ): string {
+	const cacheable = Object.isFrozen(variant);
+	const cached = cacheable ? MATERIAL_BUFFER_LAYOUT_KEYS.get(variant) : undefined;
+	if (cached !== undefined) {
+		return cached;
+	}
 	const flags = [variant.baseMap, variant.emissiveMap];
 	if (variant.model === "pbr") {
 		for (const name of WEBGL_PBR_TEXTURE_SLOT_NAMES) flags.push(variant[name]);
 	}
-	return `${variant.model}:${flags.map((value) => value ? 1 : 0).join("")}`;
+	const key = `${variant.model}:${flags.map((value) => value ? 1 : 0).join("")}`;
+	if (cacheable) MATERIAL_BUFFER_LAYOUT_KEYS.set(variant, key);
+	return key;
 }
 
 export function packWebGLMaterialCommonState(

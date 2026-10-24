@@ -26,7 +26,15 @@ export class WebGLMaterialSnapshotCache {
 		this._refreshedMaterials = new WeakSet();
 	}
 
-	public resolve(material: Material): WebGLResolvedMaterialSnapshot {
+	/**
+	 * @internal WebGL material resolution; applications use `Material.revision`.
+	 * A prepared revision must come from the active submission, not an earlier
+	 * frame. Omitting it refreshes authoring state once per backend frame.
+	 */
+	public resolve(
+		material: Material,
+		preparedRevision?: number,
+	): WebGLResolvedMaterialSnapshot {
 		if (material instanceof ShaderMaterial) {
 			throw new Error("ShaderMaterial does not use built-in WebGL material snapshots.");
 		}
@@ -38,21 +46,21 @@ export class WebGLMaterialSnapshotCache {
 			return {
 				revision: 0,
 				data,
-				materialVariant: resolveWebGLSceneMaterialVariant(material, data),
+				materialVariant: Object.freeze(resolveWebGLSceneMaterialVariant(material, data)),
 			};
 		}
-		if (!this._refreshedMaterials.has(material)) {
+		if (preparedRevision === undefined && !this._refreshedMaterials.has(material)) {
 			material.refreshRevision();
-			this._refreshedMaterials.add(material);
 		}
-		const revision = material._getRevisionInternal();
+		this._refreshedMaterials.add(material);
+		const revision = preparedRevision ?? material._getRevisionInternal();
 		const cached = this._entries.get(material);
 		if (cached?.revision === revision) return cached;
 		const data = resolveWebGLMaterialState(material);
 		const snapshot = {
 			revision,
 			data,
-			materialVariant: resolveWebGLSceneMaterialVariant(material, data),
+			materialVariant: Object.freeze(resolveWebGLSceneMaterialVariant(material, data)),
 		} satisfies CachedWebGLMaterialSnapshot;
 		this._entries.set(material, snapshot);
 		return snapshot;

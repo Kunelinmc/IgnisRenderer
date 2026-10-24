@@ -50,6 +50,10 @@ function logWebGLScenePassWarning(key: string, message: string): void {
 	});
 }
 
+// Uploaded synchronously by the next uniform call, so consecutive draws can
+// share one scratch buffer.
+const NORMAL_MATRIX_SCRATCH = new Float32Array(9);
+
 function toColumnMajorMat3(
 	matrix: Matrix4 | Matrix3Arr
 ): Float32Array | null {
@@ -57,23 +61,22 @@ function toColumnMajorMat3(
 	if (rows.length < 3) {
 		return null;
 	}
-	const values = [
-		rows[0][0],
-		rows[1][0],
-		rows[2][0],
-		rows[0][1],
-		rows[1][1],
-		rows[2][1],
-		rows[0][2],
-		rows[1][2],
-		rows[2][2],
-	];
+	const values = NORMAL_MATRIX_SCRATCH;
+	values[0] = rows[0][0];
+	values[1] = rows[1][0];
+	values[2] = rows[2][0];
+	values[3] = rows[0][1];
+	values[4] = rows[1][1];
+	values[5] = rows[2][1];
+	values[6] = rows[0][2];
+	values[7] = rows[1][2];
+	values[8] = rows[2][2];
 	for (let i = 0; i < values.length; i++) {
 		if (!Number.isFinite(values[i])) {
 			return null;
 		}
 	}
-	return new Float32Array(values);
+	return values;
 }
 
 /** Mutable per-draw scratch owned by the scene pass; reset by the owner. */
@@ -81,6 +84,15 @@ export interface WebGLSceneDrawState {
 	readonly modelMatrixScratch: Float32Array;
 	oitPassMode: 0 | 1 | 2;
 	activeDrawBuffers: number[] | null;
+	/** Cached shorter draw-buffer list for programs with fewer color outputs. */
+	compatibleDrawBuffers: number[] | null;
+	compatibleDrawBuffersSource: number[] | null;
+	compatibleDrawBuffersCount: number;
+	/**
+	 * Last cull state uploaded to GL: 0 = disabled, 1 = back, 2 = front.
+	 * Null forces the next cull-state upload.
+	 */
+	cullModeState: 0 | 1 | 2 | null;
 	boundMaterialCommonBuffer: WebGLBuffer | null;
 	boundMaterialLightingBuffer: WebGLBuffer | null;
 	boundMaterialTextures: Map<number, WebGLTexture | null>;
@@ -93,6 +105,10 @@ export function createWebGLSceneDrawState(): WebGLSceneDrawState {
 		modelMatrixScratch: new Float32Array(16),
 		oitPassMode: 0,
 		activeDrawBuffers: null,
+		compatibleDrawBuffers: null,
+		compatibleDrawBuffersSource: null,
+		compatibleDrawBuffersCount: 0,
+		cullModeState: null,
 		boundMaterialCommonBuffer: null,
 		boundMaterialLightingBuffer: null,
 		boundMaterialTextures: new Map(),
@@ -703,7 +719,7 @@ function drawWebGLLegacyPacket(
 	bindWebGLShaderMaterialTextures(deps, sceneProgram, material);
 	bindWebGLShaderMaterialUniforms(deps, sceneProgram, material);
 
-	setWebGLSceneCullMode(deps.gl, material);
+	setWebGLSceneCullMode(deps.gl, material, deps.drawState);
 	gl.bindVertexArray(geometry.vao);
 	if (sceneProgram.uniforms.model) {
 		gl.uniformMatrix4fv(
@@ -1107,10 +1123,10 @@ function drawWebGLLegacyPacket(
 	const colorOutputCount =
 		sceneProgram.colorOutputCount ??
 		(sceneProgram.targetMode === "single" ? 1 : 3);
-	const compatibleDrawBuffers =
-		activeDrawBuffers && activeDrawBuffers.length > colorOutputCount ?
-			activeDrawBuffers.slice(0, colorOutputCount)
-		:	null;
+	const compatibleDrawBuffers = resolveCompatibleDrawBuffers(
+		deps.drawState,
+		colorOutputCount,
+	);
 	if (compatibleDrawBuffers) gl.drawBuffers(compatibleDrawBuffers);
 	try {
 		gl.drawElements(
@@ -1124,7 +1140,6 @@ function drawWebGLLegacyPacket(
 			gl.drawBuffers(activeDrawBuffers);
 		}
 	}
-	gl.bindVertexArray(null);
 }
 
 const WEBGL_PBR_SAMPLER_TO_STATE = {
@@ -1144,6 +1159,17 @@ const WEBGL_PBR_SAMPLER_TO_STATE = {
 	uIridescenceThicknessMap: "iridescenceThicknessMap",
 	uAnisotropyMap: "anisotropyMap",
 } as const satisfies Record<string, WebGLPBRTextureSlotName>;
+
+// Derived once: per-draw `Object.entries` allocated a fresh pair array for
+// every PBR material draw.
+const WEBGL_PBR_SAMPLER_BINDINGS = Object.entries(
+	WEBGL_PBR_SAMPLER_TO_STATE,
+) as Array<
+	[
+		keyof typeof WEBGL_PBR_SAMPLER_TO_STATE,
+		WebGLPBRTextureSlotName,
+	]
+>;
 
 function drawWebGLUniformBufferPacket(
 	deps: WebGLScenePassDeps,
@@ -1175,7 +1201,10 @@ function drawWebGLUniformBufferPacket(
 	}
 	const binding = sceneProgram.materialBinding;
 	if (binding.mode !== "ubo") return;
-	const snapshot = deps.materialSnapshots.resolve(material);
+	const snapshot = deps.materialSnapshots.resolve(
+		material,
+		packet.submission.material.revision,
+	);
 	if (snapshot.data.shadingFamily !== binding.family) {
 		throw new Error(
 			`WebGL material family mismatch: program=${binding.family}, ` +
@@ -1192,7 +1221,7 @@ function drawWebGLUniformBufferPacket(
 	bindWebGLExactMaterialTextures(deps, sceneProgram, snapshot.data);
 	bindWebGLTransmissionTextures(deps, sceneProgram, material);
 
-	setWebGLSceneCullMode(gl, material);
+	setWebGLSceneCullMode(gl, material, deps.drawState);
 	gl.bindVertexArray(geometry.vao);
 	if (sceneProgram.uniforms.model) {
 		gl.uniformMatrix4fv(
@@ -1228,17 +1257,16 @@ function drawWebGLUniformBufferPacket(
 	const colorOutputCount =
 		sceneProgram.colorOutputCount ??
 		(sceneProgram.targetMode === "single" ? 1 : 3);
-	const compatibleDrawBuffers =
-		activeDrawBuffers && activeDrawBuffers.length > colorOutputCount ?
-			activeDrawBuffers.slice(0, colorOutputCount)
-		: null;
+	const compatibleDrawBuffers = resolveCompatibleDrawBuffers(
+		deps.drawState,
+		colorOutputCount,
+	);
 	if (compatibleDrawBuffers) gl.drawBuffers(compatibleDrawBuffers);
 	try {
 		gl.drawElements(geometry.topology, geometry.indexCount, geometry.indexType, 0);
 	} finally {
 		if (compatibleDrawBuffers && activeDrawBuffers) gl.drawBuffers(activeDrawBuffers);
 	}
-	gl.bindVertexArray(null);
 }
 
 function bindWebGLMaterialBuffers(
@@ -1300,9 +1328,7 @@ function bindWebGLExactMaterialTextures(
 		);
 	}
 	if (state.shadingFamily !== "pbr") return;
-	for (const [samplerName, stateName] of Object.entries(
-		WEBGL_PBR_SAMPLER_TO_STATE,
-	) as Array<[keyof typeof WEBGL_PBR_SAMPLER_TO_STATE, WebGLPBRTextureSlotName]>) {
+	for (const [samplerName, stateName] of WEBGL_PBR_SAMPLER_BINDINGS) {
 		if (sceneProgram.samplerLayout.units[samplerName] === undefined) continue;
 		bindWebGLMaterialTexture(
 			deps,
@@ -1482,6 +1508,32 @@ function resetWebGLMaterialBindingState(state: WebGLSceneDrawState): void {
 	state.initializedMaterialSamplerPrograms ??= new WeakSet();
 	state.runtimeMaterialUniforms ??= new WeakMap();
 	state.boundMaterialTextures.clear();
+	// Other passes (shadow raster, environment) may have changed cull state.
+	state.cullModeState = null;
+	state.compatibleDrawBuffers = null;
+	state.compatibleDrawBuffersSource = null;
+	state.compatibleDrawBuffersCount = 0;
+}
+
+function resolveCompatibleDrawBuffers(
+	state: WebGLSceneDrawState,
+	colorOutputCount: number,
+): number[] | null {
+	const active = state.activeDrawBuffers;
+	if (!active || active.length <= colorOutputCount) {
+		return null;
+	}
+	if (
+		state.compatibleDrawBuffers &&
+		state.compatibleDrawBuffersSource === active &&
+		state.compatibleDrawBuffersCount === colorOutputCount
+	) {
+		return state.compatibleDrawBuffers;
+	}
+	state.compatibleDrawBuffersSource = active;
+	state.compatibleDrawBuffersCount = colorOutputCount;
+	state.compatibleDrawBuffers = active.slice(0, colorOutputCount);
+	return state.compatibleDrawBuffers;
 }
 
 function resolveWebGLDepthPrepassProgram(
@@ -1515,7 +1567,10 @@ function resolveSceneProgramVariant(
 ): WebGLSceneVariantDescriptor | null {
 	const material = packet.submission.material.effective;
 	const materialSnapshot = material instanceof ShaderMaterial ?
-		null : deps.materialSnapshots?.resolve(material) ?? null;
+		null : deps.materialSnapshots?.resolve(
+			material,
+			packet.submission.material.revision,
+		) ?? null;
 	return resolveWebGLSceneDrawVariant(
 		context,
 		material,
@@ -1539,25 +1594,33 @@ function resolveSceneDepthPrepassVariant(
 		material,
 		resolveWebGLPacketDeformationProfile(packet),
 		material instanceof ShaderMaterial ?
-			undefined : deps.materialSnapshots?.resolve(material).data,
+			undefined : deps.materialSnapshots?.resolve(
+				material,
+				packet.submission.material.revision,
+			).data,
 	);
 }
 
 export function setWebGLSceneCullMode(
 	gl: WebGL2RenderingContext,
-	material: Material
+	material: Material,
+	state?: WebGLSceneDrawState,
 ): void {
-	if (material.doubleSided || material.cullMode === "none") {
+	const cullModeState: 0 | 1 | 2 =
+		material.doubleSided || material.cullMode === "none" ? 0
+		: material.cullMode === "front" ? 2
+		: 1;
+	if (state && state.cullModeState === cullModeState) {
+		return;
+	}
+	if (state) state.cullModeState = cullModeState;
+	if (cullModeState === 0) {
 		gl.disable(gl.CULL_FACE);
 		return;
 	}
 	gl.enable(gl.CULL_FACE);
 	gl.frontFace(gl.CCW);
-	if (material.cullMode === "front") {
-		gl.cullFace(gl.FRONT);
-	} else {
-		gl.cullFace(gl.BACK);
-	}
+	gl.cullFace(cullModeState === 2 ? gl.FRONT : gl.BACK);
 }
 
 export function drawWebGLDepthPrepassPacket(
@@ -1614,7 +1677,7 @@ function drawWebGLLegacyDepthPrepassPacket(
 	bindWebGLShaderMaterialTextures(deps, sceneProgram, material);
 	bindWebGLShaderMaterialUniforms(deps, sceneProgram, material);
 
-	setWebGLSceneCullMode(deps.gl, material);
+	setWebGLSceneCullMode(deps.gl, material, deps.drawState);
 	gl.bindVertexArray(geometry.vao);
 	if (sceneProgram.uniforms.model) {
 		gl.uniformMatrix4fv(
@@ -1681,7 +1744,6 @@ function drawWebGLLegacyDepthPrepassPacket(
 		geometry.indexType,
 		0
 	);
-	gl.bindVertexArray(null);
 	return true;
 }
 
@@ -1700,7 +1762,10 @@ function drawWebGLUniformBufferDepthPrepassPacket(
 	const normalMatrix = sceneProgram.uniforms.normalMatrix ?
 		toColumnMajorMat3(packet.submission.instance.normalMatrix) : null;
 	if (sceneProgram.uniforms.normalMatrix && !normalMatrix) return false;
-	const snapshot = deps.materialSnapshots.resolve(material);
+	const snapshot = deps.materialSnapshots.resolve(
+		material,
+		packet.submission.material.revision,
+	);
 	const baseMap = sceneProgram.samplerLayout.units.uBaseMap !== undefined;
 	const materialVariant = snapshot.materialVariant;
 	const buffers = deps.materialBuffers.resolve(material, snapshot, materialVariant);
@@ -1714,7 +1779,7 @@ function drawWebGLUniformBufferDepthPrepassPacket(
 			snapshot.data.common.baseMap,
 		);
 	}
-	setWebGLSceneCullMode(gl, material);
+	setWebGLSceneCullMode(gl, material, deps.drawState);
 	gl.bindVertexArray(geometry.vao);
 	if (sceneProgram.uniforms.model) {
 		gl.uniformMatrix4fv(
@@ -1732,7 +1797,6 @@ function drawWebGLUniformBufferDepthPrepassPacket(
 	gl.depthFunc(gl.LESS);
 	gl.depthMask(true);
 	gl.drawElements(geometry.topology, geometry.indexCount, geometry.indexType, 0);
-	gl.bindVertexArray(null);
 	return true;
 }
 

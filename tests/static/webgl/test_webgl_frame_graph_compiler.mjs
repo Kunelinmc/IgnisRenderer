@@ -174,6 +174,58 @@ function testGroupedAnalysisCommitBoundary() {
 	assert.equal(compiler.getGraphAnalysis().lastSuccessful.state, "committed");
 }
 
+function testWholeFrameCacheInvalidatesCompletePlanAndResetsAttempts() {
+	const compiler = new WebGLFrameGraphCompiler();
+	const plan = {
+		resources: [{
+			id: "color", origin: "imported", kind: "texture",
+			initialContent: "valid", width: 16, height: 16, format: "rgba8unorm",
+		}],
+		bindings: [{ resourceId: "color", physicalId: "physical:color", kind: "texture" }],
+		stages: [{
+			pass: createPass(),
+			nodes: [{
+				id: "draw", stage: "main-opaque", kind: "opaque-scene", label: "Draw",
+				reads: [{ id: "color", usage: "texture-sampling" }],
+			}],
+		}],
+	};
+	const first = compiler.compileFrame(plan);
+	compiler.recordSkippedNode("draw", "color", "color");
+	compiler.seal();
+	compiler.commit();
+	const successful = compiler.getGraphAnalysis().lastSuccessful;
+	const reused = compiler.compileFrame(structuredClone(plan));
+	assert.strictEqual(reused, first, "equal metadata must reuse compilation");
+	assert.notStrictEqual(compiler.getGraphAnalysis().current, successful);
+	assert.equal(compiler.getGraphAnalysis().current.state, "active");
+	assert.deepEqual(compiler.getGraphAnalysis().current.executionOverlay, {
+		skippedNodeIds: [], resourceAliases: [],
+	});
+	compiler.abort(new Error("cached frame failed"));
+	assert.strictEqual(compiler.getGraphAnalysis().lastSuccessful, successful);
+	assert.equal(compiler.getGraphAnalysis().lastAttempt.state, "aborted");
+
+	for (const mutate of [
+		(next) => { next.resources[0].width = 32; },
+		(next) => { next.resources[0].format = "rgba16float"; },
+		(next) => { next.bindings[0].generation = 2; },
+		(next) => { next.bindings[0].physicalId = "physical:replacement"; },
+		(next) => { next.stages[0].pass.dependsOn = ["shadow"]; },
+		(next) => { next.stages[0].nodes[0].packetIndex = 1; },
+		(next) => { next.stages[0].nodes[0].reads[0].optional = true; },
+		(next) => { next.exports = [{ name: "color", resource: "color" }]; },
+		(next) => { next.completeness = "opaque"; },
+	]) {
+		const next = structuredClone(plan);
+		mutate(next);
+		const changed = compiler.compileFrame(next);
+		assert.notStrictEqual(changed, first);
+		assert.strictEqual(compiler.compileFrame(structuredClone(next)), changed);
+		assert.notStrictEqual(compiler.compileFrame(plan), changed);
+	}
+}
+
 function run() {
 	testReadBeforeCreateDiagnostic();
 	testDuplicateCreateDiagnostic();
@@ -182,6 +234,7 @@ function run() {
 	testUnsupportedUsageDiagnostic();
 	testNodeOrderAndBarriersArePreserved();
 	testGroupedAnalysisCommitBoundary();
+	testWholeFrameCacheInvalidatesCompletePlanAndResetsAttempts();
 	console.log("WebGL frame graph compiler tests passed");
 }
 

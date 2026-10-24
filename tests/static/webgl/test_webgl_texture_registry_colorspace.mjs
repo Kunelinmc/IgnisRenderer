@@ -568,7 +568,74 @@ function testDeferredTextureUploadDefaultByteBudgetAllowsThirtyTwoMiB() {
 	);
 }
 
+function testResolvedTextureCacheInvalidatesOnVersionChange() {
+	const gl = createTextureRegistryTestGL();
+	const registry = new WebGLTextureRegistry(gl, () => {});
+	const texture = createSolidTexture("sRGB");
+
+	const first = registry.getBaseColorTexture(texture);
+	const second = registry.getBaseColorTexture(texture);
+
+	assert.equal(second, first);
+	assert.equal(gl.texImage2DCalls.length, 1);
+
+	texture.data = new Uint8Array([1, 2, 3, 4]);
+	texture.markNeedsUpdate();
+
+	const third = registry.getBaseColorTexture(texture);
+	assert.notEqual(third, first);
+	assert.equal(gl.texImage2DCalls.length, 2);
+	registry.destroy();
+}
+
+function testResolvedTextureCacheObservesFormatChangesWithoutVersionChange() {
+	const gl = createTextureRegistryTestGL();
+	const registry = new WebGLTextureRegistry(gl, () => {});
+	const texture = createSolidTexture("sRGB");
+	texture.format = TextureFormat.RGBA8Unorm;
+	texture.formatExplicit = true;
+	const version = texture.version;
+	assert.equal(registry.getBaseColorTexture(texture).isLinear, false);
+	assert.equal(gl.texImage2DCalls[0].internalFormat, gl.RGBA);
+
+	texture.format = TextureFormat.RGBA8UnormSrgb;
+	const srgb = registry.getBaseColorTexture(texture);
+	assert.equal(srgb.isLinear, true);
+	assert.equal(gl.texImage2DCalls.length, 2);
+	assert.equal(gl.texImage2DCalls[1].internalFormat, gl.SRGB8_ALPHA8);
+	assert.strictEqual(registry.getBaseColorTexture(texture), srgb);
+	texture.format = TextureFormat.RGBA8Unorm;
+	assert.equal(registry.getBaseColorTexture(texture).isLinear, false);
+	assert.equal(gl.texImage2DCalls.length, 2);
+	assert.equal(texture.version, version);
+	registry.destroy();
+}
+
+function testResolvedTextureCacheObservesExplicitFormatToggle() {
+	const gl = createTextureRegistryTestGL();
+	const registry = new WebGLTextureRegistry(gl, () => {});
+	const texture = createSolidTexture("sRGB");
+	texture.format = TextureFormat.RGBA8UnormSrgb;
+	const version = texture.version;
+	assert.equal(registry.getBaseColorTexture(texture).isLinear, false);
+
+	texture.formatExplicit = true;
+	assert.equal(registry.getBaseColorTexture(texture).isLinear, true);
+	assert.equal(gl.texImage2DCalls.length, 2);
+	assert.equal(gl.texImage2DCalls[1].internalFormat, gl.SRGB8_ALPHA8);
+
+	texture.formatExplicit = false;
+	const implicit = registry.getBaseColorTexture(texture);
+	assert.equal(implicit.isLinear, false);
+	assert.strictEqual(registry.getBaseColorTexture(texture), implicit);
+	assert.equal(gl.texImage2DCalls.length, 2);
+	assert.equal(texture.version, version);
+	registry.destroy();
+}
+
 function run() {
+	testResolvedTextureCacheObservesFormatChangesWithoutVersionChange();
+	testResolvedTextureCacheObservesExplicitFormatToggle();
 	testEnvironmentTextureRespectsTextureColorSpace();
 	testBaseColorTextureRemainsSrgbByDefault();
 	testCanvasTextureUploadsExternalSourceWithoutPixelCopy();
@@ -586,6 +653,7 @@ function run() {
 	testDeferredTextureUploadBudgetUploadsOnePerFrame();
 	testDeferredTextureUploadDefaultCountBudgetUploadsFourPerFrame();
 	testDeferredTextureUploadDefaultByteBudgetAllowsThirtyTwoMiB();
+	testResolvedTextureCacheInvalidatesOnVersionChange();
 	console.log("WebGL texture registry color-space tests passed");
 }
 

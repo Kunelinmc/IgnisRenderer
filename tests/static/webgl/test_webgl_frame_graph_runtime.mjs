@@ -420,7 +420,8 @@ async function testRuntimeDelegatesPostProcessNode() {
 
 async function testSkippedPostProcessRecordsExecutionOverlay() {
 	const events = [];
-	const runtime = createRuntime(events, { skipPostProcess: true });
+	const options = { skipPostProcess: true };
+	const runtime = createRuntime(events, options);
 	const pass = createPass("postprocess");
 	const context = createContext({
 		framePlan: { stageOrder: [], backendPasses: [pass] },
@@ -437,6 +438,23 @@ async function testSkippedPostProcessRecordsExecutionOverlay() {
 			}],
 		},
 	);
+	const compiled = runtime.getDebugState().compiledGraph;
+	runtime.endFrame(context);
+	runtime.commitGraphAnalysis();
+	options.skipPostProcess = false;
+	runtime.beginFrame(context);
+	assert.strictEqual(runtime.getDebugState().compiledGraph, compiled);
+	await runtime.executePass(pass, context);
+	assert.deepEqual(runtime.getDebugState().graphAnalysis.current.executionOverlay, {
+		skippedNodeIds: [], resourceAliases: [],
+	});
+	runtime.endFrame(context);
+	runtime.commitGraphAnalysis();
+	options.emptyPostProcess = true;
+	runtime.beginFrame(context);
+	assert.notStrictEqual(runtime.getDebugState().compiledGraph, compiled);
+	assert.ok(!runtime.getDebugState().lastPlannedNodeIds.includes("postprocess:pass:test-pass"));
+	runtime.abortFrame();
 }
 
 function testRuntimePlansOITParticleFlow() {
@@ -497,6 +515,53 @@ function testRuntimeExecutesTransmissionPacketsInSortedOrder() {
 		"transmission-draw:1",
 		"transparent:2-3",
 	]);
+}
+
+function testWholeFrameCacheTracksTransmissionOrderAndPlannerState() {
+	const events = [];
+	const options = { emptyPostProcess: true };
+	const runtime = createRuntime(events, options);
+	const pass = createPass("main-transparent");
+	const context = createContext({
+		framePlan: { stageOrder: [], backendPasses: [pass] },
+	});
+	context.scene.transparentPackets = [
+		createTestDrawPacket({ material: {} }),
+		createTestDrawPacket({ material: { transmissionFactor: 1 } }),
+	];
+	const frame = () => {
+		events.length = 0;
+		runtime.beginFrame(context);
+		runtime.executePass(pass, context);
+		runtime.endFrame(context);
+		runtime.commitGraphAnalysis();
+		return runtime.getDebugState().compiledGraph;
+	};
+	const first = frame();
+	const expected = events.slice();
+	assert.strictEqual(frame(), first);
+	assert.deepEqual(events, expected);
+
+	context.scene.transparentPackets.reverse();
+	const reordered = frame();
+	assert.notStrictEqual(reordered, first);
+	assert.deepEqual(events.slice(2, -2), [
+		"transmission-depth-copy", "transmission-background-copy",
+		"transmission-draw:0", "transparent:1-2",
+	]);
+	assert.strictEqual(frame(), reordered);
+
+	context.features.enableEnvironment = true;
+	context.scene.environment.backgroundEnabled = true;
+	context.scene.environment.backgroundTexture = {};
+	const background = frame();
+	assert.notStrictEqual(background, reordered);
+	assert.ok(events.includes("environment"));
+	options.oitActive = true;
+	const oit = frame();
+	assert.notStrictEqual(oit, background);
+	assert.ok(events.includes("oit-clear:transparent"));
+	assert.ok(!events.includes("transmission-draw:0"));
 }
 
 function testRuntimeDebugCapturesUnsupportedStage() {
@@ -759,6 +824,7 @@ async function run() {
 	await testSkippedPostProcessRecordsExecutionOverlay();
 	testRuntimePlansOITParticleFlow();
 	testRuntimeExecutesTransmissionPacketsInSortedOrder();
+	testWholeFrameCacheTracksTransmissionOrderAndPlannerState();
 	testRuntimeDebugCapturesUnsupportedStage();
 	testFailedPresentPreservesLastSuccessfulAnalysis();
 	await testWholeFrameCompilesOnceAndUsesPhysicalAlias();
