@@ -86,7 +86,7 @@ The following pipeline layouts must preserve these bind group roles:
 | `9` | `shadowComparisonSampler` | Comparison sampler |
 | `10` | `frameLights` | `FrameLightUniforms` uniform buffer (1,712 bytes) |
 | `11` | `frameShadows` | `FrameShadowUniforms` uniform buffer (6,544 bytes) |
-| `12` | `frameEnvironment` | `FrameEnvironmentUniforms` uniform buffer (4,240 bytes) |
+| `12` | `frameEnvironment` | `FrameEnvironmentUniforms` uniform buffer (4,224 bytes) |
 
 ### `environmentFrameBindGroupLayout` - `group(0)`
 
@@ -95,7 +95,7 @@ The following pipeline layouts must preserve these bind group roles:
 | `0` | `frame` | `FrameCameraUniforms` uniform buffer (272 bytes) |
 | `1` | `environmentTexture` | `texture_2d<f32>` |
 | `2` | `environmentSampler` | Filtering sampler |
-| `3` | `environmentBackground` | Environment background uniform buffer (32 bytes) |
+| `3` | `environmentBackground` | Environment background uniform buffer (16 bytes) |
 
 ### `modelBindGroupLayout` - `group(1)`
 
@@ -142,7 +142,7 @@ frame boundary.
 | `29` | `iridescenceTexture` | `texture_2d<f32>` |
 | `31` | `iridescenceThicknessTexture` | `texture_2d<f32>` |
 | `33` | `anisotropyTexture` | `texture_2d<f32>` |
-| `34` | `animationParams` | `AnimationParams` uniform buffer |
+| `34` | `animationParams` | `AnimationParams` uniform buffer (24 bytes) |
 | `35` | `jointMatrices` | Read-only storage buffer |
 | `36` | `morphWeights` | Read-only storage buffer |
 | `37` | `morphPositionDeltas` | Read-only storage buffer |
@@ -306,7 +306,7 @@ indices:
 | --- | --- | --- | --- |
 | Present | `0` | `srcTexture` | `texture_2d<f32>` |
 | Present | `1` | `srcSampler` | Sampler |
-| Present | `2` | `presentParams` | `PresentParams` uniform buffer |
+| Present | `2` | `presentParams` | `PresentParams` uniform buffer (8 bytes) |
 | OIT resolve | `0` | `sceneColorTexture` | `texture_2d<f32>` |
 | OIT resolve | `1` | `oitAccumTexture` | `texture_2d<f32>` |
 | OIT resolve | `2` | `oitRevealTexture` | `texture_2d<f32>` |
@@ -321,7 +321,7 @@ indices:
 | `0` | `envSampler` | Sampler |
 | `1` | `envTexture` | `texture_2d<f32>` |
 | `2` | `outputTexture` | Write-only `rgba16float` storage texture |
-| `3` | `params` | `PrefilterParams` uniform buffer |
+| `3` | `params` | `PrefilterParams` uniform buffer (32 bytes; source mip count at offset 24) |
 
 ### Sobel Normal Compute
 
@@ -339,7 +339,8 @@ All entries in this section are pass-local `group(0)` unless stated otherwise.
 
 | Shader / pass | Bindings |
 | --- | --- |
-| `toneMapping.wgsl` | `0 srcTex` texture, `1 outTex` write storage texture |
+| `toneMapping.wgsl` | `0 srcTex` texture, `1 params` uniform (12 bytes), `2 outTex` write storage texture |
+| `gamma.wgsl` | `0 srcTex` texture, `1 params` uniform (8 bytes), `2 outTex` write storage texture |
 | `colorFilter.wgsl` | `0 srcTex` texture, `1 linearSampler` sampler, `2 params` uniform, `3 outTex` write storage texture |
 | `fxaa.wgsl` | `0 srcTex` texture, `1 linearSampler` sampler, `2 params` uniform, `3 outTex` write storage texture |
 | `fog.wgsl` | `0 srcTex` texture, `1 gMotionDepth` texture, `2 linearSampler` sampler, `3 params` uniform, `4 outTex` write storage texture |
@@ -353,7 +354,7 @@ All entries in this section are pass-local `group(0)` unless stated otherwise.
 | `ssao.wgsl` | `0 texA` texture, `1 texB` texture, `2 linearSampler` sampler, `3 params` uniform, `4 outTex` write storage texture |
 | `ssgi.wgsl` trace/temporal | `0 sceneColor` texture, `1 gNormalRoughMetal` texture, `2 gMotionDepth` texture, `3 hiZ` texture, `4 ssgiHistory` texture, `5 motionHistory` texture, `6 linearSampler` sampler, `7 traceParams` uniform, `8 outSSGIHistory` write storage texture |
 | `ssgi.wgsl` trace frame group | `group(1) binding(0) frame` uniform. Runtime supplies the shared scene frame bind group. |
-| `ssgi.wgsl` denoise | `0 sourceSSGI` texture, `1 gNormalRoughMetal` texture, `2 gMotionDepth` texture, `3 linearSampler` sampler, `4 denoiseParams` uniform, `5 outDenoised` write storage texture |
+| Shared `denoise.wgsl` | `0 signalSource` texture, `1 normalTexture` texture, `2 depthTexture` texture, `3 linearSampler` sampler, `4 params` uniform (48 bytes), `5 signalOut` write storage texture, `6 momentTexture` texture |
 | `ssgi.wgsl` compose | `0 composeScene` texture, `1 composeSSGI` texture, `2 composeAlbedo` texture, `3 composeNormalRoughMetal` texture, `4 composeMotionDepth` texture, `5 composeSampler` sampler, `6 composeParams` uniform, `7 composeOut` write storage texture |
 | `taa.wgsl` | `0 currentColor` texture, `1 historyColor` texture, `2 motionDepth` texture, `3 motionHistory` texture, `4 linearSampler` sampler, `5 params` uniform, `6 outColor` write storage texture, `7 outHistory` write storage texture |
 | `hiz.wgsl` depth seed | `0 depthTex` texture, `1 outTex` write storage texture |
@@ -431,9 +432,11 @@ binding `12`. Custom WGSL that reads lights, shadows, or probe data through
 `frame` must migrate those reads to `frameLights`, `frameShadows`, or
 `frameEnvironment`. Only camera matrices and temporal jitter remain on `frame`.
 Light and shadow enablement are typed integer fields on their owning buffers;
-SH and IBL state belong to `frameEnvironment`. Background decoding uses the
-separate `environmentBackground.inputIsLinear` flag. Uniform sizes and field
-offsets change even though the binding indices remain stable.
+SH and IBL state belong to `frameEnvironment`. Background and IBL texture
+formats supply linear RGB without shader decoding flags. The environment header
+packs three flags and the maximum mip level into 16 bytes, and the background
+buffer contains one 16-byte vector. Binding indices remain stable; custom layouts
+must use the current field offsets and buffer sizes.
 
 ## Related Documents
 

@@ -271,6 +271,8 @@ export interface WebGPUReflectionProbeUniform {
 
 export interface WebGPUTextureSlotData {
 	map: Texture | null;
+	color?: boolean;
+	forceSRGB?: boolean;
 	transformA: Vec4Tuple;
 	transformB: Vec4Tuple;
 }
@@ -373,7 +375,6 @@ export interface WebGPUFrameEnvironmentUniformInput {
 	reflectionProbeCount: number;
 	reflectionProbes: WebGPUReflectionProbeUniform[];
 	shAmbientEnabled: boolean;
-	envSpecularIsLinear: boolean;
 	hasEnvSpecular: boolean;
 	hasBRDFLUT: boolean;
 	envSpecularMaxMipLevel: number;

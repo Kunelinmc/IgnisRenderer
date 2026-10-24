@@ -4,8 +4,6 @@
 struct GammaParams {
 	hdrEnabled: f32,
 	hdrHeadroom: f32,
-	_pad1: f32,
-	_pad2: f32,
 }
 
 @group(0) @binding(0) var srcTex: texture_2d<f32>;

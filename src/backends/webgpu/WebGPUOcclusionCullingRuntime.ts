@@ -153,7 +153,7 @@ export class WebGPUOcclusionCullingRuntime {
 		}
 		try {
 			this._uploadCandidates(candidates);
-			this._backend.writeBuffer(this._paramsBuffer, new Float32Array([0.05, 0, 0, 0]));
+			this._backend.writeBuffer(this._paramsBuffer, new Float32Array([0.05]));
 			this._recordOcclusionCompute(request.encoder, candidates.length, request.hiZ);
 			this._queueReadback(request.encoder, candidates, request.options);
 		} catch (error) {
@@ -251,7 +251,7 @@ export class WebGPUOcclusionCullingRuntime {
 		if (!this._paramsBuffer) {
 			this._paramsBuffer = this._backend.createBuffer({
 				label: "WebGPUOcclusionCullingParams",
-				size: 16,
+				size: 4,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
 			});
 		}

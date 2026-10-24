@@ -10,6 +10,13 @@ import {
 } from "../../../src/postprocess/index.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
+import { WebGPUPostProcessRuntime } from "../../../src/backends/webgpu/WebGPUPostProcessRuntime.ts";
+import { POST_PROCESS_SHARED_RESOURCE_IDS } from "../../../src/postprocess/executionDeclarations.ts";
+import {
+	FakeBackend,
+	FakeEncoder,
+	createTexture,
+} from "../../helpers/webgpu_postprocess_runtime_test_helpers.mjs";
 
 function createFrameContext(transmissionFactor = 1) {
 	return {
@@ -118,13 +125,20 @@ function testDescriptorAndOptions() {
 	assert.equal(options.roughnessMipScale, 6);
 
 	const params = createSSRefractionTraceParams(64, 32, options, 5);
-	assert.equal(params.length, 16);
+	assert.equal(params.byteLength, 48);
 	assert.equal(params[0], 1 / 64);
 	assert.equal(params[1], 1 / 32);
 	assert.equal(params[2], 9);
 	assert.equal(params[9], 5);
 	assert.equal(params[10], 6);
 	assert.equal(params[11], 8);
+	const raw = new DataView(params.buffer, params.byteOffset, params.byteLength);
+	assert.deepEqual(
+		Array.from({ length: 12 }, (_, index) => raw.getFloat32(index * 4, true)),
+		Array.from(new Float32Array([
+			1 / 64, 1 / 32, 9, 0.5, 2, 0.75, 0.2, 12, 3, 5, 6, 8,
+		]))
+	);
 
 	const defaultOptions = resolveSSRefractionOptions();
 	assert.equal(defaultOptions.planeRefinementSteps, 3);
@@ -259,6 +273,78 @@ function testTransientDescriptors() {
 	pass.destroy();
 }
 
+async function testTraceAndComposeDispatchPayloads() {
+	const backend = new FakeBackend();
+	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
+	const encoder = new FakeEncoder();
+	const input = createTexture(64, 32, "scene");
+	const output = createTexture(64, 32, "output");
+	const raw = createTexture(32, 16, "refraction");
+	const scratch = createTexture(32, 16, "scratch");
+	const depth = createTexture(64, 32, "depth");
+	const normal = createTexture(64, 32, "normal");
+	const surface = createTexture(64, 32, "transmission-surface");
+	const sharedTextures = new Map([
+		[POST_PROCESS_SHARED_RESOURCE_IDS.frameHiZ, createTexture(64, 32, "hiz")],
+		[POST_PROCESS_SHARED_RESOURCE_IDS.transmissionSceneColor, input],
+		[POST_PROCESS_SHARED_RESOURCE_IDS.transmissionLighting,
+			createTexture(64, 32, "lighting")],
+		[POST_PROCESS_SHARED_RESOURCE_IDS.transmissionSurface1,
+			createTexture(64, 32, "surface-1")],
+		[POST_PROCESS_SHARED_RESOURCE_IDS.transmissionSurface2,
+			createTexture(64, 32, "surface-2")],
+	]);
+	const options = resolveSSRefractionOptions({
+		downsample: 2,
+		maxDistance: 9,
+		thickness: 0.5,
+		stride: 2,
+		intensity: 0.75,
+		edgeFade: 0.2,
+		maxSteps: 12,
+		binarySearchSteps: 3,
+		roughnessMipScale: 6,
+		planeRefinementSteps: 8,
+	});
+	const pass = new ScreenSpaceRefractionsPass({ enabled: true });
+	const result = await pass.getImplementation("webgpu").execute({ options }, {
+		encoder,
+		targets: { sampleCount: 1, postPing: output },
+		shared: runtime,
+		frameBinding: { label: "frame-binding" },
+		resources: {
+			color: { input, output },
+			getTransient: (id) => id === "ssrefraction:raw" ? raw : scratch,
+			getShared: (id) => sharedTextures.get(id) ?? null,
+			getGBuffer: (semantic) => ({ depth, normal, transmission: surface })[semantic],
+		},
+	});
+	assert.deepEqual(result, { ran: true });
+	const params = backend.buffers.filter(
+		(buffer) => buffer.label.startsWith("WebGPUSSRefraction")
+	);
+	assert.deepEqual(params.map((buffer) => [buffer.label, buffer.size]), [
+		["WebGPUSSRefractionTraceParams", 48],
+		["WebGPUSSRefractionComposeParams", 16],
+	]);
+	assert.deepEqual(params.map((buffer) => buffer.lastWrite.data.byteLength), [48, 16]);
+	assert.deepEqual(params[0].lastWrite.slice(), Array.from(new Float32Array([
+		1 / 32, 1 / 16, 9, 0.5, 2, 0.75, 0.2, 12, 3, 6, 6, 8,
+	])));
+	assert.deepEqual(params[1].lastWrite.slice(), [1 / 64, 1 / 32, 0.75, 0]);
+	assert.deepEqual(
+		encoder.calls.filter((call) => call[0] === "beginComputePass").map((call) => call[1]),
+		[
+			"WebGPUSSRefraction_Trace",
+			"WebGPUDenoise_ssrefraction_fast_H_1",
+			"WebGPUDenoise_ssrefraction_fast_V_1",
+			"WebGPUSSRefraction_Compose",
+		]
+	);
+	pass.destroy();
+	runtime.destroy();
+}
+
 async function testShaderPreservesTransmissionEnergyContract() {
 	const refractionShader = await readFile(new URL(
 		"../../../src/shaders/webgpu/postprocess/ssrf.wgsl",
@@ -327,5 +413,6 @@ testUnsupportedBackendsDisableWithoutBuiltInWarning();
 await testPipelineRequiresTransmissionChannel();
 await testPipelineRequiresNormalChannel();
 testTransientDescriptors();
+await testTraceAndComposeDispatchPayloads();
 await testShaderPreservesTransmissionEnergyContract();
 console.log("ScreenSpaceRefractionsPass tests passed");

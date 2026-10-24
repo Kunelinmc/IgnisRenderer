@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 
 import { WebGLBackend } from "../../../src/backends/webgl/WebGLBackend.ts";
+import { TextureFormat } from "../../../src/core/TextureFormat.ts";
+import { WebGLAuxiliaryRasterRuntime } from "../../../src/backends/webgl/WebGLAuxiliaryRasterRuntime.ts";
 import {
 	WEBGL_AUXILIARY_RASTER_EXTENSION,
 } from "../../../src/backends/webgl/WebGLAuxiliaryRaster.ts";
@@ -42,6 +44,36 @@ function testTypedUniformArraysAndClosedScope() {
 		() => encoder.setViewport(0, 0, 1, 1),
 		/scope is no longer active/,
 	);
+}
+
+function testAuxiliaryUploadPreservesSrgbStorageAndAlpha() {
+	const uploads = [];
+	const gl = {
+		RGBA8: 0x8058,
+		SRGB8_ALPHA8: 0x8c43,
+		RGBA: 0x1908,
+		UNSIGNED_BYTE: 0x1401,
+		TEXTURE_2D: 0x0de1,
+		UNPACK_ALIGNMENT: 0x0cf5,
+		TEXTURE_MAX_LEVEL: 0x813d,
+		bindTexture() {},
+		pixelStorei() {},
+		texParameteri() {},
+		texImage2D(...args) { uploads.push(args); },
+	};
+	const runtime = new WebGLAuxiliaryRasterRuntime(gl, {}, {});
+	const source = new Uint8Array([128, 64, 32, 127]);
+	runtime._writeTexture(
+		{ _gpuResource: {}, format: TextureFormat.RGBA8UnormSrgb },
+		source, {}, { width: 1, height: 1 }
+	);
+	assert.equal(uploads[0][2], gl.SRGB8_ALPHA8);
+	assert.deepEqual(Array.from(uploads[0][8]), [128, 64, 32, 127]);
+	delete gl.SRGB8_ALPHA8;
+	assert.throws(() => runtime._writeTexture(
+		{ _gpuResource: {}, format: TextureFormat.RGBA8UnormSrgb },
+		source, {}, { width: 1, height: 1 }
+	), /sRGB/);
 }
 
 function createServices(id, calls, extensions) {
@@ -113,6 +145,7 @@ async function testRequestAwareAvailabilityAndRetainedExecution() {
 	backend.destroy();
 }
 
+testAuxiliaryUploadPreservesSrgbStorageAndAlpha();
 testTypedUniformArraysAndClosedScope();
 await testRequestAwareAvailabilityAndRetainedExecution();
 

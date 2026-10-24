@@ -1,7 +1,6 @@
 #version 300 es
 precision highp float;
 #import <ignis/webgl/constants>
-#import <ignis/color/srgb>
 
 in vec2 vNdc;
 
@@ -10,7 +9,6 @@ uniform vec4 uEnvironmentBasisRight;
 uniform vec4 uEnvironmentBasisUp;
 uniform vec3 uEnvironmentBasisBackward;
 uniform float uEnvironmentIsOrthographic;
-uniform int uEnvironmentMapIsLinear;
 uniform vec3 uEnvironmentBackgroundTint;
 uniform float uEnvironmentBackgroundExposure;
 uniform float uEnvironmentBackgroundStrength;
@@ -38,7 +36,7 @@ void main() {
 	float theta = acos(clamp(dir.y, -1.0, 1.0));
 	vec2 uv = vec2((phi + PI) / (2.0 * PI), theta / PI);
 	vec4 sampled = texture(uEnvironmentMap, uv);
-	vec3 sky = uEnvironmentMapIsLinear == 1 ? sampled.rgb : srgbToLinear(sampled.rgb);
+	vec3 sky = sampled.rgb;
 	sky *= uEnvironmentBackgroundTint * uEnvironmentBackgroundExposure *
 		uEnvironmentBackgroundStrength;
 	fragColor = vec4(max(sky, vec3(0.0)), 1.0);

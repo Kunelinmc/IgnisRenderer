@@ -873,7 +873,7 @@ export class WebGPUDeferredDecalPass {
 	): Promise<IBindingGroup> {
 		const textures = await Promise.all(
 			materialData.textureSlots.map((slot, index) =>
-				this._resources.getTextureForSlotAsync(slot.map, index),
+				this._resources.getTextureForSlotAsync(slot.map, index, slot.color, slot.forceSRGB),
 			),
 		);
 		const samplers = materialData.textureSlots.map((slot) =>

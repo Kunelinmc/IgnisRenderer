@@ -1,5 +1,4 @@
 #import <ignis/webgpu/constants>
-#import <ignis/color/srgb>
 #import <ignis/webgpu/frame-camera>
 
 struct VertexOutput {
@@ -9,10 +8,6 @@ struct VertexOutput {
 
 struct EnvironmentBackgroundParams {
 	tintExposureStrength: vec4<f32>,
-	inputIsLinear: u32,
-	_pad0: u32,
-	_pad1: u32,
-	_pad2: u32,
 }
 
 @group(0) @binding(0) var<uniform> frame: FrameCameraUniforms;
@@ -46,9 +41,6 @@ fn fsMain(input: VertexOutput) -> @location(0) vec4<f32> {
 	let theta = acos(clamp(direction.y, -1.0, 1.0));
 	let uv = vec2<f32>((phi + PI) / (2.0 * PI), theta / PI);
 	var skyColor = textureSample(environmentTexture, environmentSampler, uv).rgb;
-	if (environmentBackground.inputIsLinear == 0u) {
-		skyColor = srgbToLinear(skyColor);
-	}
 	skyColor *=
 		environmentBackground.tintExposureStrength.xyz *
 		environmentBackground.tintExposureStrength.w;

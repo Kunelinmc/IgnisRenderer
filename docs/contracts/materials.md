@@ -19,7 +19,7 @@ This document defines texture formats, PBR material extensions, and depth-write 
   signatures. A new preparation frame or cache reset must discard those revision
   observations. Uncached construction must still refresh material revisions.
 - `Texture.samplingRevision` must advance when UV transforms, wrapping,
-  filtering, rotation, or color-space sampling semantics change. Pixel upload
+  filtering, rotation, format, or color-space sampling semantics change. Pixel upload
   changes must continue to use `Texture.version`.
 - Backend material snapshots must be reusable until the material revision,
   referenced texture identity, texture upload version, or texture sampling
@@ -97,8 +97,31 @@ const texture = new Texture({
   unsupported backend formats must throw instead of falling back.
 - `RenderTargetReadbackResult` must report bytes in the attachment's actual
   format and must expose the backend-native row `origin`.
-- sRGB textures should prefer sRGB GPU formats. Shader-side sRGB decode must be
-  skipped when the sampled backend texture format performs hardware sRGB decode.
+- GPU color-texture sampling must return linear RGB through the sampled texture
+  format. WebGPU and WebGL shaders must not receive per-texture linear flags or
+  perform source sRGB decoding. Alpha must remain linear.
+- Byte color textures without an explicit format must default to
+  `rgba8unorm-srgb` for `colorSpace: "sRGB"`, and `rgba8unorm` for linear data.
+  Floating-point sources must default to linear HDR semantics. When only an
+  explicit format is supplied, its sRGB, floating-point, or linear encoding must
+  determine the default `colorSpace`.
+- Upload resolution must choose the sRGB or non-sRGB member of a compatible
+  format pair from the source `colorSpace` and the sampling role. Non-color
+  material slots must use non-sRGB formats. A texture used in both roles must
+  retain separate compatible native views or resources.
+- Resolved texture formats and caches must depend on the current format and
+  source encoding, regardless of whether a format was supplied or inferred.
+- An sRGB source without a compatible sRGB sampling format must be rejected
+  rather than sampled as linear encoded values. Unsupported sRGB formats must
+  not silently fall back to non-sRGB formats. This requirement also applies to
+  compressed textures, external native resources, and dynamic image uploads.
+- Material, particle, decal, background, and IBL texture consumers must share
+  this sampling contract. Software sampling must preserve equivalent decoding
+  behavior in its CPU sampling and shading implementation.
+- `ShaderMaterialTextureBinding.linear` must select native sampling encoding:
+  `true` uses the non-sRGB format, and `false` uses the sRGB format. An omitted
+  override must follow the texture source encoding. Generated sampling helpers
+  must return native samples without decoding or shader specialization by encoding.
 - Compressed texture formats must accept pre-compressed block data only. This
   contract does not require runtime transcoding from image formats into BC, ETC2,
   EAC, or ASTC blocks.

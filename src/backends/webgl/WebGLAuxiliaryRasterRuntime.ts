@@ -371,6 +371,17 @@ function resolveTextureUpload(
 	type: number;
 	data: ArrayBufferView;
 } {
+	if (format === TextureFormat.RGBA8UnormSrgb) {
+		if (typeof gl.SRGB8_ALPHA8 !== "number") {
+			throw new Error("WebGL auxiliary sRGB uploads require SRGB8_ALPHA8.");
+		}
+		return {
+			internalFormat: gl.SRGB8_ALPHA8,
+			format: gl.RGBA,
+			type: gl.UNSIGNED_BYTE,
+			data: asArrayBufferView(data),
+		};
+	}
 	if (format === TextureFormat.RGBA16Float) {
 		const source = asArrayBufferView(data);
 		const half = source instanceof Uint16Array ? source :

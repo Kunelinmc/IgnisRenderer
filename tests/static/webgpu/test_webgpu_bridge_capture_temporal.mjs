@@ -738,18 +738,21 @@ function testIndependentEnvironmentFlagsAndWriterReuse() {
 		environment.reflectionProbeCount = probeCount;
 		environment.enableSH = enableSH;
 		environment.hasSHAmbient = hasSH;
+		environment.envSpecularMaxMipLevel = 3.5;
 		cache.prepare(frame, lighting, environment, features, 16, 8, "mrt", { temporalStateMode: "disabled" });
 		const cameraData = latestData("WebGPUFrameCameraUniforms");
 		if (firstCameraData) assert.equal(cameraData, firstCameraData, "scope reuses camera buffer storage");
 		firstCameraData = cameraData;
-		const flags = new Uint32Array(latestData("WebGPUFrameEnvironmentUniforms"));
+		const environmentData = latestData("WebGPUFrameEnvironmentUniforms");
+		const flags = new Uint32Array(environmentData);
 		assert.equal(flags[0], enableSH && hasSH ? 1 : 0);
 		assert.equal(flags[1], iblSpace ? 1 : 0);
-		assert.equal(flags[3], probeCount > 0 || iblSpace !== "sRGB" ? 1 : 0);
+		assert.equal(environmentData.byteLength, 4224);
+		assert.equal(new Float32Array(environmentData)[3], 3.5);
 		const background = latestData("WebGPUEnvironmentBackgroundParams");
-		assert.equal(background.byteLength, 32);
-		assert.deepEqual(Array.from(new Uint32Array(background.buffer).slice(4)),
-			[backgroundSpace !== "sRGB" ? 1 : 0, 0, 0, 0]);
+		assert.equal(background.byteLength, 16);
+		assert.equal(backend.bufferDescs.findLast((desc) =>
+			desc.label === "WebGPUEnvironmentBackgroundParams").size, 16);
 	}
 	// An invalid next camera must not change a committed history or start a transaction.
 	cache.prepare(frame, lighting, environment, features, 16, 8, "mrt");

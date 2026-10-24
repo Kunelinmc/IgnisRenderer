@@ -54,7 +54,8 @@ export class CubeTexture extends Texture {
 		super({
 			width: requestedSize,
 			height: requestedSize,
-			colorSpace: params.colorSpace,
+			colorSpace: params.colorSpace ??
+				(params.faces[0] instanceof Float32Array ? "HDR" : undefined),
 			label: params.label,
 			usageHint: params.usageHint,
 		});
@@ -124,8 +125,8 @@ export class CubeTexture extends Texture {
 		this.format =
 			this.colorSpace === "HDR" ?
 				TextureFormat.RGBA16Float
-			:	TextureFormat.RGBA8Unorm;
-		this.formatExplicit = false;
+			: this.colorSpace === "sRGB" ? TextureFormat.RGBA8UnormSrgb
+			: TextureFormat.RGBA8Unorm;
 		this.setFaces(params.faces, params.faceMipmaps);
 	}
 

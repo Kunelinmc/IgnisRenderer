@@ -14,7 +14,6 @@ struct TraceParams {
 	maxMip: f32,
 	roughnessMipScale: f32,
 	planeRefinementSteps: f32,
-	_pad1: vec4<f32>,
 }
 
 @group(0) @binding(0) var backgroundColor: texture_2d<f32>;

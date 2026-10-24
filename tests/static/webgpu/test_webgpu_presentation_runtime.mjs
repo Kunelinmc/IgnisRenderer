@@ -67,16 +67,20 @@ const warnings = [];
 Logger.configure({ resetOnceKeys: true, sink: { warn: (...args) => warnings.push(args.join(" ")) } });
 try {
 	const writes = [];
+	const buffers = [];
 	const pass = new WebGPUPresentPass({
 		displayOutputState: { activeDynamicRange: "hdr", requested: { exposure: 7, hdrHeadroom: 4 } },
 		writeBuffer: (_buffer, data) => writes.push(Array.from(data)),
 		createBindingGroup: () => ({}),
 		getCanvasColorTexture: () => ({ width: 1, height: 1 }),
+		createBuffer: (descriptor) => {
+			buffers.push(descriptor);
+			return { ...descriptor };
+		},
 	});
 	pass._shaderModule = {};
 	pass._pipeline = {};
 	pass._sampler = {};
-	pass._params = {};
 	const encoder = {
 		beginRenderPass() {}, setPipeline() {}, setBindingGroup() {},
 		draw() {}, endRenderPass() {},
@@ -98,7 +102,13 @@ try {
 	assert.deepEqual(writes[0], writes[2], "color domain must not alter presentation parameters");
 	assert.deepEqual(writes[2], writes[4]);
 	assert.notDeepEqual(writes[0], writes[1], "transparent alpha handling must remain active");
+	assert.equal(buffers[0].size, 8);
+	assert.deepEqual(writes, [
+		[1, 0], [1, 1], [1, 0], [1, 1], [1, 0], [1, 1],
+	]);
 	const shader = readFileSync(new URL("../../../src/shaders/webgpu/utility/present.wgsl", import.meta.url), "utf8");
+	assert.equal(shader.match(/struct PresentParams\s*\{([^}]+)\}/)[1]
+		.match(/:\s*f32\s*,/g).length * 4, 8);
 	assert.doesNotMatch(shader, /acesFitted|hdrSoftShoulder|linearToSrgb|linearSrgbToDisplayP3|exposure/,
 		"presentation must not apply missing color conversions");
 	pass.destroy();

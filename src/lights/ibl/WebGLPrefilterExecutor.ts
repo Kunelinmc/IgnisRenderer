@@ -1,4 +1,4 @@
-import type { Texture, TextureData } from "../../core/Texture";
+import { resolveTextureSamplingFormat, type Texture, type TextureData } from "../../core/Texture";
 import { float32ToFloat16Bits } from "../../foundation/Float16";
 import { TextureFormat } from "../../core/TextureFormat";
 import {
@@ -64,8 +64,15 @@ export class WebGLPrefilterExecutor implements IBLPrefilterExecutorLike {
 					request.sourceRevision,
 				);
 				assertNotAborted(signal);
-				const sourceFormat = request.envMap.colorSpace === "sRGB" ?
-					TextureFormat.RGBA8Unorm : TextureFormat.RGBA16Float;
+				const sourceFormat = resolveTextureSamplingFormat(request.envMap);
+				if (
+					sourceFormat !== TextureFormat.RGBA8Unorm &&
+					sourceFormat !== TextureFormat.RGBA8UnormSrgb &&
+					sourceFormat !== TextureFormat.RGBA16Float &&
+					sourceFormat !== TextureFormat.RGBA32Float
+				) {
+					throw new Error(`Unsupported WebGL IBL source format "${sourceFormat}".`);
+				}
 				const sourceTexture = resources.createTexture({
 					width: request.envMap.width,
 					height: request.envMap.height,
@@ -74,6 +81,9 @@ export class WebGLPrefilterExecutor implements IBLPrefilterExecutorLike {
 					mipLevelCount: resolveSourceMipLevelCount(request.envMap),
 					label: "IBLPrefilterSource",
 				});
+				if (sourceTexture.format !== sourceFormat) {
+					throw new Error("WebGL IBL source sampling format must be preserved.");
+				}
 				const sourceMipLevelCount = uploadSourceTexture(
 					resources,
 					sourceTexture,
@@ -153,7 +163,6 @@ export class WebGLPrefilterExecutor implements IBLPrefilterExecutorLike {
 						{ name: "uSourceSize", type: "vec2f", value: [request.envMap.width, request.envMap.height] },
 						{ name: "uRoughness", type: "f32", value: mip.roughness },
 						{ name: "uSampleCount", type: "i32", value: resolveSampleCount(mip.roughness) },
-						{ name: "uSourceIsLinear", type: "i32", value: request.envMap.colorSpace === "sRGB" ? 0 : 1 },
 						{ name: "uSourceMipLevelCount", type: "i32", value: sourceMipLevelCount },
 					]);
 					encoder.draw(3);
@@ -193,7 +202,9 @@ function uploadSourceTexture(
 		resources.writeTexture(
 			texture,
 			(format === TextureFormat.RGBA16Float ?
-				toRGBA16F(source, width, height) : toRGBA8(source, width, height)
+				toRGBA16F(source, width, height) :
+				format === TextureFormat.RGBA32Float ?
+					toRGBA32F(source, width, height) : toRGBA8(source, width, height)
 			) as unknown as BufferSource,
 			{ mipLevel: level },
 			{ width, height, depthOrArrayLayers: 1 },
@@ -211,6 +222,11 @@ function resolveSourceMipLevelCount(envMap: Texture): number {
 }
 
 function toRGBA16F(source: TextureData, width: number, height: number): Uint16Array {
+	const count = Math.max(1, width * height * 4);
+	if (!(source instanceof Float32Array) && source.byteLength === count * 2) {
+		const bytes = new Uint8Array(source.buffer, source.byteOffset, source.byteLength);
+		return new Uint16Array(bytes.slice().buffer);
+	}
 	const result = new Uint16Array(Math.max(1, width * height * 4));
 	for (let index = 0; index < result.length; index++) {
 		const fallback = (index & 3) === 3 ? 1 : 0;
@@ -218,6 +234,22 @@ function toRGBA16F(source: TextureData, width: number, height: number): Uint16Ar
 		const value = raw === undefined ? fallback :
 			source instanceof Float32Array ? raw : raw / 255;
 		result[index] = float32ToFloat16Bits(value);
+	}
+	return result;
+}
+
+function toRGBA32F(source: TextureData, width: number, height: number): Float32Array {
+	const count = Math.max(1, width * height * 4);
+	if (source instanceof Float32Array && source.length === count) return source;
+	if (!(source instanceof Float32Array) && source.byteLength === count * 4) {
+		const bytes = new Uint8Array(source.buffer, source.byteOffset, source.byteLength);
+		return new Float32Array(bytes.slice().buffer);
+	}
+	const result = new Float32Array(count);
+	for (let index = 0; index < count; index++) {
+		const raw = source[index];
+		result[index] = raw === undefined ? ((index & 3) === 3 ? 1 : 0) :
+			source instanceof Float32Array ? raw : raw / 255;
 	}
 	return result;
 }

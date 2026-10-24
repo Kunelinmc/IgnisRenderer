@@ -1,5 +1,4 @@
 #import <ignis/webgpu/constants>
-#import <ignis/color/srgb>
 
 const PREFILTER_EPSILON: f32 = 1e-6;
 const EQUIRECT_DISTORTION_EPSILON: f32 = 1e-4;
@@ -11,8 +10,8 @@ struct PrefilterParams {
 	sourceHeight: u32,
 	roughness: f32,
 	sampleCount: u32,
-	sourceIsLinear: u32,
 	sourceMipLevelCount: u32,
+	_pad0: u32,
 };
 
 @group(0) @binding(0) var envSampler: sampler;
@@ -167,9 +166,6 @@ fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
 			sampleUv,
 			sampleLevel
 		).rgb;
-		if (params.sourceIsLinear == 0u) {
-			sampleColor = srgbToLinear(sampleColor);
-		}
 
 		accumulated += sampleColor * nDotL;
 		totalWeight += nDotL;

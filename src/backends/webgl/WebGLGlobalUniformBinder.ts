@@ -422,11 +422,9 @@ export interface WebGLGlobalUniformBinderHost {
 	_textures: {
 		getEnvironmentSpecularTexture(texture: any | null): {
 			texture: WebGLTexture | null;
-			isLinear: boolean;
 		};
 		getBRDFLUTTexture(texture: any | null): {
 			texture: WebGLTexture | null;
-			isLinear: boolean;
 		};
 	};
 	_clusteredLighting: {
@@ -864,11 +862,9 @@ export function bindWebGLGlobalUniforms(
 	const usesEnvSpecularUniforms =
 		!!uniforms.envSpecularMap ||
 		!!uniforms.hasEnvSpecularMap ||
-		!!uniforms.envSpecularMapIsLinear ||
 		!!uniforms.envSpecularMaxMipLevel ||
 		!!uniforms.envSpecularFallbackMap ||
 		!!uniforms.hasEnvSpecularFallbackMap ||
-		!!uniforms.envSpecularFallbackMapIsLinear ||
 		!!uniforms.envSpecularFallbackMaxMipLevel ||
 		!!uniforms.brdfLUT ||
 		!!uniforms.reflectionProbeCount ||
@@ -931,12 +927,6 @@ export function bindWebGLGlobalUniforms(
 		if (uniforms.hasEnvSpecularMap) {
 			gl.uniform1i(uniforms.hasEnvSpecularMap, hasEnvSpecularMap ? 1 : 0);
 		}
-		if (uniforms.envSpecularMapIsLinear) {
-			gl.uniform1i(
-				uniforms.envSpecularMapIsLinear,
-				resolvedEnvSpecular.isLinear ? 1 : 0
-			);
-		}
 		if (uniforms.envSpecularMaxMipLevel) {
 			gl.uniform1f(uniforms.envSpecularMaxMipLevel, envSpecularMaxMipLevel);
 		}
@@ -944,12 +934,6 @@ export function bindWebGLGlobalUniforms(
 			gl.uniform1i(
 				uniforms.hasEnvSpecularFallbackMap,
 				hasEnvSpecularFallbackMap ? 1 : 0
-			);
-		}
-		if (uniforms.envSpecularFallbackMapIsLinear) {
-			gl.uniform1i(
-				uniforms.envSpecularFallbackMapIsLinear,
-				resolvedEnvSpecularFallback.isLinear ? 1 : 0
 			);
 		}
 		if (uniforms.envSpecularFallbackMaxMipLevel) {

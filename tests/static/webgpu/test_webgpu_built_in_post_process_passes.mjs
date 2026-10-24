@@ -267,6 +267,10 @@ async function testGammaOwnsWebGPUKernelBeforeRawPresent() {
 	const result = await passRequest.implementation.execute(passRequest, context);
 	executor.frameRuntime.postProcess.completePass(passRequest, result);
 	assert.deepEqual(result, { ran: true });
+	const gammaParams = backend.buffers.find((buffer) => buffer.label === "WebGPUGammaParams");
+	assert.equal(gammaParams.size, 8);
+	assert.deepEqual(Array.from(gammaParams.lastWrite), [0, 4]);
+	assert.equal(backend.writeCalls.findLast((call) => call[1] === gammaParams)[2].byteLength, 8);
 	assert.equal(
 		getFrameGraphDebugState(executor).frameTargets.sceneColor,
 		targets.postPong

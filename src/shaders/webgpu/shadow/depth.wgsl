@@ -8,8 +8,6 @@ struct AnimationParams {
 	morphWeightStride: u32,
 	vertexCount: u32,
 	morphSemanticMask: u32,
-	_pad0: u32,
-	_pad1: u32,
 }
 
 struct ShadowInstanceData {

@@ -24,7 +24,6 @@ function testEnvironmentRendererOwnsProgramAndDrawLifecycle() {
 			environmentBasisUp: uniform,
 			environmentBasisBackward: uniform,
 			environmentIsOrthographic: uniform,
-			environmentMapIsLinear: uniform,
 			environmentBackgroundTint: uniform,
 			environmentBackgroundExposure: uniform,
 			environmentBackgroundStrength: uniform,
@@ -53,7 +52,7 @@ function testEnvironmentRendererOwnsProgramAndDrawLifecycle() {
 		targets: { _sceneFramebuffer: {} },
 		textures: {
 			getEnvironmentTexture() {
-				return { texture: {}, isLinear: true };
+				return { texture: {} };
 			},
 		},
 		getFullscreenVao: () => ({}),
@@ -212,7 +211,7 @@ function testSceneProgramDrawBuffersMatchFragmentOutputCount() {
 		},
 		textures: {
 			getBaseColorTexture() {
-				return { texture: null, isLinear: false };
+				return { texture: null };
 			},
 		},
 		animationPayloads: null,

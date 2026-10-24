@@ -36,10 +36,10 @@ function createRequest(encoder, overrides = {}) {
 
 function testOptionsAndParameterPacking() {
 	assert.equal(resolveWebGPUDenoiseOptions({ varianceGuided: true }).varianceGuided, true);
-	assert.equal(writeWebGPUDenoiseParams(new Float32Array(16), 8, 8, 1,
+	assert.equal(writeWebGPUDenoiseParams(new Float32Array(12), 8, 8, 1,
 		resolveWebGPUDenoiseOptions({ varianceGuided: true }))[11], 1);
 	assert.equal(resolveWebGPUDenoiseOptions({ roughnessAware: true }).roughnessAware, true);
-	assert.equal(writeWebGPUDenoiseParams(new Float32Array(16), 8, 8, 1,
+	assert.equal(writeWebGPUDenoiseParams(new Float32Array(12), 8, 8, 1,
 		resolveWebGPUDenoiseOptions({ roughnessAware: true }))[10], 1);
 	assert.deepEqual(resolveWebGPUDenoiseOptions(), DEFAULT_WEBGPU_DENOISE_OPTIONS);
 	assert.deepEqual(
@@ -65,7 +65,7 @@ function testOptionsAndParameterPacking() {
 		}
 	);
 	const params = writeWebGPUDenoiseParams(
-		new Float32Array(16),
+		new Float32Array(12).fill(Number.NaN),
 		16,
 		8,
 		4,
@@ -84,9 +84,10 @@ function testOptionsAndParameterPacking() {
 		2,
 	]);
 	assert.ok(Math.abs(params[7] - 0.05) <= 1e-6);
-	assert.deepEqual(Array.from(params.slice(8, 10)), [1, 1]);
+	assert.equal(params.byteLength, 48);
+	assert.deepEqual(Array.from(params.slice(8)), [1, 1, 0, 0]);
 	const oversizedFootprint = writeWebGPUDenoiseParams(
-		new Float32Array(16),
+		new Float32Array(12),
 		Number.NaN,
 		Number.POSITIVE_INFINITY,
 		99,
@@ -111,16 +112,18 @@ function testOptionsAndParameterPacking() {
 		DEFAULT_WEBGPU_DENOISE_OPTIONS.valuePhi,
 		0,
 	]);
-	assert.throws(
-		() => writeWebGPUDenoiseParams(
-			new Float32Array(4),
-			1,
-			1,
-			1,
-			resolveWebGPUDenoiseOptions()
-		),
-		/16 floats/
-	);
+	for (const length of [4, 16]) {
+		assert.throws(
+			() => writeWebGPUDenoiseParams(
+				new Float32Array(length),
+				1,
+				1,
+				1,
+				resolveWebGPUDenoiseOptions()
+			),
+			/12 floats/
+		);
+	}
 }
 
 function testShaderDefensiveFiltering() {
@@ -147,6 +150,13 @@ async function testFastAndQualityDispatches() {
 	assert.equal(fast.texture, fastRequest.output);
 	assert.equal(fast.mode, "fast");
 	assert.equal(fast.dispatchCount, 2);
+	const fastParams = backend.buffers.find(
+		(buffer) => buffer.label === "WebGPUDenoiseParams_test-fast_0"
+	);
+	assert.equal(fastParams.size, 48);
+	assert.equal(fastParams.lastWrite.data.byteLength, 48);
+	assert.deepEqual(fastParams.lastWrite.slice(0, 7), [1 / 16, 1 / 8, 2, 1, 24, 16, 2]);
+	assert.deepEqual(fastParams.lastWrite.slice(8), [0, 0, 0, 0]);
 	assert.equal(
 		backend.shaderModules.filter(
 			(module) => module.label === "WebGPUDenoiseShader"
@@ -189,6 +199,13 @@ async function testFastAndQualityDispatches() {
 	const quality = await denoiser.encode(qualityRequest);
 	assert.equal(quality.mode, "quality");
 	assert.equal(quality.dispatchCount, 6);
+	const qualityParams = backend.buffers.filter(
+		(buffer) => buffer.label.startsWith("WebGPUDenoiseParams_test-quality_")
+	);
+	assert.deepEqual(qualityParams.map((buffer) => buffer.size), [48, 48, 48]);
+	assert.deepEqual(qualityParams.map((buffer) => buffer.lastWrite.data.byteLength), [48, 48, 48]);
+	assert.deepEqual(qualityParams.map((buffer) => buffer.lastWrite[3]), [1, 2, 4]);
+	assert.ok(qualityParams.every((buffer) => buffer.lastWrite[9] === 1));
 	assert.deepEqual(
 		qualityEncoder.calls
 			.filter((call) => call[0] === "beginComputePass")

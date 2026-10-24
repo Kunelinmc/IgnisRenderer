@@ -266,6 +266,8 @@ export interface WebGPUTextureResourceProvider {
 	getTextureForSlotAsync(
 		texture: Texture | null,
 		slotIndex: number,
+		color?: boolean,
+		forceSRGB?: boolean,
 	): Promise<IRenderTexture>;
 	getSamplerForTexture(texture: Texture | null): ISampler;
 	registerExternalTexture(

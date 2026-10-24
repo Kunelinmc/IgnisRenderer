@@ -1,5 +1,4 @@
 #import <ignis/webgpu/constants>
-#import <ignis/color/srgb>
 
 const TEX_BASE_COLOR: u32 = 0u;
 const TEX_METALLIC_ROUGHNESS: u32 = 1u;
@@ -310,8 +309,7 @@ fn sampleColorTexture(
 	uv: vec2<f32>
 ) -> vec4<f32> {
 	let sampled = sampleLinearTexture(textureRef, samplerRef, slotIndex, uv);
-	let isLinear = decal.textureTransformB[slotIndex].z > 0.5;
-	return select(vec4<f32>(srgbToLinear(sampled.rgb), sampled.a), sampled, isLinear);
+	return sampled;
 }
 
 fn transformLocalDirection(direction: vec3<f32>) -> vec3<f32> {
@@ -813,8 +811,7 @@ fn sampleColorTextureFrom(
 	uv: vec2<f32>
 ) -> vec4<f32> {
 	let sampled = sampleLinearTextureFrom(d, textureRef, samplerRef, slotIndex, uv);
-	let isLinear = d.textureTransformB[slotIndex].z > 0.5;
-	return select(vec4<f32>(srgbToLinear(sampled.rgb), sampled.a), sampled, isLinear);
+	return sampled;
 }
 
 fn transformLocalDirectionFrom(d: DecalUniforms, direction: vec3<f32>) -> vec3<f32> {

@@ -264,7 +264,6 @@ function createFrameInput() {
 		enableShadows: true,
 		shAmbientEnabled: false,
 		enableClusteredLighting: true,
-		envSpecularIsLinear: false,
 		hasEnvSpecular: true,
 		hasBRDFLUT: true,
 		envSpecularMaxMipLevel: 5,
@@ -393,6 +392,7 @@ function testCameraMathWithObliqueClipping() {
 function testFrameUniformPacking() {
 	assert.equal(WEBGPU_FRAME_CAMERA_UNIFORM_BYTE_SIZE, 272);
 	const input = createFrameInput();
+	input.shAmbientCoeffs = [{ r: 0.25, g: 0.5, b: 0.75 }];
 	input.directionalShadows = [{
 		enabled: true,
 		strategyType: "single-map",
@@ -435,7 +435,7 @@ function testFrameUniformPacking() {
 	);
 	assert.equal(
 		cameraData.byteLength + lightData.byteLength + shadowData.byteLength + environmentData.byteLength,
-		12768
+		12752
 	);
 	assert.deepEqual(
 		readVec(
@@ -458,7 +458,7 @@ function testFrameUniformPacking() {
 	assert.ok(cameraData instanceof ArrayBuffer);
 	assert.equal(cameraData.byteLength, 272);
 	assert.equal(lightData.byteLength, 1712);
-	assert.equal(environmentData.byteLength, 4240);
+	assert.equal(environmentData.byteLength, 4224);
 	for (const [field, offset] of Object.entries({
 		viewProjection: 0, prevViewProjection: 64, inverseView: 128,
 		inverseProjection: 192, jitterNdc: 256, prevJitterNdc: 264,
@@ -471,9 +471,9 @@ function testFrameUniformPacking() {
 	assert.deepEqual(readVec(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT, cameraData, "prevJitterNdc", 2), [45, 46]);
 	assert.deepEqual(Array.from(new Uint32Array(lightData, 16, 8)), [1, 1, 1, 1, 1, 1, 0, 0]);
 	assert.deepEqual(Array.from(new Uint32Array(shadowData, 0, 4)), [1, 0, 0, 0]);
-	assert.deepEqual(Array.from(new Uint32Array(environmentData, 0, 4)), [0, 1, 1, 0]);
-	assert.deepEqual(Array.from(new Uint32Array(environmentData, 20, 3)), [0, 0, 0]);
-	assert.equal(new DataView(environmentData).getFloat32(16, true), 5);
+	assert.deepEqual(Array.from(new Uint32Array(environmentData, 0, 3)), [0, 1, 1]);
+	assert.equal(new DataView(environmentData).getFloat32(12, true), 5);
+	assert.deepEqual(Array.from(new Float32Array(environmentData, 16, 4)), [0.25, 0.5, 0.75, 0]);
 	const writer = WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT.createWriter();
 	const reused = packFrameLightUniformData(input, writer);
 	input.pointLights = [];

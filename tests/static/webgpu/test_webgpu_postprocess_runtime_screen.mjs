@@ -365,6 +365,9 @@ async function testToneMappingPassImplementationUsesDedicatedPipeline() {
 	);
 	assert.equal(backend.bindingGroups[0].desc.entries[2].resource, postPong);
 	assert.equal(backend.buffers[0].desc.label, "WebGPUToneMappingParams");
+	assert.equal(backend.buffers[0].size, 12);
+	assert.deepEqual(Array.from(backend.buffers[0].lastWrite), [1, 4, 0]);
+	assert.equal(backend.writeCalls.findLast((call) => call[1] === backend.buffers[0])[2].byteLength, 12);
 	assert.deepEqual(encoder.calls, [
 		["beginComputePass", "WebGPUToneMapping"],
 		["setComputePipeline", "WebGPUToneMappingPipeline"],

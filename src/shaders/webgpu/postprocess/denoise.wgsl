@@ -10,7 +10,6 @@ struct DenoiseParams {
 	qualityMode: f32,
 	roughnessAware: f32,
 	varianceGuided: f32,
-	_pad1: vec4<f32>,
 }
 
 @group(0) @binding(0) var signalSource: texture_2d<f32>;

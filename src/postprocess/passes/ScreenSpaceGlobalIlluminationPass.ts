@@ -46,8 +46,7 @@ const MOTION_HISTORY_USAGE = ["sampled", "copy-dst", "render-target"] as const;
 const SSGI_HISTORY_ID = "ssgi";
 const SSGI_DENOISE_A_ID = "ssgi:denoise-a";
 const SSGI_DENOISE_B_ID = "ssgi:denoise-b";
-const SSGI_TRACE_PARAM_FLOATS = 20;
-const SSGI_DENOISE_PARAM_FLOATS = 8;
+const SSGI_TRACE_PARAM_FLOATS = 16;
 const SSGI_COMPOSE_PARAM_FLOATS = 8;
 
 export const SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ID = "ssgi";
@@ -266,7 +265,7 @@ export function resolveSSGIOptions(
 /**
  * Packs trace and temporal parameters into a pre-allocated float array.
  *
- * @param target Twenty-float destination array.
+ * @param target Sixteen-float destination array.
  * @param width Trace target width.
  * @param height Trace target height.
  * @param options Resolved SSGI options.
@@ -302,42 +301,6 @@ export function writeSSGITraceParams(
 	target[13] = options.disocclusionDepthThreshold;
 	target[14] = options.historyClamp;
 	target[15] = historyValid ? 1 : 0;
-	target[16] = 0;
-	target[17] = 0;
-	target[18] = 0;
-	target[19] = 0;
-	return target;
-}
-
-/**
- * Packs the legacy SSGI denoise parameter layout.
- *
- * The shared WebGPU denoiser does not consume this layout. This helper remains
- * available so existing tooling that inspects resolved SSGI settings does not
- * break.
- *
- * @param target Eight-float destination array.
- * @param width Denoise target width.
- * @param height Denoise target height.
- * @param options Resolved SSGI options.
- * @returns The supplied destination array.
- * @sideEffects Overwrites `target`.
- */
-export function writeSSGIDenoiseParams(
-	target: Float32Array,
-	width: number,
-	height: number,
-	options: ResolvedSSGIOptions
-): Float32Array {
-	assertParamTarget(target, SSGI_DENOISE_PARAM_FLOATS, "denoise");
-	target[0] = 1 / Math.max(width, 1);
-	target[1] = 1 / Math.max(height, 1);
-	target[2] = options.denoiseRadius;
-	target[3] = options.denoiseDepthPhi;
-	target[4] = options.denoiseNormalPhi;
-	target[5] = 0;
-	target[6] = 0;
-	target[7] = 0;
 	return target;
 }
 

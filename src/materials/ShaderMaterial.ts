@@ -31,6 +31,10 @@ export interface ShaderMaterialTextureBinding {
 	texture: Texture | null;
 	slot?: number;
 	uvSet?: 0 | 1 | 2 | 3;
+	/**
+	 * Overrides native sampling encoding: true reads raw linear data, false uses
+	 * an sRGB format. Omission follows the texture's source color space.
+	 */
 	linear?: boolean;
 	webglUniform?: string;
 }

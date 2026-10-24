@@ -84,6 +84,10 @@ and must not recover scene or mesh ownership from geometry resource identity.
 `TextureFormat` and backend-neutral `TextureFormatInfo` metadata are owned by
 `src/core/TextureFormat.ts`. Backend-specific format capabilities and storage
 costs remain in their owning backend modules.
+Texture resource resolution combines source encoding with the sampling role to
+choose native color or data formats. GPU material and environment shaders consume
+linear color samples directly; Software retains decoding in its CPU path. The
+material contract defines format pairing, unsupported inputs, and fallback rules.
 
 WebGL uses a strict internal HDR pipeline and may present Display HDR when the
 browser exposes a verified floating-point drawing buffer. Scene, post-process,

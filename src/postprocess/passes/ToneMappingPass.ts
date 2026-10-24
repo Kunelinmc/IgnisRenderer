@@ -259,7 +259,6 @@ export class WebGPUToneMappingImplementation
 		resources.paramData[1] = display?.requested.hdrHeadroom ?? 4;
 		resources.paramData[2] =
 			display?.activeDynamicRange === "hdr" ? 1 : 0;
-		resources.paramData[3] = 0;
 		context.shared.compute.writeBuffer(resources.params, resources.paramData);
 		const targets = context.targets;
 		const target = resolveWebGPUTarget(context);
@@ -297,7 +296,7 @@ export class WebGPUToneMappingImplementation
 				module: null,
 				pipeline: null,
 				params: null,
-				paramData: new Float32Array(4),
+				paramData: new Float32Array(3),
 			};
 			this._resources.set(shared, resources);
 		}
@@ -323,7 +322,7 @@ export class WebGPUToneMappingImplementation
 		if (!resources.params) {
 			resources.params = shared.compute.createBuffer({
 				label: "WebGPUToneMappingParams",
-				size: 16,
+				size: 12,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
 			});
 		}

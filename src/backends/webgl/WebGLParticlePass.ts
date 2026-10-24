@@ -48,7 +48,6 @@ export interface WebGLParticleProgramLike {
 		fogParams0?: WebGLUniformLocation | string | null;
 		fogParams1?: WebGLUniformLocation | string | null;
 		particleMap?: WebGLUniformLocation | string | null;
-		mapIsLinear?: WebGLUniformLocation | string | null;
 		uvTransformA?: WebGLUniformLocation | string | null;
 		uvTransformB?: WebGLUniformLocation | string | null;
 		oitPassMode?: WebGLUniformLocation | string | null;
@@ -61,7 +60,6 @@ export interface WebGLParticlePassHost {
 	readonly textures: {
 		getBaseColorTexture(texture: any | null): {
 			texture: WebGLTexture | null;
-			isLinear: boolean;
 		};
 	};
 	getSceneFramebuffer(): WebGLFramebuffer | null;
@@ -119,7 +117,6 @@ export class WebGLParticlePass
 					particleMap: gl.getUniformLocation(program, "uParticleMap"),
 					uvTransformA: gl.getUniformLocation(program, "uUvTransformA"),
 					uvTransformB: gl.getUniformLocation(program, "uUvTransformB"),
-					mapIsLinear: gl.getUniformLocation(program, "uMapIsLinear"),
 					cameraPosition: gl.getUniformLocation(program, "uCameraPosition"),
 					fogParams0: gl.getUniformLocation(program, "uFogParams0"),
 					fogParams1: gl.getUniformLocation(program, "uFogParams1"),
@@ -295,12 +292,6 @@ export class WebGLParticlePass
 				);
 				gl.activeTexture(gl.TEXTURE0);
 				gl.bindTexture(gl.TEXTURE_2D, resolvedTexture.texture);
-				if (particleProgram.uniforms.mapIsLinear) {
-					gl.uniform1i(
-						particleProgram.uniforms.mapIsLinear as WebGLUniformLocation,
-						resolvedTexture.isLinear ? 1 : 0
-					);
-				}
 
 				const uvTransform = resolveTextureUVTransform(batch.texture);
 				if (particleProgram.uniforms.uvTransformA) {

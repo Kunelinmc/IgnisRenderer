@@ -367,9 +367,9 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   availability state must remain outside the immutable material blocks.
 - Exact built-in variants must treat material texture presence as compile-time
   state. Inactive maps must not declare samplers, allocate material transform
-  slots, resolve native textures, or consume texture units. Texture decode
-  state that may change when a deferred upload replaces a fallback texture
-  must remain runtime binding state rather than revision-only block data.
+  slots, resolve native textures, or consume texture units. Deferred fallback
+  textures and completed uploads must both provide linear color sampling through
+  their native formats; replacing a fallback must not require shader decode state.
 - Scene and depth variant key caches must observe mutations to caller-owned
   descriptors, including nested scene and material flags. Identity-based key
   reuse must be limited to immutable descriptors. Normalization must produce
@@ -378,10 +378,9 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   observe mutable material variant flags. Material snapshots must publish
   immutable material variant flags so scene and depth draws can reuse layout
   keys safely.
-- Resolved texture cache shortcuts must compare `Texture.format` and
-  `Texture.formatExplicit` as well as version, dimensions, and color-space
-  state. Direct format changes must re-evaluate upload format and decode state
-  even when `Texture.version` is unchanged.
+- Resolved texture cache shortcuts must compare `Texture.format` as well as
+  version, dimensions, and color-space state. Direct format changes must
+  re-evaluate the native sampling format even when `Texture.version` is unchanged.
 - `ShaderMaterial`, its custom bindings, and the `full` compatibility scene
   specialization must retain the individual-uniform ABI. They must not be
   required to declare Ignis material uniform blocks.

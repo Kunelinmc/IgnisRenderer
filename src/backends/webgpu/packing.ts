@@ -241,7 +241,6 @@ const FRAME_ENVIRONMENT_UNIFORM_PACKER = createStructuredBufferPacker<
 		packU32("shAmbientEnabled", (input) => input.shAmbientEnabled ? 1 : 0),
 		packU32("hasEnvSpecular", (input) => input.hasEnvSpecular ? 1 : 0),
 		packU32("hasBRDFLUT", (input) => input.hasBRDFLUT ? 1 : 0),
-		packU32("envSpecularIsLinear", (input) => input.envSpecularIsLinear ? 1 : 0),
 		packF32("envSpecularMaxMipLevel", (input) => Math.max(0, input.envSpecularMaxMipLevel)),
 		packArrayVec4("shAmbientCoeffs", WEBGPU_SH_COEFFICIENT_COUNT, (input, i) => {
 			const coefficient = input.shAmbientCoeffs?.[i];

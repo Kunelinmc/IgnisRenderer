@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import {
 	WebGPUAnimationPayloadPool,
@@ -83,6 +84,9 @@ function testStaticPacketsUseOnlyFallbackBuffers() {
 	assert.equal(stats.totalUploadCalls, 0);
 	assert.equal(backend.buffers.length, 3);
 	assert.equal(backend.writes.length, 0);
+	assert.equal(pool.getStaticScenePayload().paramsBuffer.size, 24);
+	assert.equal(pool.getStaticShadowPayload().paramsBuffer.size, 24);
+	assert.equal(pool.getFallbackStorageBuffer().size, 256);
 	pool.destroy();
 }
 
@@ -101,6 +105,14 @@ function testSceneAndShadowShareOneTemporalStorageUpload() {
 	const shadow = pool.getShadowPayload(packet.submission, geometry, jointMap, null);
 	const scene = pool.getScenePayload(packet, geometry, jointMap, null);
 	assert.strictEqual(shadow.jointMatricesBuffer, scene.jointMatricesBuffer);
+	assert.equal(scene.paramsBuffer.size, 24);
+	assert.equal(shadow.paramsBuffer.size, 24);
+	for (const payload of [scene, shadow]) {
+		const write = backend.writes.find((call) => call.buffer === payload.paramsBuffer);
+		assert.equal(write.data.byteLength, 24);
+		assert.deepEqual(Array.from(write.data),
+			payload === scene ? [1, 0, 1, 1, 3, 0] : [1, 0, 1, 0, 3, 0]);
+	}
 	assert.equal(pool.getDebugStats().totalUploadCalls, 3);
 	pool.getShadowPayload(packet.submission, geometry, jointMap, null);
 	pool.getScenePayload(packet, geometry, jointMap, null);
@@ -169,6 +181,12 @@ function testMorphStorageIsSharedWithoutJointAllocation() {
 	assert.equal(stats.jointBufferCount, 0);
 	assert.equal(stats.morphBufferCount, 1);
 	assert.equal(stats.liveBufferCount, 6);
+	assert.deepEqual(Array.from(backend.writes.find(
+		(call) => call.buffer === scene.paramsBuffer,
+	).data), [0, 2, 1, 2, 3, 1]);
+	assert.deepEqual(Array.from(backend.writes.find(
+		(call) => call.buffer === shadow.paramsBuffer,
+	).data), [0, 2, 0, 2, 3, 1]);
 	pool.destroy();
 }
 
@@ -271,6 +289,21 @@ function testGracePeriodResumeReusesCapacityWithoutFalseMotion() {
 	pool.destroy();
 }
 
+function testAnimationShadersConsumeSixScalarWords() {
+	for (const path of [
+		"common/definitions", "scene/depthPrepass", "shadow/depth",
+		"utility/planarReflectionComposite",
+	]) {
+		const shader = readFileSync(new URL(
+			`../../../src/shaders/webgpu/${path}.wgsl`, import.meta.url,
+		), "utf8");
+		const fields = shader.match(/struct AnimationParams\s*\{([^}]+)\}/)[1];
+		const scalars = fields.match(/:\s*(?:f32|u32)\s*,/g);
+		assert.equal(scalars.length * 4, 24, `${path} animation uniform byte size`);
+	}
+}
+
+testAnimationShadersConsumeSixScalarWords();
 testStaticPacketsUseOnlyFallbackBuffers();
 testSceneAndShadowShareOneTemporalStorageUpload();
 testMissingActiveJointPayloadSkipsPacket();

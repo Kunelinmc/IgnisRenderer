@@ -228,7 +228,7 @@ export function resolveSSRefractionOptions(
  * @param height Trace target height.
  * @param options Resolved options.
  * @param maxHiZMip Maximum available Hi-Z mip index.
- * @returns Sixteen float parameters expected by the SSRf trace shader.
+ * @returns Twelve float parameters expected by the SSRf trace shader.
  * @sideEffects None.
  */
 export function createSSRefractionTraceParams(
@@ -250,10 +250,6 @@ export function createSSRefractionTraceParams(
 		maxHiZMip,
 		options.roughnessMipScale,
 		options.planeRefinementSteps,
-		0,
-		0,
-		0,
-		0,
 	]);
 }
 
@@ -626,7 +622,7 @@ export class WebGPUScreenSpaceRefractionsImplementation
 		if (!resources.traceParams) {
 			resources.traceParams = shared.compute.createBuffer({
 				label: "WebGPUSSRefractionTraceParams",
-				size: 16 * 4,
+				size: 12 * 4,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
 			});
 		}

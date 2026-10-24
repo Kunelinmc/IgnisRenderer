@@ -13,7 +13,7 @@ import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
 import type { WebGPUGeometryHandle } from "./WebGPUGeometryRegistry";
 
 const FALLBACK_STORAGE_BYTE_SIZE = 4 * 16 * 4;
-const ANIMATION_PARAMS_BYTE_SIZE = 8 * 4;
+const ANIMATION_PARAMS_BYTE_SIZE = 6 * 4;
 
 interface ResolvedAnimationSource {
 	jointMatrices: Float32Array | null;
@@ -678,8 +678,6 @@ export class WebGPUAnimationPayloadPool {
 			Math.max(1, entry.morphCapacity),
 			entry.vertexCount,
 			entry.morphSemanticMask,
-			0,
-			0,
 		];
 		if (!force && setArrayValues(entry.sceneParamsData, next) === false) return;
 		if (force) setArrayValues(entry.sceneParamsData, next);
@@ -694,8 +692,6 @@ export class WebGPUAnimationPayloadPool {
 			entry.morphCount,
 			entry.vertexCount,
 			entry.morphSemanticMask,
-			0,
-			0,
 		];
 		if (!force && setArrayValues(entry.shadowParamsData, next) === false) return;
 		if (force) setArrayValues(entry.shadowParamsData, next);
@@ -815,8 +811,8 @@ function createAnimationPayloadEntry(): AnimationPayloadEntry {
 		morphPrevious: null,
 		jointPayload: null,
 		morphPayload: null,
-		sceneParamsData: new Float32Array(8),
-		shadowParamsData: new Uint32Array(8),
+		sceneParamsData: new Float32Array(6),
+		shadowParamsData: new Uint32Array(6),
 		jointSettlePending: false,
 		morphSettlePending: false,
 		jointInactiveSinceFrame: -1,

@@ -9,7 +9,6 @@ import {
 	resolveSSGIOptions,
 	resolveSSGITransientDescriptors,
 	writeSSGIComposeParams,
-	writeSSGIDenoiseParams,
 	writeSSGITraceParams,
 } from "../../../src/postprocess/index.ts";
 import { WebGPUPostProcessRuntime } from "../../../src/backends/webgpu/WebGPUPostProcessRuntime.ts";
@@ -270,7 +269,7 @@ function testOptionsAndParameterPacking() {
 	});
 
 	const trace = writeSSGITraceParams(
-		new Float32Array(20),
+		new Float32Array(16).fill(Number.NaN),
 		16,
 		8,
 		resolveSSGIOptions(),
@@ -278,7 +277,7 @@ function testOptionsAndParameterPacking() {
 		true,
 		7
 	);
-	assert.equal(trace.length, 20);
+	assert.equal(trace.byteLength, 64);
 	assertClose(trace[0], 1 / 16);
 	assertClose(trace[1], 1 / 8);
 	assert.equal(trace[2], 8);
@@ -288,20 +287,14 @@ function testOptionsAndParameterPacking() {
 	assert.equal(trace[10], 5);
 	assert.equal(trace[11], 7);
 	assert.equal(trace[15], 1);
-
-	const denoise = writeSSGIDenoiseParams(
-		new Float32Array(8),
-		16,
-		8,
-		resolveSSGIOptions()
+	const rawTrace = new DataView(trace.buffer, trace.byteOffset, trace.byteLength);
+	assert.deepEqual(
+		Array.from({ length: 16 }, (_, index) => rawTrace.getFloat32(index * 4, true)),
+		Array.from(new Float32Array([
+			1 / 16, 1 / 8, 8, 0.2, 0.05, 2, 0.1, 1,
+			24, 3, 5, 7, 0.9, 0.02, 2, 1,
+		]))
 	);
-	assert.deepEqual(Array.from(denoise.slice(0, 5)), [
-		1 / 16,
-		1 / 8,
-		2,
-		24,
-		16,
-	]);
 
 	const compose = writeSSGIComposeParams(
 		new Float32Array(8),
@@ -317,18 +310,20 @@ function testOptionsAndParameterPacking() {
 	);
 	assertClose(compose[4], 0.35);
 	assert.deepEqual(Array.from(compose.slice(5)), [24, 16, 0]);
-	assert.throws(
-		() => writeSSGITraceParams(
-			new Float32Array(4),
-			1,
-			1,
-			resolveSSGIOptions(),
-			0,
-			false,
-			0
-		),
-		/20 floats/
-	);
+	for (const length of [4, 20]) {
+		assert.throws(
+			() => writeSSGITraceParams(
+				new Float32Array(length),
+				1,
+				1,
+				resolveSSGIOptions(),
+				0,
+				false,
+				0
+			),
+			/16 floats/
+		);
+	}
 	assert.equal(
 		resolveSSGIHistoryValid(
 			{ ssgi: { valid: true }, motion: { valid: true } },
@@ -391,10 +386,12 @@ async function testFourStageExecutionAndTemporalContinuity() {
 	assert.deepEqual(
 		gpuResources.buffers.map((buffer) => [buffer.label, buffer.size]),
 		[
-			["WebGPUSSGITraceParams", 80],
+			["WebGPUSSGITraceParams", 64],
 			["WebGPUSSGIComposeParams", 32],
 		]
 	);
+	assert.deepEqual(gpuResources.buffers.map((buffer) => buffer.lastWrite.data.byteLength),
+		[64, 32]);
 	assert.ok(
 		gpuResources.modules[0].desc.code.includes("fn cosineHemisphereDirection")
 	);

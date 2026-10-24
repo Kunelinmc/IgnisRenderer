@@ -4,10 +4,6 @@ vec2 directionToEquirectUV(vec3 direction) {
 	return vec2((phi + PI) / (2.0 * PI), theta / PI);
 }
 
-vec3 decodeEnvSpecularSample(vec3 sampled) {
-	return uEnvSpecularMapIsLinear == 1 ? sampled : srgbToLinear(sampled);
-}
-
 vec3 samplePrefilteredEnvSpecularAtlasMip(
 	vec2 uv,
 	float layer,
@@ -60,7 +56,7 @@ vec3 samplePrefilteredEnvSpecularLayer(
 		return mix(sample0, sample1, fract(mipLevel));
 	}
 	vec3 sampled = textureLod(uEnvSpecularMap, uv, mipLevel).rgb;
-	return decodeEnvSpecularSample(sampled);
+	return sampled;
 }
 
 vec3 sampleFallbackEnvSpecular(vec3 direction, float roughness) {
@@ -75,7 +71,5 @@ vec3 sampleFallbackEnvSpecular(vec3 direction, float roughness) {
 		max(uEnvSpecularFallbackMaxMipLevel, 0.0)
 	);
 	vec3 sampled = textureLod(uEnvSpecularFallbackMap, uv, mipLevel).rgb;
-	return uEnvSpecularFallbackMapIsLinear == 1 ?
-		sampled
-	:	srgbToLinear(sampled);
+	return sampled;
 }

@@ -3,7 +3,6 @@ precision highp float;
 precision highp int;
 
 #import <ignis/webgl/constants>
-#import <ignis/color/srgb>
 
 const float PREFILTER_EPSILON = 1e-6;
 const float EQUIRECT_DISTORTION_EPSILON = 1e-4;
@@ -14,7 +13,6 @@ uniform vec2 uOutputSize;
 uniform vec2 uSourceSize;
 uniform float uRoughness;
 uniform int uSampleCount;
-uniform int uSourceIsLinear;
 uniform int uSourceMipLevelCount;
 
 layout(location = 0) out vec4 fragColor;
@@ -163,9 +161,6 @@ void main() {
 			directionToEquirectUV(lightDirection),
 			sampleLevel
 		).rgb;
-		if (uSourceIsLinear == 0) {
-			sampleColor = srgbToLinear(sampleColor);
-		}
 		accumulated += sampleColor * nDotL;
 		totalWeight += nDotL;
 	}

@@ -712,7 +712,7 @@ async function testSceneShaderCoverage() {
 	assert.ok(WEBGPU_ENVIRONMENT_SHADER.includes("prevViewProjection"));
 	assert.ok(WEBGPU_ENVIRONMENT_SHADER.includes("jitterNdc"));
 	assert.ok(WEBGPU_ENVIRONMENT_SHADER.includes("atan2(direction.x, direction.z)"));
-	assert.ok(WEBGPU_ENVIRONMENT_SHADER.includes("environmentBackground.inputIsLinear == 0u"));
+	assert.ok(!WEBGPU_ENVIRONMENT_SHADER.includes("inputIsLinear"));
 	assert.ok(
 		WEBGPU_ENVIRONMENT_SHADER.includes(
 			"return vec4<f32>(max(skyColor, vec3<f32>(0.0)), 1.0);"

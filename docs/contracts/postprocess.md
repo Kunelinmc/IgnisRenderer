@@ -183,6 +183,13 @@ This document defines logical post-process declarations, planning, backend execu
   buffers, and binding cache. It must invalidate texture bindings on resize,
   invalidate shader-owned resources on shader runtime changes, and release all
   owned resources with `WebGPUPostProcessRuntime`.
+- WebGPU parameter writers and buffer allocations must use the compact uniform
+  sizes in the [WebGPU contract](webgpu.md). Denoising and trace buffers must not
+  retain unused trailing vectors. Scalar-only display parameter blocks must not
+  be rounded up to 16 bytes solely because they are uniforms.
+- SSGI must use the shared WebGPU denoiser and must not expose a separate legacy
+  denoise parameter-packing API. Tools inspecting SSGI settings should use
+  `resolveSSGIOptions()`.
 - `WebGPUDenoiser` must not allocate graph textures, submit command buffers, or
   advance the color target. A consuming pass must declare every denoise source,
   scratch, and output use and pass the graph-owned textures to the service.

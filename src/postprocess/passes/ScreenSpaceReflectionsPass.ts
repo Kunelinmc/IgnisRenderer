@@ -531,8 +531,6 @@ export class WebGPUScreenSpaceReflectionsImplementation implements PostProcessPa
 			new Float32Array([
 				1 / Math.max(composeTarget.width, 1),
 				1 / Math.max(composeTarget.height, 1),
-				0,
-				0,
 			]) as unknown as BufferSource,
 		);
 		binding = context.shared.getCachedBindGroup(
@@ -653,7 +651,7 @@ export class WebGPUScreenSpaceReflectionsImplementation implements PostProcessPa
 		if (!resources.composeParams) {
 			resources.composeParams = shared.compute.createBuffer({
 				label: "WebGPUSSRComposeParams",
-				size: 4 * 4,
+				size: 2 * 4,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
 			});
 		}
