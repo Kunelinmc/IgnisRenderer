@@ -392,9 +392,19 @@ export class Scene {
 	}
 
 	public invalidate(reason: RenderDirtyReason = "unknown"): void {
-		this._version++;
+		this._invalidateRenderState(shouldInvalidateSceneBounds(reason));
 		this._dirtyReasonMask |= renderDirtyReasonToMask(reason);
-		if (shouldInvalidateSceneBounds(reason)) {
+	}
+
+	/**
+	 * Invalidates authoring-derived state without publishing runtime-local reason bits.
+	 *
+	 * @param invalidateBounds Whether the scene bounds must be recomputed.
+	 * @internal Owned by renderer scheduling; applications should use `invalidate()`.
+	 */
+	public _invalidateRenderState(invalidateBounds: boolean): void {
+		this._version++;
+		if (invalidateBounds) {
 			this._boundsDirty = true;
 		}
 	}

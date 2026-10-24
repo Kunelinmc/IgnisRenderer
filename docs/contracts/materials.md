@@ -24,6 +24,11 @@ This document defines texture formats, PBR material extensions, and depth-write 
 - Backend material snapshots must be reusable until the material revision,
   referenced texture identity, texture upload version, or texture sampling
   revision changes.
+- Canonical material revisions must also include render-affecting state owned
+  privately by a material subclass. `ShaderMaterial` custom texture bindings must
+  observe bound texture identity, upload version, and sampling revision without
+  requiring the application to re-register an unchanged binding. These changes
+  must participate in on-demand scheduling and packet and decal dirty coverage.
 
 ### Texture formats
 

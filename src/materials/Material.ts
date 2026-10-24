@@ -113,6 +113,11 @@ export class Material {
 		return this._revision;
 	}
 
+	/** Includes subclass-owned bindings in the canonical material revision. */
+	protected _getAdditionalRenderState(): Iterable<unknown> | null {
+		return null;
+	}
+
 	private _refreshRevision(notify: boolean): boolean {
 		const state = { a: 2166136261, b: 2246822519 };
 		for (const key of Object.keys(this)) {
@@ -130,6 +135,10 @@ export class Material {
 			extended.shaderRevision,
 			extended.uniformValueRevision,
 		]) mixRenderValue(state, value, 0);
+		const additionalState = this._getAdditionalRenderState();
+		if (additionalState) {
+			for (const value of additionalState) mixRenderValue(state, value, 0);
+		}
 		const signature = `${state.a}:${state.b}`;
 		if (signature === this._renderSignature) return false;
 		this._renderSignature = signature;

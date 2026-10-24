@@ -517,6 +517,26 @@ function testRuntimeExecutesTransmissionPacketsInSortedOrder() {
 	]);
 }
 
+function testPartialFramePlansEnvironmentAfterClear() {
+	const events = [];
+	const runtime = createRuntime(events);
+	const context = createContext({
+		features: { enableEnvironment: true },
+		scene: {
+			particleSystems: [],
+			environment: { backgroundEnabled: true, backgroundTexture: {} },
+		},
+		incremental: {
+			enabled: true, forceFullFrame: false,
+			dirtyRects: [{ x: 2, y: 3, width: 4, height: 5 }],
+		},
+	});
+	runtime.beginFrame(context);
+	assert.deepEqual(events, ["begin", "clear", "environment"],
+		"partial clears must be followed by environment reconstruction");
+	runtime.abortFrame();
+}
+
 function testWholeFrameCacheTracksTransmissionOrderAndPlannerState() {
 	const events = [];
 	const options = { emptyPostProcess: true };
@@ -824,6 +844,7 @@ async function run() {
 	await testSkippedPostProcessRecordsExecutionOverlay();
 	testRuntimePlansOITParticleFlow();
 	testRuntimeExecutesTransmissionPacketsInSortedOrder();
+	testPartialFramePlansEnvironmentAfterClear();
 	testWholeFrameCacheTracksTransmissionOrderAndPlannerState();
 	testRuntimeDebugCapturesUnsupportedStage();
 	testFailedPresentPreservesLastSuccessfulAnalysis();

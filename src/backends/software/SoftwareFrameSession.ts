@@ -192,7 +192,6 @@ export class SoftwareFrameSession {
 
 		const environment = frame.scene.environment;
 		if (
-			!frame.incrementalPartial &&
 			frame.features.enableEnvironment &&
 			environment.backgroundEnabled &&
 			environment.backgroundTexture
