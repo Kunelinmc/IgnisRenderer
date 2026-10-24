@@ -4,6 +4,10 @@ import { Renderer } from "../../../src/rendering/Renderer.ts";
 import { FrameCoordinator } from "../../../src/rendering/FrameCoordinator.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { TextureFormat } from "../../../src/core/TextureFormat.ts";
+import { LightProbe } from "../../../src/lights/LightProbe.ts";
+import { Material } from "../../../src/materials/Material.ts";
+import { MeshAsset } from "../../../src/meshes/MeshAsset.ts";
+import { MeshInstance } from "../../../src/meshes/MeshInstance.ts";
 import { installNoopPostProcessAdapter } from "../../helpers/postprocess.mjs";
 import { TestRenderBackend } from "../../helpers/TestRenderBackend.mjs";
 
@@ -117,6 +121,87 @@ async function testCancellationAndSceneValidation() {
 	await assert.rejects(sceneTicket.done, /cancelled/);
 }
 
+async function testSceneViewLayerAndContentSelection() {
+	const { renderer, backend } = createRenderer();
+	const instanceNames = new Map();
+	try {
+		for (const [kind, alphaMode] of [["opaque", "OPAQUE"], ["transparent", "BLEND"]]) {
+			const mesh = MeshAsset.fromFaces([{
+				material: new Material({ alphaMode }),
+				vertices: [
+					{ x: 0, y: 0, z: -3, u: 0, v: 0, normal: { x: 0, y: 0, z: 1 } },
+					{ x: 1, y: 0, z: -3, u: 1, v: 0, normal: { x: 0, y: 0, z: 1 } },
+					{ x: 0, y: 1, z: -3, u: 0, v: 1, normal: { x: 0, y: 0, z: 1 } },
+				],
+			}]);
+			const layers = [["default", 1], ["selected", 2], ["high", 0x80000000]];
+			for (const [name, renderLayers] of layers) {
+				const instance = renderer.scene.add(new MeshInstance({
+					mesh, name: `${kind}-${name}`, renderLayers,
+				}));
+				instanceNames.set(instance.id, instance.name);
+			}
+		}
+		const excludedProbe = renderer.scene.add(new LightProbe({ source: "manual" }));
+		const retainedProbe = renderer.scene.add(new LightProbe({ source: "manual" }));
+		const target = renderer.renderTargets.create({
+			size: { mode: "fixed", width: 4, height: 4 },
+			color: [{ format: TextureFormat.RGBA16Float }],
+		});
+		const cases = [
+			{
+				name: "default mask includes every layer",
+				opaque: ["opaque-default", "opaque-high", "opaque-selected"],
+				transparent: ["transparent-default", "transparent-high", "transparent-selected"],
+			},
+			{
+				name: "selected layer applies to both packet lists", layerMask: 2,
+				opaque: ["opaque-selected"], transparent: ["transparent-selected"],
+			},
+			{
+				name: "empty mask excludes every mesh", layerMask: 0,
+				opaque: [], transparent: [],
+			},
+			{
+				name: "opaque content can be disabled", layerMask: 2, content: { opaque: false },
+				opaque: [], transparent: ["transparent-selected"],
+			},
+			{
+				name: "transparent content can be disabled", layerMask: 2,
+				content: { transparent: false }, opaque: ["opaque-selected"], transparent: [],
+			},
+		];
+		const tickets = cases.map(({ layerMask, content }) => target.enqueueJob({
+			kind: "scene-view", camera: renderer.camera, layerMask, content,
+			excludedLightId: excludedProbe.id,
+		}));
+		await renderer.renderFrame(16);
+		await Promise.all(tickets.map((ticket) => ticket.done));
+		const context = backend.contexts.at(-1);
+		const jobs = context.renderTargetJobs.getForTarget(target.id);
+		assert.equal(jobs.length, cases.length);
+		for (let index = 0; index < cases.length; index++) {
+			const { scene } = jobs[index];
+			for (const kind of ["opaque", "transparent"]) {
+				assert.deepEqual(
+					scene[`${kind}Packets`].map((packet) =>
+						instanceNames.get(packet.submission.source.instanceId),
+					).sort(),
+					cases[index][kind], cases[index].name,
+				);
+			}
+			assert.deepEqual(scene.lights.map((light) => light.id), [retainedProbe.id]);
+		}
+		assert.equal(context.scene.opaquePackets.length, 3);
+		assert.equal(context.scene.transparentPackets.length, 3);
+		assert.deepEqual(
+			context.scene.lights.map((light) => light.id), [excludedProbe.id, retainedProbe.id],
+		);
+	} finally {
+		await renderer.destroy();
+	}
+}
+
 async function testProbeFaceCameraMatrices() {
 	const coordinator = new FrameCoordinator(new TargetBackend());
 	const jobs = [];
@@ -214,6 +299,7 @@ async function run() {
 		globalThis.window = { devicePixelRatio: 1 };
 		testDescriptorValidation();
 		await testCancellationAndSceneValidation();
+		await testSceneViewLayerAndContentSelection();
 		await testHandleJobsAndCommittedReadback();
 		await testProbeFaceCameraMatrices();
 		console.log("Renderer render target handle tests passed");

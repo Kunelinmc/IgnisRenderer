@@ -76,10 +76,9 @@ export interface RenderTargetSceneViewJobDescriptor {
 	readonly kind: "scene-view";
 	readonly camera: Camera;
 	readonly content?: RenderTargetSceneViewContent;
+	/** Mesh render-layer mask; defaults to all layers. */
 	readonly layerMask?: number;
 	readonly readback?: RenderTargetJobReadbackOptions | null;
-	/** @internal Feature-owned packet exclusion hook. */
-	readonly packetFilter?: ((packet: FrameContext["scene"]["opaquePackets"][number]) => boolean) | null;
 	/** @internal Feature-owned light id excluded from the prepared view. */
 	readonly excludedLightId?: string | null;
 	/** @internal Allows renderer-owned cameras outside the scene graph. */

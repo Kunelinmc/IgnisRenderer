@@ -291,6 +291,11 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
 - Scene-view jobs must render only the scene attached to the owning `Renderer`.
   They must accept a camera and backend-neutral content controls, and must
   produce scene-linear HDR without renderer post-processing.
+- Scene-view mesh selection must use `content.opaque`, `content.transparent`,
+  and `layerMask` after camera visibility is resolved. `layerMask` must default
+  to `0xffffffff`; opaque and transparent packets must be included only when
+  their mesh instance's `renderLayers` overlaps the mask. Scene-view job
+  descriptors must not expose arbitrary draw-packet predicate callbacks.
 - A scene-view target must contain exactly one `rgba16float` color attachment,
   use `sampleCount = 1`, and may contain one `depth32float` attachment. Backends
   must keep scene-pipeline scratch attachments private.
@@ -826,6 +831,7 @@ bun tests/static/renderer/test_renderer_warmup_lightprobe.mjs
 
 ```bash
 bun tests/static/renderer/test_renderer_render_loop.mjs
+bun tests/static/renderer/test_renderer_custom_render_targets.mjs
 bun tests/run_all.mjs tests/static/pipeline
 bunx tsc --noEmit
 ```

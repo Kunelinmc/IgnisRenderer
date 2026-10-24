@@ -896,11 +896,9 @@ export class FrameCoordinator {
 				const rebuilt = PreparedSceneBuilder.buildView(frame, descriptor.camera, {
 					visibilityScene: delegate.scene,
 				});
-				const filter = descriptor.packetFilter ?? null;
 				const layerMask = descriptor.layerMask ?? 0xffffffff;
 				const accepts = (packet: (typeof rebuilt.opaquePackets)[number]): boolean =>
-					(packet.submission.instance.renderLayers & layerMask) !== 0 &&
-					(!filter || filter(packet));
+					(packet.submission.instance.renderLayers & layerMask) !== 0;
 				const content = descriptor.content ?? {};
 				return {
 					...rebuilt,
