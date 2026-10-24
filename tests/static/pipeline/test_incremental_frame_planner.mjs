@@ -58,6 +58,94 @@ function createRegisteredPostProcess(overrides = {}) {
 	};
 }
 
+function testDisplayPassMetadataRequiresRegistration() {
+	for (const registry of [new IncrementalRegistry(), getDefaultIncrementalRegistry()]) {
+		const postProcessRegistry = createPostProcessRegistryFromRequest({
+			tonemap: { enabled: true },
+			gamma: { enabled: true },
+		});
+		const postProcess = postProcessRegistry.createSnapshot("test");
+		assert.equal(registry.resolveFirstEnabledPostProcessStage(postProcess), null);
+		assert.equal(registry.resolvePostProcessGrade(postProcess), "none");
+		assert.equal(registry.computePostProcessInflationRadius(postProcess), 0);
+		assert.equal(
+			registry.scaleFullFrameFallbackAreaRatioForPostProcess(0.3, postProcess),
+			0.3
+		);
+
+		for (const pass of postProcessRegistry.getPasses()) {
+			registry.registerPostProcessPass(pass);
+		}
+		const plan = IncrementalFramePlanner.plan({
+			enabled: true,
+			reasonMask: registry.getDirtyReasonMask("postfx"),
+			features: createFeatures(),
+			postProcess,
+			registry,
+		});
+		assert.equal(plan.firstPass, "postprocess");
+		assert.equal(plan.postProcessStartPass, "tonemap");
+		assert.equal(registry.resolvePostProcessGrade(postProcess), "light");
+		assert.equal(registry.computePostProcessInflationRadius(postProcess), 2);
+
+		postProcessRegistry.getPass("tonemap").disable();
+		const gammaOnly = postProcessRegistry.createSnapshot("test");
+		assert.equal(registry.resolveFirstEnabledPostProcessStage(gammaOnly), "gamma");
+		postProcessRegistry.getPass("gamma").disable();
+		const disabled = postProcessRegistry.createSnapshot("test");
+		assert.equal(registry.resolveFirstEnabledPostProcessStage(disabled), null);
+		assert.equal(registry.resolvePostProcessGrade(disabled), "none");
+		assert.equal(registry.computePostProcessInflationRadius(disabled), 0);
+	}
+}
+
+function testUnregisteredGammaDoesNotChoosePostProcessStart() {
+	const registry = new IncrementalRegistry();
+	const plan = IncrementalFramePlanner.plan({
+		enabled: true,
+		reasonMask: registry.getDirtyReasonMask("postfx"),
+		features: createFeatures(),
+		postProcess: createPostProcess({ gamma: { enabled: true } }),
+		registry,
+	});
+	assert.equal(plan.firstPass, "main-opaque");
+	assert.equal(plan.postProcessStartPass, null);
+}
+
+function testDisplayPassPlanningUsesRegisteredSchedules() {
+	const registered = createRegisteredPostProcess({
+		tonemap: { enabled: true },
+		gamma: {
+			enabled: true,
+			schedule: {
+				order: 500,
+				incremental: {
+					firstPass: "gamma",
+					grade: "cinematic",
+					inflationRadius: 40,
+					fallbackScale: 0.5,
+				},
+			},
+		},
+	});
+	const { registry, postProcess } = registered;
+	const plan = IncrementalFramePlanner.plan({
+		enabled: true,
+		reasonMask: registry.getDirtyReasonMask("postfx"),
+		features: createFeatures(),
+		postProcess,
+		registry,
+	});
+	assert.equal(plan.firstPass, "postprocess");
+	assert.equal(plan.postProcessStartPass, "gamma");
+	assert.equal(registry.resolvePostProcessGrade(postProcess), "cinematic");
+	assert.equal(registry.computePostProcessInflationRadius(postProcess), 40);
+	assert.equal(
+		registry.scaleFullFrameFallbackAreaRatioForPostProcess(0.3, postProcess),
+		0.15
+	);
+}
+
 function testNoDirtyReasonsReturnsNoPass() {
 	const plan = IncrementalFramePlanner.plan({
 		enabled: true,
@@ -358,6 +446,9 @@ function testCustomDirtyReasonUsesGroups() {
 }
 
 function run() {
+	testDisplayPassMetadataRequiresRegistration();
+	testUnregisteredGammaDoesNotChoosePostProcessStart();
+	testDisplayPassPlanningUsesRegisteredSchedules();
 	testNoDirtyReasonsReturnsNoPass();
 	testParticlesStartAtParticleSim();
 	testPostFxStartsAtFirstEnabledPostStage();

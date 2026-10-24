@@ -8,16 +8,6 @@ import {
 	type PostProcessPassRegistrySnapshot,
 	getEnabledCustomPostProcessPassIds,
 } from "../postprocess/PostProcessPass";
-import {
-	GAMMA_PASS_ID,
-	GAMMA_PASS_INCREMENTAL,
-	GAMMA_PASS_ORDER,
-} from "../postprocess/passes/GammaPass";
-import {
-	TONE_MAPPING_PASS_ID,
-	TONE_MAPPING_PASS_INCREMENTAL,
-	TONE_MAPPING_PASS_ORDER,
-} from "../postprocess/passes/ToneMappingPass";
 
 type ResolvedPostProcessState = PostProcessPassRegistrySnapshot;
 
@@ -540,22 +530,6 @@ export class IncrementalRegistry {
 				true
 			);
 		}
-		this._registerPostProcessPass(
-			{
-				id: TONE_MAPPING_PASS_ID,
-				order: TONE_MAPPING_PASS_ORDER.order,
-				...TONE_MAPPING_PASS_INCREMENTAL,
-			},
-			true
-		);
-		this._registerPostProcessPass(
-			{
-				id: GAMMA_PASS_ID,
-				order: GAMMA_PASS_ORDER.order,
-				...GAMMA_PASS_INCREMENTAL,
-			},
-			true
-		);
 	}
 
 	/**
@@ -709,7 +683,7 @@ export class IncrementalRegistry {
 	/**
 	 * Registers incremental metadata for a logical post-process pass.
 	 *
-	 * @param pass Pass instance. Renderer-default built-ins cannot be removed;
+	 * @param pass Pass instance. Built-in pass metadata cannot be removed;
 	 * manually registered passes can be removed.
 	 * @returns Nothing.
 	 * @sideEffects Mutates post-process incremental planning metadata.
@@ -762,10 +736,12 @@ export class IncrementalRegistry {
 	}
 
 	/**
-	 * Returns whether an id is known as a default built-in or registered manual
-	 * post-process pass for incremental planning.
+	 * Identifies post-process stages using registered metadata and, when
+	 * supplied, the current post-process snapshot.
 	 *
 	 * @param id Candidate post-process pass id.
+	 * @param postProcess Current snapshot; registered built-ins must be present
+	 * in this snapshot when it is supplied.
 	 * @returns `true` when the id belongs to the post-process sequence.
 	 * @sideEffects None.
 	 */
@@ -983,6 +959,10 @@ export class IncrementalRegistry {
 
 const DEFAULT_INCREMENTAL_REGISTRY = new IncrementalRegistry();
 
+/**
+ * Returns the shared incremental registry. Post-process metadata is populated
+ * by explicit logical-pass registration, including renderer defaults.
+ */
 export function getDefaultIncrementalRegistry(): IncrementalRegistry {
 	return DEFAULT_INCREMENTAL_REGISTRY;
 }
@@ -1457,17 +1437,8 @@ function resolveDirtyReasonFirstPass(
 				return "particle-sim";
 			case "geometry":
 				return input.hasEnabledShadows ? "shadow" : "main-opaque";
-			case "postfx": {
-				const firstPostProcessPass =
-					registry.resolveFirstEnabledPostProcessStage(input.postProcess);
-				if (firstPostProcessPass) {
-					return firstPostProcessPass;
-				}
-				if (isBuiltInPostProcessStage("gamma", input.postProcess)) {
-					return "gamma";
-				}
-				return null;
-			}
+			case "postfx":
+				return registry.resolveFirstEnabledPostProcessStage(input.postProcess);
 			case "interaction":
 				return null;
 			default:

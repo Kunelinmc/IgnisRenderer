@@ -3,7 +3,9 @@ import { Camera } from "../../../src/cameras/Camera.ts";
 import { Logger } from "../../../src/foundation/Logger.ts";
 import { Renderer } from "../../../src/rendering/Renderer.ts";
 import { PostProcessPass } from "../../../src/postprocess/index.ts";
+import { getDefaultIncrementalRegistry } from "../../../src/pipeline/incremental.ts";
 import {
+	createResolvedPostProcess,
 	installNoopPostProcessAdapter,
 } from "../../helpers/postprocess.mjs";
 import { TestRenderBackend } from "../../helpers/TestRenderBackend.mjs";
@@ -145,7 +147,33 @@ async function run() {
 				return { width: 320, height: 180 };
 			},
 		};
+		const incremental = getDefaultIncrementalRegistry();
+		const standalonePostProcess = createResolvedPostProcess({
+			tonemap: { enabled: true },
+			gamma: { enabled: true },
+		}, "webgpu");
+		assert.equal(
+			incremental.resolveFirstEnabledPostProcessStage(standalonePostProcess),
+			null
+		);
 		const renderer = new Renderer(canvas, backend, new Camera());
+		const defaults = renderer.postProcess.createSnapshot("webgpu");
+		assert.equal(defaults.isEnabled("tonemap"), true);
+		assert.equal(defaults.isEnabled("gamma"), true);
+		assert.equal(
+			renderer.pipeline.incremental.resolveFirstEnabledPostProcessStage(defaults),
+			"tonemap"
+		);
+		assert.equal(renderer.pipeline.incremental.resolvePostProcessGrade(defaults), "light");
+		assert.equal(renderer.pipeline.incremental.computePostProcessInflationRadius(defaults), 2);
+		renderer.postProcess.getPass("tonemap").disable();
+		assert.equal(
+			renderer.pipeline.incremental.resolveFirstEnabledPostProcessStage(
+				renderer.postProcess.createSnapshot("webgpu")
+			),
+			"gamma"
+		);
+		renderer.postProcess.getPass("tonemap").enable();
 		renderer.features.enableReflection = false;
 		renderer.features.enableEnvironment = false;
 

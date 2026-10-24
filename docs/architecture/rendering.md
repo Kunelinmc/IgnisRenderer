@@ -171,6 +171,9 @@ nearer surfaces can refract already-composited farther transparent surfaces.
 ## Post-Processing
 
 `Renderer` owns the public post-process registry; backends own execution.
+Logical pass registration also forwards each pass's schedule to the incremental
+registry. The default tone-mapping and gamma passes follow this same path;
+the incremental registry has no pre-registered post-process effects.
 `PostProcessPlanner` resolves logical order and resource declarations once per
 frame. GPU backends compose the resulting subgraph into their authoritative
 whole-frame graph, while Software executes the logical plan directly.

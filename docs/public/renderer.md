@@ -307,6 +307,12 @@ attenuated reflections retain the same scene-linear color ratios instead of
 shifting toward white at different intensities. Neutral colors retain the
 fitted ACES grayscale response. Display HDR keeps its soft-shoulder mapping.
 
+`Renderer` registers enabled `ToneMappingPass` and `GammaPass` instances by
+default and forwards their schedules to its incremental registry. Standalone
+users of `IncrementalFramePlanner` must register their logical post-process
+passes with the selected incremental registry; the shared default registry
+starts without post-process metadata.
+
 Tone mapping and display encoding require enabled post-process passes (or
 equivalent custom passes with matching color contracts) on all three backends.
 Disabling `ToneMappingPass` or `GammaPass` no longer triggers automatic

@@ -49,6 +49,25 @@ function enable(id, options) {
 	};
 }
 
+function testDefaultRegistryUsesExplicitDisplayPassRegistration() {
+	const registry = createPostProcessRegistryFromRequest({
+		tonemap: { enabled: true },
+		gamma: { enabled: true },
+	});
+	const postProcess = registry.createSnapshot("test");
+	assert.equal(resolvePostProcessGrade(postProcess), "none");
+	assert.equal(computePostProcessInflationRadius(postProcess), 0);
+	assert.equal(scaleFullFrameFallbackAreaRatioForPostProcess(0.3, postProcess), 0.3);
+
+	const incremental = getDefaultIncrementalRegistry();
+	for (const pass of registry.getPasses()) {
+		incremental.registerPostProcessPass(pass);
+	}
+	assert.equal(resolvePostProcessGrade(postProcess), "light");
+	assert.equal(computePostProcessInflationRadius(postProcess), 2);
+	assert.equal(scaleFullFrameFallbackAreaRatioForPostProcess(0.3, postProcess), 0.3);
+}
+
 function testResolvePostProcessGrade() {
 	assert.equal(resolvePostProcessGrade(createPostProcess()), "none");
 	assert.equal(
@@ -157,6 +176,7 @@ function testCustomPostProcessIncrementalMetadataOverride() {
 }
 
 function run() {
+	testDefaultRegistryUsesExplicitDisplayPassRegistration();
 	testResolvePostProcessGrade();
 	testComputePostProcessInflationRadius();
 	testScaleFullFrameFallbackAreaRatioForPostProcess();

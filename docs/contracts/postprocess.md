@@ -25,6 +25,15 @@ This document defines logical post-process declarations, planning, backend execu
 - Incremental pass registration must accept one logical `PostProcessPass` and
   derive its ID, built-in status, order, and incremental metadata from that
   pass. A separate ID-and-metadata registration form must not exist.
+- `IncrementalRegistry`, including the shared default registry, must start
+  without post-process metadata. It must not seed tone-mapping or gamma
+  metadata or select gamma as a pass-specific fallback for a `"postfx"` reason.
+- `Renderer` must mirror logical pass registrations into `pipeline.incremental`,
+  including its default enabled `ToneMappingPass` and `GammaPass`. Standalone
+  callers must register their logical passes with the incremental registry
+  used for metadata-based planning, grading, and dirty-region inflation.
+- Registered metadata must affect planning only while the corresponding pass
+  is enabled in the current `ResolvedPostProcessState`.
 - `PostProcessPassConfig.label` may provide a human-readable pass name for
   diagnostics and consumer-facing metadata. It defaults to `id`.
 - `PostProcessPassImplementation.describeExecution(request)` must return one
@@ -245,6 +254,21 @@ This document defines logical post-process declarations, planning, backend execu
 
 ### Cross-backend declarations
 
+Standalone incremental planning registers the same logical passes used to
+create the post-process snapshot. Calls that omit `IncrementalPlanInput.registry`
+use `getDefaultIncrementalRegistry()`:
+
+```ts
+const postProcess = new PostProcessPassRegistry();
+postProcess.registerPass(new ToneMappingPass({ enabled: true }));
+postProcess.registerPass(new GammaPass({ enabled: true }));
+
+const incremental = getDefaultIncrementalRegistry();
+for (const pass of postProcess.getPasses()) {
+	incremental.registerPostProcessPass(pass);
+}
+```
+
 ```ts
 class CustomWebGPUImplementation {
 	public describeExecution(): PostProcessExecutionDeclaration {
@@ -314,6 +338,9 @@ class CustomPass extends PostProcessPass {
 ## Verification
 
 ```bash
+bun tests/static/pipeline/test_incremental_frame_planner.mjs
+bun tests/static/postprocess/test_incremental_postfx_grading.mjs
+bun tests/static/postprocess/test_renderer_postprocess_registry.mjs
 bun tests/static/webgpu/test_webgpu_post_graph.mjs
 bun tests/static/webgpu/test_webgpu_ssr_intersections.mjs
 bun tests/static/postprocess/test_postprocess_execution_declarations.mjs
