@@ -65,6 +65,12 @@ selection, and constructive solid geometry behavior.
 - `Scene.rebuildSpatialIndex(meshInstances)` must preserve incremental behavior:
   structural changes must call `upsert`/`remove`, and transform or dynamic-state
   changes must call `markDirty`.
+- Spatial index constructors, `setMeshInstances`, and `rebuild` must treat
+  repeated references to the same `MeshInstance` as one member, preserving its
+  first occurrence in the input. Membership must use object identity rather
+  than `meshInstance.id`. Removing that member must remove all query candidates
+  for it. `HybridSpatialIndex` must normalize membership before bucket selection
+  and automatic backend statistics are computed.
 - `SpatialIndex3D.queryFrustumInto(frustum, out, options?)` must clear `out`,
   append mesh-instance candidates whose world-space bounds overlap the frustum,
   and return the same `out` array.
@@ -74,6 +80,14 @@ selection, and constructive solid geometry behavior.
 - `SpatialIndex3D.queryRayDetailedInto(origin, direction, out, options?)` must
   clear `out`, append ray candidates ordered by ascending `distance`, then by
   `meshInstance.id`, and return the same `out` array.
+- Ray queries must accept every finite, nonzero `direction`, normalize it
+  without overflowing its length or reciprocal, and express `distance` and
+  `maxDistance` in world-space units. Slab intersection must treat only zero
+  direction components as parallel, including signed zero. Nonzero source
+  components must participate even when normalization underflows or their
+  reciprocals overflow. AABB boundary contact must count as an intersection; a
+  ray starting inside an AABB must have distance zero when the query permits a
+  positive travel distance.
 - Implementations may expose compatibility wrappers named `queryFrustum`,
   `queryBounds`, `queryRay`, and `queryRayDetailed`, but these wrappers are not
   part of the `SpatialIndex3D` interface contract.
@@ -102,6 +116,8 @@ selection, and constructive solid geometry behavior.
 - `HybridSpatialIndex` must maintain exclusive bucket membership during
   `upsert`, `remove`, and `markDirty`; query merging may rely on that exclusivity
   and must not require per-query identity de-duplication.
+- Hybrid ray queries must preserve distance and ID ordering across buckets,
+  including ties at distance zero when both buckets contain the ray origin.
 - `HybridSpatialIndex.markDirty(meshInstance)` must preserve incremental
   updates within the currently selected dynamic backend unless the instance
   migrates between static and dynamic buckets.
@@ -114,6 +130,11 @@ selection, and constructive solid geometry behavior.
   child bounds overlap. Objects that do not fit the selected child must remain
   in the parent. Descent must respect `maxDepth` and the minimum cell size;
   `looseness: 1` must retain tight-bound containment.
+- `LooseOctreeOptions.maxDepth` must limit depth relative to the current root,
+  whose depth is zero, including after root expansion. `maxDepth: 0` must keep
+  all objects in the root. Root expansion must merge overflow descendants into
+  their ancestor at the depth limit and update object locators. This merge
+  should reuse stored bounds and must preserve query and removal behavior.
 - `LooseOctree.markDirty(meshInstance)` should update the stored bounds in place
   when the updated AABB remains inside the current loose node, including when
   its center crosses a tight child boundary. Queries must still find the part
@@ -364,7 +385,8 @@ defaultCSGSolver.unregisterWasmSolver("example-wasm");
 
 - `Scene.setSpatialIndexMode(mode)` must throw an error when `mode` is not
   `"bvh"` or `"hybrid"`.
-- `queryRayDetailedInto` must throw when `direction` is zero-length.
+- `queryRayDetailedInto` must throw when `direction` is zero-length or any of
+  its components is non-finite, including for an empty index.
 - Diagnostics should compare `bvh` and `hybrid` result sets in tests to confirm
   behavioral parity before changing defaults.
 - Spatial benchmark diagnostics may inspect class-private runtime fields to

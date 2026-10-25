@@ -60,10 +60,11 @@ export interface SpatialIndex3D {
 	 * Clears `out` and appends sorted ray/AABB candidates.
 	 *
 	 * @param origin - World-space ray origin.
-	 * @param direction - Non-zero ray direction; implementations normalize it.
+	 * @param direction - Finite, non-zero ray direction; implementations normalize it.
 	 * @param out - Caller-owned output array cleared before results are appended.
 	 * @param options - Optional visibility, distance, and result-count constraints.
 	 * @returns The same `out` array, sorted by distance, entity id, then mesh id.
+	 * @throws Error when the direction is zero-length or has non-finite components.
 	 * @sideEffects May rebuild or refit dirty internal acceleration structures.
 	 */
 	queryRayDetailedInto(

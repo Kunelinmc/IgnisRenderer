@@ -1,6 +1,7 @@
 import type { Frustum } from "../maths/Frustum";
 import type { MeshInstance } from "../meshes";
 import { BVH, type BVHOptions } from "./BVH";
+import { resolveRayDirectionScale } from "./rayIntersection";
 import { isDynamicSpatialMeshInstance } from "./classification";
 import { LooseOctree, type LooseOctreeOptions } from "./LooseOctree";
 import type {
@@ -132,6 +133,7 @@ export class HybridSpatialIndex implements SpatialIndex3D {
 		const dynamicMeshInstances: MeshInstance[] = [];
 		this._bucketByMeshInstance.clear();
 		for (const meshInstance of source) {
+			if (this._bucketByMeshInstance.has(meshInstance)) continue;
 			const bucket = this._resolveBucket(meshInstance);
 			this._bucketByMeshInstance.set(meshInstance, bucket);
 			if (bucket === "dynamic") {
@@ -234,6 +236,7 @@ export class HybridSpatialIndex implements SpatialIndex3D {
 		options?: SpatialRayQueryOptions
 	): SpatialRayHit[] {
 		out.length = 0;
+		resolveRayDirectionScale(direction, "HybridSpatialIndex.queryRayDetailedInto");
 		const maxResults = resolveMaxResults(options?.maxResults);
 		if (maxResults <= 0) return out;
 		const baseOptions: SpatialRayQueryOptions = {
@@ -253,7 +256,9 @@ export class HybridSpatialIndex implements SpatialIndex3D {
 		if (maxResults === 1) {
 			const staticNearest = this._staticRayScratch[0] ?? null;
 			const dynamicMaxDistance =
-				staticNearest?.distance ?? options?.maxDistance;
+				staticNearest && staticNearest.distance > 0 ?
+					staticNearest.distance
+				:	options?.maxDistance;
 			this._dynamicIndex.queryRayDetailedInto(
 				origin,
 				direction,

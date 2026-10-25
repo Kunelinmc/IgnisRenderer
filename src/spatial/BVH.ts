@@ -1,4 +1,6 @@
 import type { BoundingBox } from "../core/types";
+import type { SpatialRayDirection } from "./rayIntersection";
+import { intersectRayAABB, normalizeRayDirection } from "./rayIntersection";
 import type { Frustum } from "../maths/Frustum";
 import type { MeshInstance } from "../meshes";
 import type {
@@ -147,8 +149,8 @@ export class BVH implements SpatialIndex3D {
 	 * Replaces tracked mesh instances and marks BVH for lazy rebuild.
 	 */
 	public setMeshInstances(meshInstances: MeshInstance[]): void {
-		this._meshInstances = meshInstances.slice();
-		this._meshInstanceSet = new Set(this._meshInstances);
+		this._meshInstanceSet = new Set(meshInstances);
+		this._meshInstances = Array.from(this._meshInstanceSet);
 		this._structureDirty = true;
 		this._boundsDirtyMeshInstances.clear();
 	}
@@ -204,8 +206,8 @@ export class BVH implements SpatialIndex3D {
 		this._fullRebuildCount++;
 		this._lastRefitNodeCount = 0;
 		if (meshInstances) {
-			this._meshInstances = meshInstances.slice();
-			this._meshInstanceSet = new Set(this._meshInstances);
+			this._meshInstanceSet = new Set(meshInstances);
+			this._meshInstances = Array.from(this._meshInstanceSet);
 		}
 
 		const count = this._meshInstances.length;
@@ -372,8 +374,12 @@ export class BVH implements SpatialIndex3D {
 				origin,
 				normalizedDirection,
 				maxDistance,
-				node.bounds.min,
-				node.bounds.max
+				node.bounds.min.x,
+				node.bounds.min.y,
+				node.bounds.min.z,
+				node.bounds.max.x,
+				node.bounds.max.y,
+				node.bounds.max.z
 			);
 			if (nodeDistance === null) continue;
 
@@ -388,8 +394,12 @@ export class BVH implements SpatialIndex3D {
 						origin,
 						normalizedDirection,
 						maxDistance,
-						objectBounds.min,
-						objectBounds.max
+						objectBounds.min.x,
+						objectBounds.min.y,
+						objectBounds.min.z,
+						objectBounds.max.x,
+						objectBounds.max.y,
+						objectBounds.max.z
 					);
 					if (distance === null) continue;
 					out.push({
@@ -427,7 +437,7 @@ export class BVH implements SpatialIndex3D {
 	private _queryNearestRayHit(
 		root: SpatialNode,
 		origin: { x: number; y: number; z: number },
-		normalizedDirection: { x: number; y: number; z: number },
+		normalizedDirection: SpatialRayDirection,
 		maxDistance: number,
 		includeInvisible: boolean
 	): BVHRayHit | null {
@@ -435,8 +445,12 @@ export class BVH implements SpatialIndex3D {
 			origin,
 			normalizedDirection,
 			maxDistance,
-			root.bounds.min,
-			root.bounds.max
+			root.bounds.min.x,
+			root.bounds.min.y,
+			root.bounds.min.z,
+			root.bounds.max.x,
+			root.bounds.max.y,
+			root.bounds.max.z
 		);
 		if (rootDistance === null) return null;
 		const nodes = this._rayNodeHeap;
@@ -464,8 +478,12 @@ export class BVH implements SpatialIndex3D {
 						origin,
 						normalizedDirection,
 						bestDistance,
-						objectBounds.min,
-						objectBounds.max
+						objectBounds.min.x,
+						objectBounds.min.y,
+						objectBounds.min.z,
+						objectBounds.max.x,
+						objectBounds.max.y,
+						objectBounds.max.z
 					);
 					if (distance === null) continue;
 					const candidate = { meshInstance, distance };
@@ -500,7 +518,7 @@ export class BVH implements SpatialIndex3D {
 	private _queryTopKRayHits(
 		root: SpatialNode,
 		origin: { x: number; y: number; z: number },
-		normalizedDirection: { x: number; y: number; z: number },
+		normalizedDirection: SpatialRayDirection,
 		maxDistance: number,
 		maxResults: number,
 		includeInvisible: boolean,
@@ -510,8 +528,12 @@ export class BVH implements SpatialIndex3D {
 			origin,
 			normalizedDirection,
 			maxDistance,
-			root.bounds.min,
-			root.bounds.max
+			root.bounds.min.x,
+			root.bounds.min.y,
+			root.bounds.min.z,
+			root.bounds.max.x,
+			root.bounds.max.y,
+			root.bounds.max.z
 		);
 		if (rootDistance === null) return;
 
@@ -537,8 +559,12 @@ export class BVH implements SpatialIndex3D {
 						origin,
 						normalizedDirection,
 						traversalMaxDistance,
-						bounds.min,
-						bounds.max
+						bounds.min.x,
+						bounds.min.y,
+						bounds.min.z,
+						bounds.max.x,
+						bounds.max.y,
+						bounds.max.z
 					);
 					if (distance === null) continue;
 					if (out.length < maxResults) {
@@ -581,7 +607,7 @@ export class BVH implements SpatialIndex3D {
 	private _pushRayChild(
 		child: SpatialNode | undefined,
 		origin: { x: number; y: number; z: number },
-		direction: { x: number; y: number; z: number },
+		direction: SpatialRayDirection,
 		maxDistance: number,
 		nodes: SpatialNode[],
 		distances: number[]
@@ -591,8 +617,12 @@ export class BVH implements SpatialIndex3D {
 			origin,
 			direction,
 			maxDistance,
-			child.bounds.min,
-			child.bounds.max
+			child.bounds.min.x,
+			child.bounds.min.y,
+			child.bounds.min.z,
+			child.bounds.max.x,
+			child.bounds.max.y,
+			child.bounds.max.z
 		);
 		if (distance === null) return;
 		pushRayNodeMinHeap(nodes, distances, child, distance);
@@ -1592,22 +1622,6 @@ function classifyAABBFrustumData(
 	return fullyInside ? FRUSTUM_INSIDE : FRUSTUM_INTERSECT;
 }
 
-function normalizeRayDirection(
-	direction: { x: number; y: number; z: number },
-	label: string
-): { x: number; y: number; z: number } {
-	const directionLength = Math.hypot(direction.x, direction.y, direction.z);
-	if (!(directionLength > 1e-8)) {
-		throw new Error(`${label} direction must be non-zero`);
-	}
-	const invDirectionLength = 1 / directionLength;
-	return {
-		x: direction.x * invDirectionLength,
-		y: direction.y * invDirectionLength,
-		z: direction.z * invDirectionLength,
-	};
-}
-
 function compareRayHits(left: SpatialRayHit, right: SpatialRayHit): number {
 	if (left.distance !== right.distance) {
 		return left.distance - right.distance;
@@ -1699,57 +1713,6 @@ function popRayNodeMinHeap(
 	}
 	nodes[index] = lastNode;
 	distances[index] = lastDistance;
-}
-
-function intersectRayAABB(
-	origin: { x: number; y: number; z: number },
-	direction: { x: number; y: number; z: number },
-	maxDistance: number,
-	min: { x: number; y: number; z: number },
-	max: { x: number; y: number; z: number }
-): number | null {
-	let tMin = 0;
-	let tMax = maxDistance;
-
-	const axisHit = (
-		originValue: number,
-		directionValue: number,
-		minValue: number,
-		maxValue: number
-	): boolean => {
-		if (Math.abs(directionValue) < 1e-10) {
-			return originValue >= minValue && originValue <= maxValue;
-		}
-
-		const invDirection = 1 / directionValue;
-		let t0 = (minValue - originValue) * invDirection;
-		let t1 = (maxValue - originValue) * invDirection;
-		if (t0 > t1) {
-			const tmp = t0;
-			t0 = t1;
-			t1 = tmp;
-		}
-
-		tMin = Math.max(tMin, t0);
-		tMax = Math.min(tMax, t1);
-		return tMax >= tMin;
-	};
-
-	if (!axisHit(origin.x, direction.x, min.x, max.x)) return null;
-	if (!axisHit(origin.y, direction.y, min.y, max.y)) return null;
-	if (!axisHit(origin.z, direction.z, min.z, max.z)) return null;
-
-	if (tMax < 0 || tMin > maxDistance) {
-		return null;
-	}
-
-	if (tMin >= 0) {
-		return tMin;
-	}
-	if (tMax >= 0) {
-		return 0;
-	}
-	return null;
 }
 
 function intersectsAABB(
