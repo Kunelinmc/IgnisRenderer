@@ -109,9 +109,6 @@ function createResourcesStub(backend) {
 		getGBufferReadLayout() {
 			return { id: "gbuffer-read-layout" };
 		},
-		getGBufferWriteLayout() {
-			return { id: "gbuffer-write-layout" };
-		},
 		getDecalBindGroupLayout() {
 			return { id: "decal-layout" };
 		},

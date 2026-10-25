@@ -34,7 +34,6 @@ export interface WebGPUPipelineLayouts {
 	depthMaterialBindGroupLayout: GPUBindGroupLayout;
 	decalFrameBindGroupLayout: GPUBindGroupLayout;
 	clusteredSceneBindGroupLayout: GPUBindGroupLayout;
-	gbufferWriteBindGroupLayout: GPUBindGroupLayout;
 	gbufferReadBindGroupLayout: GPUBindGroupLayout;
 	decalBindGroupLayout: GPUBindGroupLayout;
 	decalOutputBindGroupLayout: GPUBindGroupLayout;
@@ -46,7 +45,6 @@ export interface WebGPUPipelineLayouts {
 	particleFrameBindGroupLayout: GPUBindGroupLayout;
 	particleBindGroupLayout: GPUBindGroupLayout;
 	scenePipelineLayouts: Record<WebGPUShadingFamily, GPUPipelineLayout>;
-	sceneGBufferPipelineLayouts: Record<WebGPUShadingFamily, GPUPipelineLayout>;
 	sceneDepthPrepassPipelineLayout: GPUPipelineLayout;
 	planarReflectionPipelineLayouts: Record<WebGPUShadingFamily, GPUPipelineLayout>;
 	deferredLightingPipelineLayout: GPUPipelineLayout;
@@ -251,29 +249,6 @@ export function createWebGPUPipelineLayouts(
 				type: binding === 0 ? "uniform" : "read-only-storage",
 			} as GPUBufferBindingLayout,
 		})),
-	});
-	const gbufferWriteBindGroupLayout = device.createBindGroupLayout({
-		label: "WebGPUGBufferWriteBindGroupLayout",
-		entries: [
-			{
-				binding: 0,
-				visibility: GPUShaderStage.FRAGMENT,
-				storageTexture: {
-					access: "write-only",
-					format: "rgba16float",
-					viewDimension: "2d",
-				},
-			},
-			{
-				binding: 1,
-				visibility: GPUShaderStage.FRAGMENT,
-				storageTexture: {
-					access: "write-only",
-					format: "rgba16uint",
-					viewDimension: "2d",
-				},
-			},
-		],
 	});
 	const gbufferReadEntries: GPUBindGroupLayoutEntry[] = [];
 	for (let binding = 0; binding < WEBGPU_GBUFFER_READ_TEXTURE_COUNT - 1; binding++) {
@@ -540,10 +515,6 @@ export function createWebGPUPipelineLayouts(
 	});
 
 	const scenePipelineLayouts = {} as Record<WebGPUShadingFamily, GPUPipelineLayout>;
-	const sceneGBufferPipelineLayouts = {} as Record<
-		WebGPUShadingFamily,
-		GPUPipelineLayout
-	>;
 	const planarReflectionPipelineLayouts = {} as Record<
 		WebGPUShadingFamily,
 		GPUPipelineLayout
@@ -556,15 +527,6 @@ export function createWebGPUPipelineLayouts(
 				sceneFrameBindGroupLayout,
 				modelLayout,
 				clusteredSceneBindGroupLayout,
-			],
-		});
-		sceneGBufferPipelineLayouts[family] = device.createPipelineLayout({
-			label: `WebGPUSceneGBufferPipelineLayout_${family}`,
-			bindGroupLayouts: [
-				sceneFrameBindGroupLayout,
-				modelLayout,
-				clusteredSceneBindGroupLayout,
-				gbufferWriteBindGroupLayout,
 			],
 		});
 		planarReflectionPipelineLayouts[family] = device.createPipelineLayout({
@@ -619,7 +581,6 @@ export function createWebGPUPipelineLayouts(
 		depthMaterialBindGroupLayout,
 		decalFrameBindGroupLayout,
 		clusteredSceneBindGroupLayout,
-		gbufferWriteBindGroupLayout,
 		gbufferReadBindGroupLayout,
 		decalBindGroupLayout,
 		decalOutputBindGroupLayout,
@@ -631,7 +592,6 @@ export function createWebGPUPipelineLayouts(
 		particleFrameBindGroupLayout,
 		particleBindGroupLayout,
 		scenePipelineLayouts,
-		sceneGBufferPipelineLayouts,
 		sceneDepthPrepassPipelineLayout,
 		planarReflectionPipelineLayouts,
 		deferredLightingPipelineLayout,

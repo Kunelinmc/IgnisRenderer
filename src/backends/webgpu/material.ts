@@ -267,9 +267,6 @@ export function materialSupportsWebGPUDeferredLighting(
 	if (!material) {
 		return false;
 	}
-	if (material instanceof ShaderMaterial) {
-		return material.hasWebGPUDeferredProgram();
-	}
 	if (material.wireframe) {
 		return false;
 	}
@@ -282,7 +279,18 @@ export function materialSupportsWebGPUDeferredLighting(
 	if (materialUsesTransmission(material)) {
 		return false;
 	}
+	if (material instanceof ShaderMaterial) {
+		if (material.deferredLighting && !material.hasWebGPUDeferredProgram()) {
+			throw new Error("ShaderMaterial deferred lighting requires an explicit deferred fragment chunk.");
+		}
+		return material.hasWebGPUDeferredProgram();
+	}
 	return true;
+}
+
+/** @internal Deferred depth policy shared by frame preflight and `Renderer.warmup()`. */
+export function materialSupportsWebGPUDeferredEarlyZPrepass(material: Material): boolean {
+	return !(material instanceof ShaderMaterial);
 }
 
 /** Returns whether a deferred material needs the extended G-buffer payload. */

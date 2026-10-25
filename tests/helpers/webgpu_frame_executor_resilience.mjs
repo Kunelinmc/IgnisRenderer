@@ -451,9 +451,6 @@ function createDeferredLightingResourcesStub() {
 			return [drawResource];
 		},
 		async renderParticles() {},
-		getGBufferWriteLayout() {
-			return { id: "gbuffer-write-layout" };
-		},
 		getGBufferReadLayout() {
 			return { id: "gbuffer-read-layout" };
 		},

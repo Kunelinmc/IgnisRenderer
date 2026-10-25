@@ -342,6 +342,7 @@ export class WebGPUFrameTargetManager {
 			};
 			const deferredStoragePool: TexturePoolOptions = {
 				usage:
+					TextureUsage.RenderAttachment |
 					TextureUsage.TextureBinding |
 					TextureUsage.StorageBinding |
 					TextureUsage.CopySrc |

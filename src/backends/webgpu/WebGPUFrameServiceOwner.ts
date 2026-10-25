@@ -592,17 +592,6 @@ export class WebGPUFrameServiceOwner {
 	}
 
 	/**
-	 * Returns the bind group layout used by G-buffer geometry shaders to write
-	 * deferred storage payload textures.
-	 *
-	 * @returns The WebGPU bind group layout for `gMaterialExt0/3` writes.
-	 * @sideEffects None.
-	 */
-	public getGBufferWriteLayout(): GPUBindGroupLayout {
-		return this._deferredResources.getGBufferWriteLayout();
-	}
-
-	/**
 	 * Returns the bind group layout used by the deferred lighting shader to read
 	 * color and storage G-buffer payload textures.
 	 *

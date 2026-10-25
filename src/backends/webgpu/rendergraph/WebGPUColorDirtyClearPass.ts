@@ -14,6 +14,7 @@ export type WebGPUColorDirtyClearMode =
 	| "color"
 	| "mrt"
 	| "deferred"
+	| "extensions"
 	| "extended";
 
 export interface WebGPUColorDirtyClearAttachment {
@@ -113,6 +114,7 @@ export class WebGPUColorDirtyClearPass {
 			mode === "color" ? "fsColor"
 			: mode === "mrt" ? "fsMRT"
 			: mode === "deferred" ? "fsDeferred"
+			: mode === "extensions" ? "fsExtensions"
 			: "fsExtended";
 		const entryPoint = presentationAlphaMode === "premultiplied" ?
 			`${entryPointBase}Transparent`
@@ -147,6 +149,7 @@ export class WebGPUColorDirtyClearPass {
 	): void {
 		const expected =
 			mode === "color" ? 1
+			: mode === "extensions" ? 2
 			: mode === "mrt" || mode === "deferred" ? 5
 			: 8;
 		if (count !== expected) {

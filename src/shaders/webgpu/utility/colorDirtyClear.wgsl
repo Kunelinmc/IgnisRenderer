@@ -1,3 +1,16 @@
+struct ExtensionClearOutput {
+	@location(0) materialExt0: vec4<f32>,
+	@location(1) materialExt3: vec4<u32>,
+}
+
+@fragment fn fsExtensions() -> ExtensionClearOutput {
+	return ExtensionClearOutput(vec4<f32>(0.5, 0.5, 0.0, 0.0), vec4<u32>(0u));
+}
+
+@fragment fn fsExtensionsTransparent() -> ExtensionClearOutput {
+	return ExtensionClearOutput(vec4<f32>(0.5, 0.5, 0.0, 0.0), vec4<u32>(0u));
+}
+
 struct MRTClearOutput {
 	@location(0) sceneColor: vec4<f32>,
 	@location(1) albedoAlpha: vec4<f32>,

@@ -153,8 +153,8 @@ export class WebGPUSceneFrameModule implements WebGPUFrameGraphModule {
 				writeWebGPUFrameGraphResource("gbuffer:specular", "render-attachment"),
 				writeWebGPUFrameGraphResource("gbuffer:coat-sheen", "render-attachment"),
 				writeWebGPUFrameGraphResource("gbuffer:sheen-reflectance", "render-attachment"),
-				writeWebGPUFrameGraphResource("gbuffer:material-ext0", "storage-binding"),
-				writeWebGPUFrameGraphResource("gbuffer:material-ext3", "storage-binding"),
+				writeWebGPUFrameGraphResource("gbuffer:material-ext0", "render-attachment"),
+				writeWebGPUFrameGraphResource("gbuffer:material-ext3", "render-attachment"),
 			);
 		}
 		const reads = [

@@ -84,6 +84,10 @@ This document defines shader source ownership, composition, diagnostics, and cus
   preload groups, and directive-profile inputs must be declared by backend
   pure-data manifests interpreted by the shared shader manifest runtime.
 - Built-in backend code must not perform ad hoc shader-text replacement.
+- Custom WebGPU deferred shaders must explicitly provide their base and extension
+  G-buffer entries as defined by the [WebGPU contract](webgpu.md). The engine
+  must not parse and rewrite their entry interfaces or capture storage writes
+  to generate extension compatibility shaders.
 - Manifest source expressions are closed to the built-in `asset`, `concat`,
   `when`, `defines`, and `template` nodes. Manifests must not contain callbacks
   or register custom operations.

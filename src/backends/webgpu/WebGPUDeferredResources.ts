@@ -52,10 +52,6 @@ export class WebGPUDeferredResources
 		private readonly _layouts: WebGPUPipelineLayouts,
 	) {}
 
-	public getGBufferWriteLayout(): GPUBindGroupLayout {
-		return this._layouts.gbufferWriteBindGroupLayout;
-	}
-
 	public getGBufferReadLayout(): GPUBindGroupLayout {
 		return this._layouts.gbufferReadBindGroupLayout;
 	}

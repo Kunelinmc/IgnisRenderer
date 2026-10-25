@@ -550,7 +550,7 @@ function testScenePassDescriptorsExposePipelineStateKeyParts() {
 		"default",
 		"early-z-color"
 	);
-	assert.equal(gbuffer.pipelineLayoutKind, "scene-gbuffer");
+	assert.equal(gbuffer.pipelineLayoutKind, "scene");
 	assert.equal(gbuffer.fragmentTargetKind, "gbuffer");
 	assert.equal(gbuffer.shaderEntryMode, "gbuffer");
 	assert.equal(gbuffer.depthStateMode, "early-z-color");

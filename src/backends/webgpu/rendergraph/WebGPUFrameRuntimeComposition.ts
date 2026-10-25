@@ -109,7 +109,6 @@ export function createWebGPUFrameRuntimeComposition(options: {
 		depthDirtyClearPass,
 		colorDirtyClearPass,
 		{
-			getGBufferWriteBinding: () => deferredLightingPass.getGBufferWriteBinding(),
 			preflightDeferredFrame: async (context) => {
 				await deferredLightingPass.preflight();
 				await deferredDecalPass.preflight(context);

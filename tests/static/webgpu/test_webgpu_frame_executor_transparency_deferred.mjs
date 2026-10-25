@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import * as frameExecutorFixture from "../../helpers/webgpu_frame_executor_resilience.mjs";
 import { WebGPUColorDirtyClearPass } from "../../../src/backends/webgpu/rendergraph/WebGPUColorDirtyClearPass.ts";
+import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";
+import { WebGPUDeferredShaderError } from "../../../src/foundation/Error.ts";
 
 const {
 	FakeBackend,
@@ -269,8 +272,19 @@ async function testDeferredLightingBindsUnusedGroupOnePlaceholder() {
 		[
 			"draw:deferred-anisotropic:gbuffer:early-z-prepass",
 			"draw:deferred-anisotropic:gbuffer:early-z-color",
+			"draw:deferred-anisotropic:gbuffer:gbuffer-extensions",
 		]
 	);
+	const extensionPassIndex = frameEncoder.calls.findIndex((call) =>
+		call[0] === "beginRenderPass" && call[1].label === "WebGPUGBufferExtensions");
+	assert.ok(extensionPassIndex >= 0 && extensionPassIndex < deferredPassIndex,
+		"Visible extension payloads must be resolved before deferred lighting");
+	const extensionPass = frameEncoder.calls[extensionPassIndex][1];
+	assert.deepEqual(extensionPass.colorAttachments.map((attachment) => attachment.view), [
+		getFrameTargets(executor).gMaterialExt0,
+		getFrameTargets(executor).gMaterialExt3,
+	]);
+	assert.equal(extensionPass.depthStencilAttachment.depthLoadOp, "load");
 }
 
 async function testDeferredIncrementalClearsDirtyColorAndGBufferAttachments() {
@@ -327,6 +341,15 @@ async function testDeferredIncrementalClearsDirtyColorAndGBufferAttachments() {
 		true,
 	);
 	const frameEncoder = backend.commandEncoders[0];
+	const extensionClear = backend.recordedRenderPasses.find((pass) =>
+		pass.label === "WebGPUColorDirtyClear" && pass.colorAttachments.length === 2);
+	assert.ok(extensionClear, "Dirty extension pixels must be reset before replay");
+	assert.deepEqual(extensionClear.colorAttachments.map((attachment) => attachment.view), [
+		getFrameTargets(executor).gMaterialExt0,
+		getFrameTargets(executor).gMaterialExt3,
+	]);
+	assert.ok(extensionClear.colorAttachments.every((attachment) => attachment.loadOp === "load"),
+		"Extension clears must retain pixels outside the dirty rectangles");
 	assert.ok(
 		frameEncoder.calls.some(
 			(call) =>
@@ -379,7 +402,7 @@ async function testDeferredFallbackPreservesIncrementalState() {
 	const colorClearPasses = backend.recordedRenderPasses.filter(
 		(pass) => pass.label === "WebGPUColorDirtyClear",
 	);
-	assert.equal(colorClearPasses.length, 1);
+	assert.equal(colorClearPasses.length, 2);
 	const fallbackPass = backend.recordedRenderPasses.find(
 		(pass) => pass.label === "WebGPUMainMRT_Load",
 	);
@@ -550,6 +573,92 @@ async function testDeferredPipelineFailureFallsBackBeforeGBufferCommands() {
 	}
 }
 
+async function testCustomDeferredExtensionFailureRejectsBeforeRecording() {
+	const backend = new FakeBackend();
+	const resources = createDeferredLightingResourcesStub();
+	const getResources = resources.getDrawResources.bind(resources);
+	resources.getDrawResources = (packet, frame, options) => {
+		if (options.drawMode === "gbuffer-extensions") {
+			throw new WebGPUDeferredShaderError(packet.submission.material.effective.name,
+				new Error("Missing custom extension entry point"));
+		}
+		return getResources(packet, frame, options);
+	};
+	const code = readFileSync(new URL("../../browser/fixtures/webgpu_gbuffer_custom_probe.wgsl",
+		import.meta.url), "utf8");
+	const material = new ShaderMaterial({ deferredLighting: true,
+		vertexEntryPoint: "vsProbe", fragmentDeferredBaseEntryPoint: "fsProbeBase",
+		fragmentDeferredExtensionsEntryPoint: "fsProbeExtensions", chunks: [
+			{ backend: "webgpu", language: "wgsl", stage: "vertex", code },
+			{ backend: "webgpu", language: "wgsl", stage: "fragment", mode: "deferred", code },
+		] });
+	const executor = new WebGPUFrameExecutor(backend, resources, undefined, undefined, resources);
+	try {
+		const context = createFrameContext(64, 64);
+		context.scene.opaquePackets = [{ id: "invalid-custom-deferred", material }];
+		await executor.beginFrame(context);
+		await assert.rejects(() => executor.executePass(
+			{ stage: "main-opaque", executor: "backend", enabled: true }, context,
+		), /Missing custom extension entry point/);
+		assert.ok(!backend.recordedRenderPasses.some((pass) =>
+			pass.label.startsWith("WebGPUGBuffer") || pass.label.startsWith("WebGPUMainMRT")),
+		"Invalid custom deferred programs must not silently render with fallback shaders");
+	} finally {
+		executor.destroy();
+	}
+}
+
+async function testSharedDeferredFailureKeepsFallbackWithCustomMaterial() {
+	for (const failure of ["lighting", "builtin-draw"]) {
+		const backend = new FakeBackend();
+		const resources = createDeferredLightingResourcesStub();
+		const getResources = resources.getDrawResources.bind(resources);
+		if (failure === "lighting") {
+			resources.getDeferredLightingPipeline = async () => {
+				throw new Error("shared deferred pipeline unavailable");
+			};
+		} else {
+			resources.getDrawResources = (packet, frame, options) => {
+				if (options.sceneTargetMode === "gbuffer" &&
+					packet.submission.material.effective instanceof PBRMaterial) {
+					throw new Error("built-in deferred draw unavailable");
+				}
+				return getResources(packet, frame, options);
+			};
+		}
+		const code = readFileSync(new URL("../../browser/fixtures/webgpu_gbuffer_custom_probe.wgsl",
+			import.meta.url), "utf8");
+		const material = new ShaderMaterial({ deferredLighting: true,
+			vertexEntryPoint: "vsProbe", fragmentDeferredBaseEntryPoint: "fsProbeBase",
+			fragmentDeferredExtensionsEntryPoint: "fsProbeExtensions", chunks: [
+				{ backend: "webgpu", language: "wgsl", stage: "vertex", code },
+				{ backend: "webgpu", language: "wgsl", stage: "fragment", mode: "deferred", code },
+				{ backend: "webgpu", language: "wgsl", stage: "fragment", mode: "single",
+					code: "@fragment fn fsMainSingle() -> @location(0) vec4f { return vec4f(1.0); }" },
+			] });
+		const executor = new WebGPUFrameExecutor(backend, resources, undefined, undefined, resources);
+		try {
+			const context = createFrameContext(64, 64);
+			context.scene.opaquePackets = [
+				{ id: "valid-custom-deferred", material },
+				{ id: "builtin-deferred", material: new PBRMaterial() },
+			];
+			await executor.beginFrame(context);
+			await executor.executePass(
+				{ stage: "main-opaque", executor: "backend", enabled: true }, context,
+			);
+			const labels = backend.recordedRenderPasses.map((pass) => pass.label);
+			assert.ok(labels.some((label) => label.startsWith("WebGPUMainMRT")), failure);
+			assert.ok(!labels.some((label) => label.startsWith("WebGPUGBuffer")), failure);
+			assert.ok(resources._state.events.some((event) =>
+				event.startsWith("draw:valid-custom-deferred:mrt:")),
+			"A valid custom material must remain in the atomic forward fallback");
+		} finally {
+			executor.destroy();
+		}
+	}
+}
+
 async function testDeferredLightingWarnsWhenRequestedButMRTUnavailable() {
 	const backend = new FakeBackend();
 	backend.device.limits.maxColorAttachments = 1;
@@ -666,6 +775,8 @@ async function run() {
 		await testDeferredLightingKeepsTransmissionOutOfGBuffer();
 		await testDeferredLightingCanBeExplicitlyDisabled();
 		await testDeferredPipelineFailureFallsBackBeforeGBufferCommands();
+		await testSharedDeferredFailureKeepsFallbackWithCustomMaterial();
+		await testCustomDeferredExtensionFailureRejectsBeforeRecording();
 		await testDeferredLightingWarnsWhenRequestedButMRTUnavailable();
 		await testOITMSAAFallsBackToLegacyAndWarns();
 		await testOITRuntimeFallbackWarnsWithoutEncoderCopy();

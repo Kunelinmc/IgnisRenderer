@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { ShaderCompileError } from "../../../src/foundation/Error.ts";
 import { MeshInstance } from "../../../src/meshes/MeshInstance.ts";
 import {
 	WebGPUFrameServiceOwner as WebGPURenderResources
@@ -1259,6 +1261,114 @@ async function testFeatureOwnedWarmupCompilesDeferredSceneVariants() {
 		assert.ok(backend.pipelines.some((pipeline) =>
 			pipeline.label?.startsWith("WebGPUSceneEarlyZPipeline_"),
 		));
+		assert.ok(!backend.renderPipelines.some((pipeline) =>
+			pipeline.label?.endsWith("_gbuffer-extensions")),
+		"Base-only warmup must not compile extension replay");
+	} finally {
+		owner.destroy();
+	}
+}
+
+function createDeferredWarmupMaterial() {
+	const code = readFileSync(new URL("../../browser/fixtures/webgpu_gbuffer_custom_probe.wgsl",
+		import.meta.url), "utf8");
+	return new ShaderMaterial({
+		deferredLighting: true,
+		vertexEntryPoint: "vsProbe",
+		fragmentDeferredBaseEntryPoint: "fsProbeBase",
+		fragmentDeferredExtensionsEntryPoint: "fsProbeExtensions",
+		uniformBindings: [
+			{ name: "color", type: "vec4f", value: [1, 0, 0, 1] },
+			{ name: "ext0", type: "vec4f", value: [0.5, 0.5, 0, 0] },
+			{ name: "ext3", type: "vec4u", value: [0, 0, 0, 0] },
+			{ name: "controls", type: "vec4f", value: [-1, 0, 1, 0] },
+		],
+		chunks: [
+			{ backend: "webgpu", language: "wgsl", stage: "vertex", code },
+			{ backend: "webgpu", language: "wgsl", stage: "fragment", mode: "deferred", code },
+		],
+	});
+}
+
+async function testDeferredSceneWarmupPreparesExtensionReplay() {
+	for (const earlyZ of [false, true]) {
+		for (const custom of [false, true]) {
+			const material = custom ? createDeferredWarmupMaterial()
+				: new PBRMaterial({ anisotropyStrength: 0.8 });
+			const { backend, owner, packet, prepared } = createStaticPreparationFixture(material);
+			try {
+				const phase = await owner._sceneDraws.warmup({
+					packets: [packet], frameResources: prepared, sceneTargetMode: "gbuffer",
+					deferredGBufferLayout: "extended", sampleCount: 1,
+					enableEarlyZPrepass: earlyZ, yieldIfNeeded: async () => {},
+				});
+				assert.equal(phase.failed, 0);
+				assert.ok(backend.renderPipelines.some((pipeline) =>
+					pipeline.desc.fragment?.entryPoint ===
+						(custom ? "fsProbeExtensions" : "fsMainGBufferExtensionsPBR")),
+				"Extended scene warmup must compile its extension fragment entry");
+				assert.equal(backend.renderPipelines.some((pipeline) =>
+					pipeline.label?.startsWith("WebGPUSceneEarlyZPipeline_")), earlyZ && !custom,
+				"Deferred custom shaders must use the same early-Z policy in warmup and frames");
+				const count = backend.renderPipelines.length;
+				await owner.getDrawResources(packet, prepared, {
+					sceneTargetMode: "gbuffer", deferredGBufferLayout: "extended",
+					sampleCount: 1, drawMode: "gbuffer-extensions",
+				});
+				assert.equal(backend.renderPipelines.length, count,
+					"The first extension replay must reuse the warmed pipeline");
+			} finally {
+				owner.destroy();
+			}
+		}
+	}
+}
+
+async function testDeferredSceneWarmupReportsExtensionFailure() {
+	const { backend, owner, packet, prepared } =
+		createStaticPreparationFixture(createDeferredWarmupMaterial());
+	const createPipeline = backend.createPipeline.bind(backend);
+	backend.createPipeline = async (desc) => {
+		if (desc.fragment?.entryPoint === "fsProbeExtensions") {
+			throw new Error("invalid deferred extension output");
+		}
+		return createPipeline(desc);
+	};
+	try {
+		const phase = await owner._sceneDraws.warmup({
+			packets: [packet], frameResources: prepared, sceneTargetMode: "gbuffer",
+			deferredGBufferLayout: "extended", sampleCount: 1,
+			enableEarlyZPrepass: false, yieldIfNeeded: async () => {},
+		});
+		assert.equal(phase.failed, 1);
+		assert.match(phase.errors[0].message, /invalid deferred extension output/);
+	} finally {
+		owner.destroy();
+	}
+}
+
+async function testDeferredSceneWarmupPreservesCompilerDiagnostics() {
+	const { backend, owner, packet, prepared } =
+		createStaticPreparationFixture(createDeferredWarmupMaterial());
+	const compileError = new ShaderCompileError({
+		backend: "webgpu", language: "wgsl", stage: "fragment", sourceKind: "custom-material",
+		label: "invalid-extension", code: "@fragment fn fsProbeExtensions() {}",
+		messages: [{ type: "error", message: "invalid extension interface", line: 1, column: 14 }],
+	});
+	const createShaderModule = backend.createShaderModule.bind(backend);
+	backend.createShaderModule = async (desc) => {
+		if (desc.entryPoint === "fsProbeExtensions") throw compileError;
+		return createShaderModule(desc);
+	};
+	try {
+		const phase = await owner._sceneDraws.warmup({
+			packets: [packet], frameResources: prepared, sceneTargetMode: "gbuffer",
+			deferredGBufferLayout: "extended", sampleCount: 1,
+			enableEarlyZPrepass: false, yieldIfNeeded: async () => {},
+		});
+		assert.equal(phase.failed, 1);
+		assert.strictEqual(phase.errors[0], compileError,
+			"Deferred failure classification must retain compiler locations and source maps");
 	} finally {
 		owner.destroy();
 	}
@@ -1266,6 +1376,9 @@ async function testFeatureOwnedWarmupCompilesDeferredSceneVariants() {
 
 async function run() {
 	try {
+		await testDeferredSceneWarmupPreservesCompilerDiagnostics();
+		await testDeferredSceneWarmupReportsExtensionFailure();
+		await testDeferredSceneWarmupPreparesExtensionReplay();
 		await testOpaqueEqualDepthWinnerMatchesWithAndWithoutPrepass();
 		await testBuiltinDepthUsesOnlyDepthResources();
 		await testDepthPreparationRejectsPolicyChangesDuringCompilation();

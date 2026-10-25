@@ -298,7 +298,6 @@ export interface WebGPUParticleBillboardRendererProvider {
 
 /** @internal Deferred G-buffer and decal pipeline capability. */
 export interface WebGPUDeferredResourceProvider {
-	getGBufferWriteLayout(): GPUBindGroupLayout;
 	getGBufferReadLayout(): GPUBindGroupLayout;
 	getDecalBindGroupLayout(): GPUBindGroupLayout;
 	getDecalOutputBindGroupLayout(): GPUBindGroupLayout;

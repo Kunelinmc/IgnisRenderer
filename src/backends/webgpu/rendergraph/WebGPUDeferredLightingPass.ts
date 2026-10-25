@@ -18,8 +18,6 @@ export class WebGPUDeferredLightingPass {
 		WebGPUFrameExecutionContext,
 		"commands" | "targets" | "resources" | "dirtyRects"
 	> | null = null;
-	private _gbufferWriteBinding: IBindingGroup | null = null;
-	private _gbufferWriteBindingSources: IRenderTexture[] = [];
 	private _gbufferReadBinding: IBindingGroup | null = null;
 	private _gbufferReadBindingSources: IRenderTexture[] = [];
 
@@ -40,9 +38,6 @@ export class WebGPUDeferredLightingPass {
 	}
 
 	public destroyBindings(): void {
-		this._destroyBindingGroup(this._gbufferWriteBinding);
-		this._gbufferWriteBinding = null;
-		this._gbufferWriteBindingSources = [];
 		this._destroyBindingGroup(this._gbufferReadBinding);
 		this._gbufferReadBinding = null;
 		this._gbufferReadBindingSources = [];
@@ -50,39 +45,8 @@ export class WebGPUDeferredLightingPass {
 
 	/** Ensures all frame-global deferred bindings and resolve pipeline exist. */
 	public async preflight(): Promise<void> {
-		this.getGBufferWriteBinding();
 		this.getGBufferReadBinding();
 		await this._resources.getDeferredLightingPipeline();
-	}
-
-	public getGBufferWriteBinding(): IBindingGroup {
-		const targets = this._requireFrame().targets.frameTargets;
-		const placeholders =
-			targets.gMaterialExt0 && targets.gMaterialExt3
-				? null
-				: this._resources.getDeferredPlaceholderTextures();
-		const sources = [
-			targets.gMaterialExt0 ?? placeholders!.rgba16Float,
-			targets.gMaterialExt3 ?? placeholders!.rgba16Uint,
-		];
-		if (
-			this._gbufferWriteBinding &&
-			this._gbufferWriteBindingSources.length === sources.length &&
-			this._gbufferWriteBindingSources.every((source, index) => source === sources[index])
-		) {
-			return this._gbufferWriteBinding;
-		}
-		this._destroyBindingGroup(this._gbufferWriteBinding);
-		this._gbufferWriteBinding = this._host.createBindingGroup({
-			layout: this._resources.getGBufferWriteLayout(),
-			entries: [
-				{ binding: 0, resource: sources[0] },
-				{ binding: 1, resource: sources[1] },
-			],
-			label: "WebGPUGBufferWriteBinding",
-		});
-		this._gbufferWriteBindingSources = sources;
-		return this._gbufferWriteBinding;
 	}
 
 	public getGBufferReadBinding(): IBindingGroup {

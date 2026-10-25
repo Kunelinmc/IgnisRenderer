@@ -65,11 +65,14 @@ The following pipeline layouts must preserve these bind group roles:
 | Pipeline layout | Group 0 | Group 1 | Group 2 | Group 3 |
 | --- | --- | --- | --- | --- |
 | `scenePipelineLayout` | `sceneFrameBindGroupLayout` | `modelBindGroupLayout` | `clusteredSceneBindGroupLayout` | N/A |
-| `sceneGBufferPipelineLayout` | `sceneFrameBindGroupLayout` | `modelBindGroupLayout` | `clusteredSceneBindGroupLayout` | `gbufferWriteBindGroupLayout` |
 | `sceneDepthPrepassPipelineLayout` | `depthFrameBindGroupLayout` | `depthModelBindGroupLayout` | `depthMaterialBindGroupLayout` | N/A |
 | `deferredLightingPipelineLayout` | `sceneFrameBindGroupLayout` | `deferredUnusedBindGroupLayout` | `clusteredSceneBindGroupLayout` | `gbufferReadBindGroupLayout` |
 | `environmentPipelineLayout` | `environmentFrameBindGroupLayout` | N/A | N/A | N/A |
 | `particlePipelineLayout` | `particleFrameBindGroupLayout` | `particleBindGroupLayout` | N/A | N/A |
+
+Forward scene, base G-buffer, and extension replay pipelines share
+`scenePipelineLayouts[family]`; their attachment and depth states remain
+pass-specific.
 
 ### `sceneFrameBindGroupLayout` - `group(0)`
 
@@ -228,13 +231,14 @@ passes agree on the fixed index span for each cluster.
 
 ### G-buffer Bindings
 
-`gbufferWriteBindGroupLayout` is used as `group(3)` by
-`sceneGBufferPipelineLayout`:
+Opaque G-buffer geometry uses no extension storage bindings. After the base
+attachments and final depth are recorded, extension replay writes two color
+attachments with depth comparison `equal` and depth writes disabled:
 
-| Binding | Shader name | Resource contract |
+| Location | Shader field | Resource contract |
 | --- | --- | --- |
-| `0` | `gMaterialExt0Out` | Write-only `rgba16float` storage texture |
-| `1` | `gMaterialExt3Out` | Write-only `rgba16uint` storage texture |
+| `0` | `materialExt0` | `rgba16float` render attachment |
+| `1` | `materialExt3` | `rgba16uint` render attachment |
 
 `gbufferReadBindGroupLayout` is used as `group(3)` by
 `deferredLightingPipelineLayout`:

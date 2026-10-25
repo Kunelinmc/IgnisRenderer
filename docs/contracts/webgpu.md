@@ -694,10 +694,18 @@ lighting, presentation configuration, reflections, and structured buffer packing
 	  packet. The snapshot must contain the resolved pipeline, material uniform
 	  data, texture and sampler resources, model binding, geometry resources, and
 	  the selected early-Z/G-buffer draw variants.
-	- G-buffer and early-Z recording must consume the retained packet snapshots
+	- G-buffer, extension, and early-Z recording must consume the retained packet snapshots
 	  and must not call `getDrawResources()` again. A packet selected by multiple
 	  incremental dirty rectangles must reuse the same snapshot for every
 	  rectangle.
+	- Deferred scene warmup must compile the base G-buffer variant and, for an
+	  `extended` layout, the extension replay variant. It must report extension
+	  compilation failures with their original compiler diagnostics. Warmup and
+	  frame preflight must share the deferred
+	  early-Z eligibility policy; custom deferred programs must not warm unused
+	  vertex-only early-Z variants. A `base` layout must not warm extension replay.
+	- Forward scene, base G-buffer, and extension replay pipelines must reuse the
+	  same scene pipeline layout for each shading family.
 	- Before an incremental partial scene draw, WebGPU must shader-clear scene
 	  color and every active raster G-buffer attachment inside all dirty
 	  rectangles. The clear must use the attachment layout's canonical empty
@@ -725,9 +733,18 @@ lighting, presentation configuration, reflections, and structured buffer packing
 	- `gSpecular.rgb` must store the resolved specular color. `gSpecular.a` must
 	  store the PBR specular factor or the unclamped Phong/Flat shininess,
 	  according to the packed shading model.
-	- Deferred storage payload textures must be `gMaterialExt0` as
-	  `rgba16float` and `gMaterialExt3` as `rgba16uint`. Deferred opaque shading
-	  must not store transmission volume or attenuation payloads.
+	- Extension payload textures must be `gMaterialExt0` as `rgba16float` and
+	  `gMaterialExt3` as `rgba16uint`. They must support render attachments and
+	  retain storage usage for visibility-filtered decal composition. Deferred
+	  opaque shading must not store transmission volume or attenuation payloads.
+	- Opaque geometry must write extensions through a second raster pass after
+	  the base G-buffer has selected the final visible depth. Extension outputs
+	  must be color attachments, not fragment storage writes. The extension pass
+	  must use read-only depth with `equal` comparison, replay the same packet and
+	  primitive order, and preserve the original alpha discard, fragment depth,
+	  and sample mask. Equal-depth ties must retain the base pass's last-draw winner.
+	  This rule must hold with early-Z enabled or disabled and for incremental
+	  dirty rectangles. Base-only frames must not record an extension pass.
 	- `gMaterialExt0.xy` must store the encoded view-space clearcoat normal,
 	  `gMaterialExt0.z` the iridescence factor, and `gMaterialExt0.w` the
 	  iridescence thickness.
@@ -764,8 +781,14 @@ lighting, presentation configuration, reflections, and structured buffer packing
 	- `ShaderStageKind` must include `"fragment-deferred"`.
 	- `ShaderMaterialParams.deferredLighting` must opt a shader material into
 	  deferred routing.
-	- `ShaderMaterialParams.fragmentDeferredEntryPoint` must select the deferred
-	  fragment entry point and must default to `fsMainDeferred`.
+	- `ShaderMaterialParams.fragmentDeferredBaseEntryPoint` must select the base
+	  G-buffer fragment entry point and must default to `fsMainDeferredBase`.
+	- `ShaderMaterialParams.fragmentDeferredExtensionsEntryPoint` must select the
+	  extension fragment entry point and must default to `fsMainDeferredExtensions`.
+	  Both entries must exist in the same WebGPU deferred fragment chunk. The base
+	  entry must write the seven standard G-buffer color outputs. The extension
+	  entry must write `gMaterialExt0` at location `0` as `vec4<f32>` and
+	  `gMaterialExt3` at location `1` as `vec4<u32>`.
 	- When MRT rendering falls back from a missing `fragment-mrt` chunk to a
 	  `fragment-single` chunk, the resolved WebGPU program must use
 	  `fragmentSingleEntryPoint`. The pipeline must preserve the MRT attachment
@@ -773,6 +796,19 @@ lighting, presentation configuration, reflections, and structured buffer packing
 	  mask.
 	- A `ShaderMaterial` must enter the G-buffer path only when
 	  `deferredLighting === true` and a WebGPU deferred fragment chunk exists.
+	  Deferred packets must also be opaque or masked and write depth.
+	- Custom shader authors must preserve the same discard, fragment depth, and
+	  sample mask semantics in both entries, preferably through a shared WGSL
+	  surface function. Their shared vertex entry must mark its `position` output
+	  with `@invariant` and use identical clip-position inputs and arithmetic in
+	  both pipelines; sharing a module alone is not an invariance guarantee.
+	  The engine must select the supplied entries directly, without rewriting
+	  their interfaces or generating compatibility entry points. Direct fragment
+	  storage writes to extension G-buffer textures are unsupported.
+	- Custom deferred programs must select final depth without a vertex-only
+	  early-Z prepass that omits their fragment depth or discard logic. Missing or
+	  invalid deferred entries must reject frame preflight before recording draw
+	  commands; they must not silently select built-in or forward shaders.
 	- Non-opt-in `ShaderMaterial` instances must render after lighting through
 	  the legacy MRT forward fallback.
 - Camera reconstruction contract:
@@ -1110,8 +1146,10 @@ import { ShaderMaterial } from "../src/materials/ShaderMaterial";
 
 const material = new ShaderMaterial({
 	deferredLighting: true,
-	fragmentDeferredEntryPoint: "fsDeferred",
+	fragmentDeferredBaseEntryPoint: "fsDeferredBase",
+	fragmentDeferredExtensionsEntryPoint: "fsDeferredExtensions",
 	chunks: [
+		{ backend: "webgpu", language: "wgsl", stage: "vertex", code: vertexWGSL },
 		{
 			backend: "webgpu",
 			language: "wgsl",
@@ -1122,6 +1160,19 @@ const material = new ShaderMaterial({
 	],
 });
 ```
+
+The shared vertex output must declare invariant position for depth-equal replay:
+
+```wgsl
+struct VertexOutput {
+	@invariant @builtin(position) position: vec4<f32>,
+	@location(0) normal: vec3<f32>,
+}
+```
+
+`tests/browser/fixtures/webgpu_gbuffer_custom_probe.wgsl` contains a complete
+two-entry example with shared surface evaluation, discard, fragment depth, and
+sample mask.
 
 ```bash
 bun tests/static/shaders/test_shader_material.mjs
@@ -1257,9 +1308,12 @@ const packed = packer.pack({
   emitted when deferred frame target allocation, binding creation, or pipeline
   creation fails after limits passed. Pipeline and binding creation must be
   preflighted before the first G-buffer command so the frame can atomically use
-  legacy forward rendering.
-- Shader compile diagnostics for opt-in `ShaderMaterial` deferred chunks must
-  follow the existing `ShaderMaterial` strict/warn/silent runtime behavior.
+  legacy forward rendering. A valid custom deferred material must not disable
+  this fallback for failures in shared deferred resources or built-in draws.
+- Custom deferred program resolution, shader compilation, and render-pipeline
+  creation failures must preserve their error origin and reject frame preflight,
+  including in `warn` mode. They must not select built-in or forward shaders.
+  Other deferred preflight failures must retain the runtime fallback policy.
 
 ### Sample-count configuration
 

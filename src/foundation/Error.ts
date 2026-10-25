@@ -135,6 +135,15 @@ export class WebGPUPipelineCreationInvalidatedError extends Error {
 	}
 }
 
+/** @internal WebGPU deferred preflight diagnostic; applications configure `ShaderMaterial`. */
+export class WebGPUDeferredShaderError extends Error {
+	public constructor(materialName: string, cause: unknown) {
+		super(`Custom WebGPU deferred shader "${materialName}" failed: ${String(cause)}`);
+		this.name = "WebGPUDeferredShaderError";
+		(this as { cause?: unknown }).cause = cause;
+	}
+}
+
 export interface WebGPUFramePartialSubmitErrorInit {
 	readonly cause: unknown;
 	readonly phase: "submit" | "post-submit";

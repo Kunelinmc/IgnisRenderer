@@ -292,7 +292,8 @@ The option `enableEarlyZPrepass?: boolean` is accepted by `SoftwareBackendOption
 	- Built-in depth and color vertex outputs must mark `position` as
 	  `@invariant` and share current clip-position arithmetic. Deformation,
 	  jitter, culling, alpha discard, and sample coverage must agree between passes.
-	  Custom shaders opting into a prepass must satisfy the same equivalence.
+	  Custom shaders opting into a prepass or depth-equal G-buffer extension
+	  replay must satisfy the same equivalence, including invariant position.
 	- Transparent, transmission, particle, and shadow depth states retain their
 	  owning pass contracts; they must not inherit the opaque equality policy.
 - **WebGL Backend**:

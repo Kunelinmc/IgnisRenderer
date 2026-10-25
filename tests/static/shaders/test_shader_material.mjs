@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { Logger } from "../../../src/foundation/Logger.ts";
+import { WebGPUDeferredShaderError } from "../../../src/foundation/Error.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";
 import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
 import { Material, AlphaMode } from "../../../src/materials/Material.ts";
+import { materialSupportsWebGPUDeferredLighting } from "../../../src/backends/webgpu/material.ts";
 import { createWebGPUPipelineLayouts } from "../../../src/backends/webgpu/WebGPUPipelineLayouts.ts";
 import { ShaderSource } from "../../../src/shaders/ShaderSource.ts";
 import { WebGPUScenePipelineResources } from "../../../src/backends/webgpu/WebGPUScenePipelineResources.ts";
@@ -46,7 +48,6 @@ function createLayouts() {
 	);
 	return {
 		scenePipelineLayouts: familyLayouts("scene-layout"),
-		sceneGBufferPipelineLayouts: familyLayouts("scene-gbuffer-layout"),
 		sceneDepthPrepassPipelineLayout: { id: "scene-depth-layout" },
 		planarReflectionPipelineLayouts: familyLayouts("planar-layout"),
 		environmentPipelineLayout: { id: "environment-layout" },
@@ -194,7 +195,7 @@ struct DeferredOut {
 }
 
 @fragment
-fn customFsDeferred() -> DeferredOut {
+fn customFsDeferredBase() -> DeferredOut {
 	return DeferredOut(
 		vec4<f32>(1.0),
 		vec4<f32>(0.0),
@@ -204,6 +205,19 @@ fn customFsDeferred() -> DeferredOut {
 		vec4<f32>(0.0),
 		vec4<f32>(0.0)
 	);
+}
+
+struct DeferredExtensions {
+	@location(0) materialExt0: vec4<f32>,
+	@location(1) materialExt3: vec4<u32>,
+}
+
+@fragment fn customFsDeferredExtensions() -> DeferredExtensions {
+	return DeferredExtensions(vec4<f32>(0.5, 0.5, 0.0, 0.0), vec4<u32>(0u));
+}
+
+@fragment fn differentExtensions() -> DeferredExtensions {
+	return DeferredExtensions(vec4<f32>(0.25, 0.5, 0.0, 0.0), vec4<u32>(0u));
 }
 `;
 
@@ -491,21 +505,59 @@ async function testWebGPUDeferredProgramSelection() {
 			},
 		],
 		vertexEntryPoint: "customVs",
-		fragmentDeferredEntryPoint: "customFsDeferred",
+		fragmentDeferredBaseEntryPoint: "customFsDeferredBase",
+		fragmentDeferredExtensionsEntryPoint: "customFsDeferredExtensions",
 	});
 
 	assert.equal(material.hasWebGPUDeferredProgram(), true);
 	const program = material.resolveWebGPUProgram("deferred");
-	assert.equal(program.fragmentEntryPoint, "customFsDeferred");
+	assert.equal(program.fragmentEntryPoint, "customFsDeferredBase");
+	assert.equal(program.fragmentExtensionsEntryPoint, "customFsDeferredExtensions");
+	assert.equal(program.fragmentCode.trim(), WGSL_FRAGMENT_DEFERRED.trim());
 	assert.equal(program.fragmentTargetMode, "deferred");
 	assert.equal(program.fragmentCode.includes("DeferredOut"), true);
 
 	const pipeline = await getScenePipeline(library, backend,
 		material, "gbuffer", false, undefined, undefined, undefined, 1,
 	);
-	assert.equal(pipeline.desc.layout.id, "scene-gbuffer-layout:flat");
-	assert.equal(pipeline.desc.fragment.entryPoint, "customFsDeferred");
+	assert.equal(pipeline.desc.layout.id, "scene-layout:flat");
+	assert.equal(pipeline.desc.fragment.entryPoint, "customFsDeferredBase");
 	assert.equal(pipeline.desc.fragment.targets.length, 7);
+	const extensions = await getScenePipeline(library, backend,
+		material, "gbuffer", false, undefined, undefined, "gbuffer-extensions", 1,
+	);
+	assert.equal(extensions.desc.fragment.entryPoint, "customFsDeferredExtensions");
+	assert.deepEqual(extensions.desc.fragment.targets.map((target) => target.format),
+		["rgba16float", "rgba16uint"]);
+	const originalKey = material.getWebGPUCacheKey();
+	material.fragmentDeferredExtensionsEntryPoint = "differentExtensions";
+	assert.notEqual(material.getWebGPUCacheKey(), originalKey);
+	const changedExtensions = await getScenePipeline(library, backend,
+		material, "gbuffer", false, undefined, undefined, "gbuffer-extensions", 1,
+	);
+	assert.equal(changedExtensions.desc.fragment.entryPoint, "differentExtensions");
+	material.fragmentDeferredExtensionsEntryPoint = "";
+	assert.throws(() => material.resolveWebGPUProgram("deferred"), /extension.*entry/i);
+	material.fragmentDeferredExtensionsEntryPoint = "customFsDeferredExtensions";
+	const rejectingBackend = new FakeBackend();
+	rejectingBackend.shaderRuntime = new ShaderRuntime({ mode: "warn" });
+	rejectingBackend.failCustomShaderModules = true;
+	const rejectingLibrary = new WebGPUScenePipelineResources(rejectingBackend, createLayouts());
+	await assert.rejects(() => getScenePipeline(rejectingLibrary, rejectingBackend,
+		material, "gbuffer", false, undefined, undefined, "gbuffer-extensions", 1,
+	), (error) => error instanceof WebGPUDeferredShaderError &&
+		/simulated custom shader module compile failure/.test(error.cause?.message));
+	const invalidPipelineBackend = new FakeBackend();
+	invalidPipelineBackend.createPipeline = async () => {
+		throw new Error("invalid custom deferred pipeline output");
+	};
+	const invalidPipelineLibrary = new WebGPUScenePipelineResources(
+		invalidPipelineBackend, createLayouts(),
+	);
+	await assert.rejects(() => getScenePipeline(invalidPipelineLibrary, invalidPipelineBackend,
+		material, "gbuffer", false, undefined, undefined, "gbuffer-extensions", 1,
+	), (error) => error instanceof WebGPUDeferredShaderError &&
+		error.cause?.message === "invalid custom deferred pipeline output");
 
 	const missingOptIn = new ShaderMaterial({
 		chunks: [
@@ -519,6 +571,13 @@ async function testWebGPUDeferredProgramSelection() {
 		],
 	});
 	assert.equal(missingOptIn.hasWebGPUDeferredProgram(), false);
+	const missingChunk = new ShaderMaterial({ deferredLighting: true, chunks: [
+		{ backend: "webgpu", language: "wgsl", stage: "vertex", code: WGSL_VERTEX },
+		{ backend: "webgpu", language: "wgsl", stage: "fragment", mode: "single",
+			code: WGSL_FRAGMENT_SINGLE },
+	] });
+	assert.throws(() => materialSupportsWebGPUDeferredLighting(missingChunk), /deferred fragment chunk/i);
+	assert.throws(() => missingChunk.resolveWebGPUProgram("deferred"), /fragment-deferred shader source/i);
 }
 
 async function testBuiltinBaseGBufferPipelineSelection() {

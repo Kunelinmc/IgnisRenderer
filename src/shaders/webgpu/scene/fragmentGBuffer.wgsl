@@ -1,5 +1,12 @@
-@group(3) @binding(0) var gMaterialExt0Out: texture_storage_2d<rgba16float, write>;
-@group(3) @binding(1) var gMaterialExt3Out: texture_storage_2d<rgba16uint, write>;
+struct GBufferExtensionFragmentOutput {
+	@location(0) materialExt0: vec4<f32>,
+	@location(1) materialExt3: vec4<u32>,
+}
+
+struct GBufferSurfaceOutput {
+	base: GBufferFragmentOutput,
+	extensions: GBufferExtensionFragmentOutput,
+}
 
 struct GBufferBaseFragmentOutput {
 	@location(0) gAlbedoAlpha: vec4<f32>,
@@ -26,10 +33,7 @@ fn buildGBufferOutputExtended(
 	materialExt0: vec4<f32>,
 	materialExt3: vec4<u32>,
 	nodeRenderLayers: vec2<f32>
-) -> GBufferFragmentOutput {
-	let coord = vec2<i32>(fragCoord);
-	textureStore(gMaterialExt0Out, coord, materialExt0);
-	textureStore(gMaterialExt3Out, coord, materialExt3);
+) -> GBufferSurfaceOutput {
 	var resolvedMaterialWord = decodeDeferredMaterialWord(materialWord);
 	if (nodeRenderLayers.y > 0.5) {
 		resolvedMaterialWord =
@@ -61,32 +65,32 @@ fn buildGBufferOutputExtended(
 	output.gSpecular = specularData;
 	output.gCoatSheen = coatSheenData;
 	output.gSheenReflectance = sheenReflectanceData;
-	return output;
+	return GBufferSurfaceOutput(output, GBufferExtensionFragmentOutput(materialExt0, materialExt3));
 }
 
 @fragment fn fsMainGBufferPBR(
 	input: VertexOutput,
 	@builtin(front_facing) frontFacing: bool
 ) -> GBufferFragmentOutput {
-	return evaluateGBuffer(input, frontFacing, resolvePBRLightingMaterial());
+	return evaluateGBuffer(input, frontFacing, resolvePBRLightingMaterial()).base;
 }
 @fragment fn fsMainGBufferPhong(
 	input: VertexOutput,
 	@builtin(front_facing) frontFacing: bool
 ) -> GBufferFragmentOutput {
-	return evaluateGBuffer(input, frontFacing, resolvePhongLightingMaterial());
+	return evaluateGBuffer(input, frontFacing, resolvePhongLightingMaterial()).base;
 }
 @fragment fn fsMainGBufferFlat(
 	input: VertexOutput,
 	@builtin(front_facing) frontFacing: bool
 ) -> GBufferFragmentOutput {
-	return evaluateGBuffer(input, frontFacing, resolveFlatLightingMaterial());
+	return evaluateGBuffer(input, frontFacing, resolveFlatLightingMaterial()).base;
 }
 @fragment fn fsMainGBufferUnlit(
 	input: VertexOutput,
 	@builtin(front_facing) frontFacing: bool
 ) -> GBufferFragmentOutput {
-	return evaluateGBuffer(input, frontFacing, resolveUnlitLightingMaterial());
+	return evaluateGBuffer(input, frontFacing, resolveUnlitLightingMaterial()).base;
 }
 
 @fragment fn fsMainGBufferBasePBR(
@@ -131,7 +135,7 @@ fn buildGBufferOutput(
 	sheenReflectanceData: vec4<f32>,
 	materialExt0: vec4<f32>,
 	nodeRenderLayers: vec2<f32>
-) -> GBufferFragmentOutput {
+) -> GBufferSurfaceOutput {
 	return buildGBufferOutputExtended(
 		fragCoord,
 		alpha,
@@ -161,7 +165,7 @@ fn evaluateGBuffer(
 	input: VertexOutput,
 	frontFacing: bool,
 	material: ResolvedLightingMaterial
-) -> GBufferFragmentOutput {
+) -> GBufferSurfaceOutput {
 	let shadingMode = material.shadingMode;
 	let alphaModeMask = materialCommon.materialParams.z > 0.5;
 	let doubleSided = materialCommon.materialParams.w > 0.5;
@@ -711,4 +715,28 @@ fn evaluateGBufferBase(
 		materialWord
 	);
 	return output;
+}
+
+@fragment fn fsMainGBufferExtensionsPBR(
+	input: VertexOutput, @builtin(front_facing) frontFacing: bool
+) -> GBufferExtensionFragmentOutput {
+	return evaluateGBuffer(input, frontFacing, resolvePBRLightingMaterial()).extensions;
+}
+
+@fragment fn fsMainGBufferExtensionsPhong(
+	input: VertexOutput, @builtin(front_facing) frontFacing: bool
+) -> GBufferExtensionFragmentOutput {
+	return evaluateGBuffer(input, frontFacing, resolvePhongLightingMaterial()).extensions;
+}
+
+@fragment fn fsMainGBufferExtensionsFlat(
+	input: VertexOutput, @builtin(front_facing) frontFacing: bool
+) -> GBufferExtensionFragmentOutput {
+	return evaluateGBuffer(input, frontFacing, resolveFlatLightingMaterial()).extensions;
+}
+
+@fragment fn fsMainGBufferExtensionsUnlit(
+	input: VertexOutput, @builtin(front_facing) frontFacing: bool
+) -> GBufferExtensionFragmentOutput {
+	return evaluateGBuffer(input, frontFacing, resolveUnlitLightingMaterial()).extensions;
 }

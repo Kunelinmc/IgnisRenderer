@@ -674,8 +674,8 @@ async function testSceneShaderCoverage() {
 	assert.ok(WEBGPU_SCENE_SHADER.includes("struct SceneFragmentOITOutput"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("struct GBufferFragmentOutput"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("fn fsMainGBufferPBR("));
-	assert.ok(WEBGPU_SCENE_SHADER.includes("gMaterialExt0Out"));
-	assert.ok(WEBGPU_SCENE_SHADER.includes("gMaterialExt3Out"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("fn fsMainGBufferExtensionsPBR("));
+	assert.ok(!WEBGPU_SCENE_SHADER.includes("textureStore(gMaterialExt"));
 	assert.ok(WEBGPU_DEFERRED_LIGHTING_SHADER.includes("gMaterialExt3In"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("fn evaluateOpaquePhongLight("));
 	assert.ok(WEBGPU_DEFERRED_LIGHTING_SHADER.includes("fn evaluateOpaquePhongLight("));
@@ -849,18 +849,6 @@ function testScenePipelineLimitConstantsMatchLayout() {
 		layouts.deferredUnusedBindGroupLayout
 	);
 	assert.equal(layouts.scenePipelineLayouts.pbr.desc.bindGroupLayouts.length, 3);
-	assert.equal(
-		layouts.sceneGBufferPipelineLayouts.pbr.desc.bindGroupLayouts.length,
-		4
-	);
-	assert.equal(
-		layouts.sceneGBufferPipelineLayouts.pbr.desc.bindGroupLayouts[3],
-		layouts.gbufferWriteBindGroupLayout
-	);
-	assert.equal(
-		layouts.gbufferWriteBindGroupLayout.desc.entries.length,
-		WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT
-	);
 	assert.equal(layouts.decalPipelineLayout.desc.bindGroupLayouts.length, 4);
 	assert.equal(
 		layouts.decalPipelineLayout.desc.bindGroupLayouts[3],

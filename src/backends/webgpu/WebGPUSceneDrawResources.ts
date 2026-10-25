@@ -10,6 +10,8 @@ import type {
 import type { WebGPUScenePipelineResources } from "./WebGPUScenePipelineResources";
 import type { WebGPUSceneTargetMode } from "./WebGPUScenePassDescriptors";
 import type { WebGPUFeatureWarmupContributor } from "./WebGPUFeatureWarmup";
+import { materialSupportsWebGPUDeferredEarlyZPrepass } from "./material";
+import { WebGPUDeferredShaderError } from "../../foundation/Error";
 
 export interface WebGPUSceneWarmupRequest {
 	readonly phase?: string;
@@ -71,7 +73,7 @@ export class WebGPUSceneDrawResources
 				} catch (error) {
 					failed++;
 					errors.push(toShaderCompileError(
-						error,
+						error instanceof WebGPUDeferredShaderError ? error.cause : error,
 						"webgpu",
 						`WebGPUSceneWarmup:${packet.submission.id}:${options.drawMode ?? "default"}`,
 					));
@@ -85,7 +87,8 @@ export class WebGPUSceneDrawResources
 				deferredGBufferLayout: request.deferredGBufferLayout,
 				sampleCount: request.sampleCount,
 			});
-			if (request.enableEarlyZPrepass) {
+			if (request.enableEarlyZPrepass && (request.sceneTargetMode !== "gbuffer" ||
+				materialSupportsWebGPUDeferredEarlyZPrepass(packet.submission.material.effective))) {
 				const earlyZCompiled = await compileVariant({
 					sceneTargetMode: request.sceneTargetMode,
 					drawMode: "early-z-prepass",
@@ -95,6 +98,14 @@ export class WebGPUSceneDrawResources
 				if (earlyZCompiled) await compileVariant({
 					sceneTargetMode: request.sceneTargetMode,
 					drawMode: "early-z-color",
+					deferredGBufferLayout: request.deferredGBufferLayout,
+					sampleCount: request.sampleCount,
+				});
+			}
+			if (request.sceneTargetMode === "gbuffer" && request.deferredGBufferLayout !== "base") {
+				await compileVariant({
+					sceneTargetMode: request.sceneTargetMode,
+					drawMode: "gbuffer-extensions",
 					deferredGBufferLayout: request.deferredGBufferLayout,
 					sampleCount: request.sampleCount,
 				});

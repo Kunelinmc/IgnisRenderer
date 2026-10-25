@@ -101,8 +101,13 @@ export interface ShaderMaterialParams extends MaterialParams {
 	vertexEntryPoint?: string;
 	fragmentSingleEntryPoint?: string;
 	fragmentMRTEntryPoint?: string;
-	/** WebGPU deferred G-buffer fragment entry point. Defaults to `fsMainDeferred`. */
-	fragmentDeferredEntryPoint?: string;
+	/** Base deferred G-buffer output entry. Defaults to `fsMainDeferredBase`. */
+	fragmentDeferredBaseEntryPoint?: string;
+	/**
+	 * Extension G-buffer output entry in the same deferred fragment chunk.
+	 * Defaults to `fsMainDeferredExtensions`; must preserve base discard and depth semantics.
+	 */
+	fragmentDeferredExtensionsEntryPoint?: string;
 	depthFragmentEntryPoint?: string;
 	depthFragmentCode?: string;
 	/** Opts this material into WebGPU deferred lighting when a deferred chunk exists. */
@@ -120,6 +125,8 @@ export interface ResolvedWebGPUShaderProgram {
 	fragmentCode: string;
 	vertexEntryPoint: string;
 	fragmentEntryPoint: string;
+	/** @internal WebGPU pipeline bridge; selected only for deferred extension replay. */
+	fragmentExtensionsEntryPoint?: string;
 	/**
 	 * @internal Used by the WebGPU material pipeline resolver to match color target writes
 	 * after source fallback. Applications should configure shader chunks and
@@ -236,8 +243,14 @@ export class ShaderMaterial extends Material {
 	public vertexEntryPoint: string;
 	public fragmentSingleEntryPoint: string;
 	public fragmentMRTEntryPoint: string;
-	/** WebGPU deferred G-buffer fragment entry point. */
-	public fragmentDeferredEntryPoint: string;
+	/** Selects the base G-buffer output in the WebGPU deferred fragment chunk. */
+	public fragmentDeferredBaseEntryPoint: string;
+	/**
+	 * Selects the extension MRT output in the same deferred chunk. Both entries
+	 * must agree on discard, fragment depth, and sample mask. The shared vertex
+	 * entry must mark its position output with `@invariant` for depth-equal replay.
+	 */
+	public fragmentDeferredExtensionsEntryPoint: string;
 	public depthFragmentEntryPoint: string;
 	/** Whether this material may route through WebGPU deferred lighting. */
 	public deferredLighting: boolean;
@@ -258,8 +271,10 @@ export class ShaderMaterial extends Material {
 		this.fragmentSingleEntryPoint =
 			params.fragmentSingleEntryPoint ?? "fsMainSingle";
 		this.fragmentMRTEntryPoint = params.fragmentMRTEntryPoint ?? "fsMain";
-		this.fragmentDeferredEntryPoint =
-			params.fragmentDeferredEntryPoint ?? "fsMainDeferred";
+		this.fragmentDeferredBaseEntryPoint =
+			params.fragmentDeferredBaseEntryPoint ?? "fsMainDeferredBase";
+		this.fragmentDeferredExtensionsEntryPoint =
+			params.fragmentDeferredExtensionsEntryPoint ?? "fsMainDeferredExtensions";
 		this.depthFragmentEntryPoint =
 			params.depthFragmentEntryPoint ?? "fsMainDepth";
 		this.deferredLighting = params.deferredLighting === true;
@@ -554,7 +569,8 @@ export class ShaderMaterial extends Material {
 			this.vertexEntryPoint,
 			this.fragmentSingleEntryPoint,
 			this.fragmentMRTEntryPoint,
-			this.fragmentDeferredEntryPoint,
+			this.fragmentDeferredBaseEntryPoint,
+			this.fragmentDeferredExtensionsEntryPoint,
 			this.depthFragmentEntryPoint,
 			this.deferredLighting ? 1 : 0,
 		].join(":");
@@ -575,13 +591,23 @@ export class ShaderMaterial extends Material {
 			: "fragment-single";
 		const fragmentSource = this._resolveWebGPUStageCode(fragmentStage, mode);
 		const fragmentCode = fragmentSource.code;
+		if (fragmentSource.stage === "fragment-deferred") {
+			if (typeof this.fragmentDeferredBaseEntryPoint !== "string" ||
+				!this.fragmentDeferredBaseEntryPoint.trim()) {
+				throw new TypeError("ShaderMaterial deferred base entry point is required.");
+			}
+			if (typeof this.fragmentDeferredExtensionsEntryPoint !== "string" ||
+				!this.fragmentDeferredExtensionsEntryPoint.trim()) {
+				throw new TypeError("ShaderMaterial deferred extension entry point is required.");
+			}
+		}
 		return {
 			vertexCode,
 			fragmentCode,
 			vertexEntryPoint: this.vertexEntryPoint,
 			fragmentEntryPoint:
 				fragmentSource.stage === "fragment-deferred" ?
-					this.fragmentDeferredEntryPoint
+					this.fragmentDeferredBaseEntryPoint
 				: fragmentSource.stage === "fragment-mrt" ?
 					this.fragmentMRTEntryPoint
 				:	this.fragmentSingleEntryPoint,
@@ -589,6 +615,8 @@ export class ShaderMaterial extends Material {
 				fragmentSource.stage === "fragment-deferred" ? "deferred"
 				: fragmentSource.stage === "fragment-mrt" ? "mrt"
 				: "single",
+			fragmentExtensionsEntryPoint: fragmentSource.stage === "fragment-deferred"
+				? this.fragmentDeferredExtensionsEntryPoint : undefined,
 		};
 	}
 

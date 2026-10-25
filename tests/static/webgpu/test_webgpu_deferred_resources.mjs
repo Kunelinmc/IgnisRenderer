@@ -8,7 +8,6 @@ import { FakeWebGPUBackend } from "../../helpers/fakes.mjs";
 
 const backend = new FakeWebGPUBackend();
 const layouts = {
-	gbufferWriteBindGroupLayout: {},
 	gbufferReadBindGroupLayout: {},
 	decalBindGroupLayout: {},
 	decalOutputBindGroupLayout: {},

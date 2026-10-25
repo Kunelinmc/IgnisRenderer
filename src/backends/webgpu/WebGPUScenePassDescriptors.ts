@@ -8,6 +8,7 @@ export type WebGPUScenePipelineDrawMode =
 	| "default"
 	| "early-z-color"
 	| "early-z-prepass"
+	| "gbuffer-extensions"
 	| "reflection-capture";
 export type WebGPUDrawPipelineMode =
 	| WebGPUScenePipelineDrawMode
@@ -15,7 +16,6 @@ export type WebGPUDrawPipelineMode =
 
 export type WebGPUScenePipelineLayoutKind =
 	| "scene"
-	| "scene-gbuffer"
 	| "scene-depth-prepass"
 	| "planar-reflection";
 export type WebGPUSceneFragmentTargetKind =
@@ -23,6 +23,7 @@ export type WebGPUSceneFragmentTargetKind =
 	| "mrt"
 	| "gbuffer"
 	| "gbuffer-base"
+	| "gbuffer-extensions"
 	| "oit"
 	| "transmission-capture"
 	| "depth-only"
@@ -32,6 +33,7 @@ export type WebGPUSceneShaderEntryMode =
 	| "mrt"
 	| "gbuffer"
 	| "gbuffer-base"
+	| "gbuffer-extensions"
 	| "oit"
 	| "transmission-capture"
 	| "early-z-prepass"
@@ -40,6 +42,7 @@ export type WebGPUSceneDepthStateMode =
 	| "default"
 	| "early-z-color"
 	| "early-z-prepass"
+	| "gbuffer-extensions"
 	| "planar-reflection";
 export type WebGPUSampleCountMode = "single-sample" | "mrt-msaa";
 export type WebGPUDepthFormatMode = "canvas" | "depth32float";
@@ -94,6 +97,7 @@ export function resolveWebGPUScenePassDescriptor(
 	}
 
 	const fragmentTargetKind =
+		drawMode === "gbuffer-extensions" ? "gbuffer-extensions" :
 		transparentMode === "transmission-capture" ? "transmission-capture" :
 		sceneTargetMode === "gbuffer" ?
 			deferredGBufferLayout === "base" ? "gbuffer-base" : "gbuffer"
@@ -102,6 +106,7 @@ export function resolveWebGPUScenePassDescriptor(
 		: transparentMode === "oit" ? "oit"
 		: "mrt";
 	const shaderEntryMode =
+		drawMode === "gbuffer-extensions" ? "gbuffer-extensions" :
 		transparentMode === "transmission-capture" ? "transmission-capture" :
 		sceneTargetMode === "gbuffer" ?
 			deferredGBufferLayout === "base" ? "gbuffer-base" : "gbuffer"
@@ -109,8 +114,7 @@ export function resolveWebGPUScenePassDescriptor(
 		: sceneTargetMode === "color" && transparentMode !== "oit" ? "single"
 		: transparentMode === "oit" ? "oit"
 		: "mrt";
-	const pipelineLayoutKind =
-		sceneTargetMode === "gbuffer" ? "scene-gbuffer" : "scene";
+	const pipelineLayoutKind = "scene";
 
 	return {
 		sceneTargetMode,
@@ -119,7 +123,8 @@ export function resolveWebGPUScenePassDescriptor(
 		pipelineLayoutKind,
 		fragmentTargetKind,
 		shaderEntryMode,
-		depthStateMode: drawMode === "early-z-color" ? "early-z-color" : "default",
+		depthStateMode: drawMode === "gbuffer-extensions" ? "gbuffer-extensions"
+			: drawMode === "early-z-color" ? "early-z-color" : "default",
 		frontFace: drawMode === "reflection-capture" ? "cw" : "ccw",
 		sampleCountMode,
 		depthFormatMode,
