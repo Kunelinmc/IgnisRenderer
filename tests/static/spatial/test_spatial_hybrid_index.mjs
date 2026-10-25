@@ -164,6 +164,40 @@ function testAutoSelectsOctreeForLargeCleanDynamicSet() {
 	assert.equal(index._dynamicIndex.size, 9000);
 }
 
+function testAutoSelectionCountsUniqueDynamicMembers() {
+	const mesh = createTriangleMesh(new Material({ name: "HybridUniqueCount" }));
+	const instances = createAllDynamicGrid(mesh, 1000);
+	const repeated = instances.flatMap((instance) => Array(9).fill(instance));
+	const index = new HybridSpatialIndex(repeated);
+	assert.equal(index.size, 1000);
+	assert.equal(index._dynamicBackend, "bvh");
+	assert.equal(index._dynamicIndex.size, 1000);
+	assert.equal(index.queryBounds({
+		min: { x: -100, y: -100, z: -100 },
+		max: { x: 100, y: 100, z: 100 },
+	}).length, 1000);
+}
+
+function testNearestOriginOverlapPreservesIdOrderAcrossBuckets() {
+	const mesh = createTriangleMesh(new Material({ name: "HybridOriginTie" }));
+	const instances = [createInstance(mesh, 0, 0, 0), createInstance(mesh, 0, 0, 0)]
+		.sort((left, right) => left.id.localeCompare(right.id));
+	const [dynamicInstance, staticInstance] = instances;
+	dynamicInstance.skeleton = {};
+	for (const dynamicBackend of ["auto", "bvh", "octree"]) {
+		const index = new HybridSpatialIndex([staticInstance, dynamicInstance], { dynamicBackend });
+		for (const maxResults of [1, 2, Infinity]) {
+			const hits = index.queryRayDetailed(
+				{ x: 0, y: 0, z: 0 },
+				{ x: 0, y: 0, z: -1 },
+				{ maxResults, maxDistance: 10 }
+			);
+			assert.deepEqual(hits.map((hit) => hit.meshInstance), instances.slice(0, maxResults));
+			assert.ok(hits.every((hit) => hit.distance === 0));
+		}
+	}
+}
+
 function testExplicitOctreeBackendPreservesDynamicBucket() {
 	const mesh = createTriangleMesh(new Material({ name: "HybridOctreeMode" }));
 	const instances = createSparseDynamicGrid(mesh, 1000);
@@ -267,6 +301,8 @@ function run() {
 	testRayOrderingAcrossBuckets();
 	testAutoSelectsBVHForSparseDynamicMix();
 	testAutoSelectsOctreeForLargeCleanDynamicSet();
+	testAutoSelectionCountsUniqueDynamicMembers();
+	testNearestOriginOverlapPreservesIdOrderAcrossBuckets();
 	testExplicitOctreeBackendPreservesDynamicBucket();
 	testExplicitBVHMatchesOctreeQueryResults();
 	testBucketMigrationViaMarkDirty();

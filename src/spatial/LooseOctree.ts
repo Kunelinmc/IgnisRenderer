@@ -1,4 +1,6 @@
 import type { BoundingBox } from "../core/types";
+import type { SpatialRayDirection } from "./rayIntersection";
+import { intersectRayAABB, normalizeRayDirection } from "./rayIntersection";
 import type { Frustum } from "../maths/Frustum";
 import type { MeshInstance } from "../meshes";
 import type {
@@ -46,6 +48,7 @@ interface InsertPlacement {
 
 export interface LooseOctreeOptions {
 	leafCapacity?: number;
+	/** Maximum depth from the current root, including after root expansion. */
 	maxDepth?: number;
 	looseness?: number;
 }
@@ -70,6 +73,9 @@ export class LooseOctree implements SpatialIndex3D {
 	private readonly _frustumPlaneData = new Float64Array(24);
 	private readonly _rayNodeHeap: LooseOctreeNode[] = [];
 	private readonly _rayDistanceHeap: number[] = [];
+	private readonly _growthNodeStack: LooseOctreeNode[] = [];
+	private readonly _growthDepthStack: number[] = [];
+	private readonly _collapseNodeStack: LooseOctreeNode[] = [];
 
 	constructor(
 		meshInstances: MeshInstance[] = [],
@@ -120,8 +126,9 @@ export class LooseOctree implements SpatialIndex3D {
 	}
 
 	public rebuild(meshInstances?: MeshInstance[]): void {
-		const source =
-			meshInstances ?? Array.from(this._entriesByMeshInstance.keys());
+		const source = meshInstances ?
+			Array.from(new Set(meshInstances))
+		:	Array.from(this._entriesByMeshInstance.keys());
 		this._entriesByMeshInstance.clear();
 		this._root = null;
 		if (source.length === 0) return;
@@ -350,7 +357,7 @@ export class LooseOctree implements SpatialIndex3D {
 	private _queryNearestRayHit(
 		root: LooseOctreeNode,
 		origin: { x: number; y: number; z: number },
-		normalizedDirection: { x: number; y: number; z: number },
+		normalizedDirection: SpatialRayDirection,
 		maxDistance: number,
 		includeInvisible: boolean
 	): SpatialRayHit | null {
@@ -421,7 +428,7 @@ export class LooseOctree implements SpatialIndex3D {
 	private _queryTopKRayHits(
 		root: LooseOctreeNode,
 		origin: { x: number; y: number; z: number },
-		direction: { x: number; y: number; z: number },
+		direction: SpatialRayDirection,
 		maxDistance: number,
 		maxResults: number,
 		includeInvisible: boolean,
@@ -592,6 +599,7 @@ export class LooseOctree implements SpatialIndex3D {
 	}
 
 	private _expandRootToFit(bounds: BoundingBox): void {
+		const previousRoot = this._root;
 		while (
 			this._root &&
 			!containsBoundsInCube(
@@ -630,6 +638,63 @@ export class LooseOctree implements SpatialIndex3D {
 			root.childIndex = oldChildIndex;
 			newRoot.children![oldChildIndex] = root;
 			this._root = newRoot;
+		}
+		// Apply the depth cap once, after all wrappers for this expansion are in place.
+		if (this._root !== previousRoot) this._limitDepthAfterRootGrowth();
+	}
+
+	private _limitDepthAfterRootGrowth(): void {
+		if (!this._root) return;
+		const nodes = this._growthNodeStack;
+		const depths = this._growthDepthStack;
+		nodes.length = 0;
+		depths.length = 0;
+		nodes.push(this._root);
+		depths.push(0);
+		while (nodes.length > 0) {
+			const node = nodes.pop()!;
+			const depth = depths.pop()!;
+			if (!node.children) continue;
+			if (depth === this._maxDepth) {
+				this._collapseDescendants(node);
+				continue;
+			}
+			for (const child of node.children) {
+				if (!child) continue;
+				nodes.push(child);
+				depths.push(depth + 1);
+			}
+		}
+	}
+
+	private _collapseDescendants(target: LooseOctreeNode): void {
+		const nodes = this._collapseNodeStack;
+		nodes.length = 0;
+		if (!target.children) return;
+		for (const child of target.children) {
+			if (child) nodes.push(child);
+		}
+		target.children = null;
+		while (nodes.length > 0) {
+			const node = nodes.pop()!;
+			for (let i = 0; i < node.objects.length; i++) {
+				const meshInstance = node.objects[i];
+				const entry = this._entriesByMeshInstance.get(meshInstance)!;
+				entry.node = target;
+				entry.objectIndex = target.objects.length;
+				target.objects.push(meshInstance);
+				target.objectBounds.push(node.objectBounds[i]);
+			}
+			if (node.children) {
+				for (const child of node.children) {
+					if (child) nodes.push(child);
+				}
+			}
+			node.objects.length = 0;
+			node.objectBounds.length = 0;
+			node.children = null;
+			node.parent = null;
+			node.childIndex = -1;
 		}
 	}
 
@@ -1054,25 +1119,9 @@ function queryContainsLooseNode(
 	);
 }
 
-function normalizeRayDirection(
-	direction: { x: number; y: number; z: number },
-	label: string
-): { x: number; y: number; z: number } {
-	const directionLength = Math.hypot(direction.x, direction.y, direction.z);
-	if (!(directionLength > 1e-8)) {
-		throw new Error(`${label} direction must be non-zero`);
-	}
-	const invDirectionLength = 1 / directionLength;
-	return {
-		x: direction.x * invDirectionLength,
-		y: direction.y * invDirectionLength,
-		z: direction.z * invDirectionLength,
-	};
-}
-
 function intersectRayLooseNode(
 	origin: { x: number; y: number; z: number },
-	direction: { x: number; y: number; z: number },
+	direction: SpatialRayDirection,
 	maxDistance: number,
 	node: LooseOctreeNode,
 	looseness: number
@@ -1089,55 +1138,6 @@ function intersectRayLooseNode(
 		node.centerY + looseHalfSize,
 		node.centerZ + looseHalfSize
 	);
-}
-
-function intersectRayAABB(
-	origin: { x: number; y: number; z: number },
-	direction: { x: number; y: number; z: number },
-	maxDistance: number,
-	minX: number,
-	minY: number,
-	minZ: number,
-	maxX: number,
-	maxY: number,
-	maxZ: number
-): number | null {
-	let tMin = 0;
-	let tMax = maxDistance;
-
-	const axisHit = (
-		originValue: number,
-		directionValue: number,
-		minValue: number,
-		maxValue: number
-	): boolean => {
-		if (Math.abs(directionValue) < 1e-10) {
-			return originValue >= minValue && originValue <= maxValue;
-		}
-
-		const invDirection = 1 / directionValue;
-		let t0 = (minValue - originValue) * invDirection;
-		let t1 = (maxValue - originValue) * invDirection;
-		if (t0 > t1) {
-			const tmp = t0;
-			t0 = t1;
-			t1 = tmp;
-		}
-		tMin = Math.max(tMin, t0);
-		tMax = Math.min(tMax, t1);
-		return tMax >= tMin;
-	};
-
-	if (!axisHit(origin.x, direction.x, minX, maxX)) return null;
-	if (!axisHit(origin.y, direction.y, minY, maxY)) return null;
-	if (!axisHit(origin.z, direction.z, minZ, maxZ)) return null;
-
-	if (tMax < 0 || tMin > maxDistance) {
-		return null;
-	}
-	if (tMin >= 0) return tMin;
-	if (tMax >= 0) return 0;
-	return null;
 }
 
 function intersectsAABB(

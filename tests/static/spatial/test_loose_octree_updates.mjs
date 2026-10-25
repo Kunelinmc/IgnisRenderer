@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 
+import { Camera } from "../../../src/cameras/Camera.ts";
 import { Material } from "../../../src/materials/Material.ts";
 import { MeshAsset } from "../../../src/meshes/MeshAsset.ts";
 import { MeshInstance } from "../../../src/meshes/MeshInstance.ts";
@@ -239,7 +240,94 @@ function testRedistributionUsesLooseChildren() {
 	);
 }
 
+function assertGrowthState(index, maxDepth, instances) {
+	const residents = [];
+	const stack = [[index._root, 0]];
+	while (stack.length > 0) {
+		const [node, depth] = stack.pop();
+		assert.ok(depth <= maxDepth, `Depth ${depth} exceeds maxDepth ${maxDepth}`);
+		for (let i = 0; i < node.objects.length; i++) {
+			const instance = node.objects[i];
+			residents.push(instance);
+			const entry = index._entriesByMeshInstance.get(instance);
+			assert.equal(entry.node, node);
+			assert.equal(entry.objectIndex, i);
+			assert.equal(entry.bounds, node.objectBounds[i]);
+		}
+		for (const child of node.children ?? []) {
+			if (!child) continue;
+			assert.equal(child.parent, node);
+			assert.equal(node.children[child.childIndex], child);
+			stack.push([child, depth + 1]);
+		}
+	}
+	assert.equal(index.size, instances.length);
+	assert.equal(residents.length, instances.length);
+	assert.deepEqual(new Set(residents), new Set(instances));
+	const bounds = {
+		min: { x: -10000, y: -10000, z: -10000 },
+		max: { x: 10000, y: 10000, z: 10000 },
+	};
+	const candidates = index.queryBounds(bounds);
+	assert.equal(candidates.length, instances.length);
+	assert.deepEqual(new Set(candidates), new Set(instances));
+	const camera = new Camera();
+	camera.updateWorldMatrix();
+	camera.updateMatrices();
+	const expected = instances.filter((instance) => {
+		const ownBounds = instance.getOwnWorldBoundingBox();
+		return camera.frustum.intersectsAABB(ownBounds.min, ownBounds.max);
+	});
+	assert.deepEqual(new Set(index.queryFrustum(camera.frustum)), new Set(expected));
+	for (const instance of instances) {
+		const origin = { x: instance.position.x, y: instance.position.y, z: instance.position.z + 1 };
+		assert.deepEqual(index.queryRay(origin, { x: 0, y: 0, z: -1 }, {
+			maxDistance: 2,
+		}), [instance]);
+	}
+}
+
+function testRootGrowthPreservesDepthQueriesAndRemoval() {
+	const mesh = createTriangleMesh(new Material({ name: "OctreeRootGrowth" }));
+	for (const maxDepth of [0, 1, 3]) {
+		for (const looseness of [1, 1.5, 2]) {
+			const instances = Array.from({ length: 8 }, (_, i) =>
+				createInstance(mesh, (i - 3.5) * 1.4, 0, -5)
+			);
+			const index = new LooseOctree(instances, { maxDepth, looseness, leafCapacity: 1 });
+			const originalBounds = instances.map((instance) =>
+				index._entriesByMeshInstance.get(instance).bounds
+			);
+			const growing = createInstance(mesh, 100, 100, -100);
+			instances.push(growing);
+			index.upsert(growing);
+			assertGrowthState(index, maxDepth, instances);
+			for (const distance of [-1000, 4000]) {
+				growing.position.set(distance, distance, -Math.abs(distance));
+				growing.updateWorldMatrix();
+				index.markDirty(growing);
+				assertGrowthState(index, maxDepth, instances);
+			}
+			for (let i = 0; i < originalBounds.length; i++) {
+				assert.equal(index._entriesByMeshInstance.get(instances[i]).bounds, originalBounds[i]);
+			}
+			// Updating and swap-removing former descendants must use their new locators.
+			instances[0].position.x += 0.1;
+			instances[0].updateWorldMatrix();
+			index.markDirty(instances[0]);
+			assertGrowthState(index, maxDepth, instances);
+			for (const instance of [...instances]) {
+				assert.equal(index.remove(instance), true);
+				assert.equal(index.remove(instance), false);
+				instances.splice(instances.indexOf(instance), 1);
+				assertGrowthState(index, maxDepth, instances);
+			}
+		}
+	}
+}
+
 function run() {
+	testRootGrowthPreservesDepthQueriesAndRemoval();
 	testSplitPlaneClusterUsesLooseChildren();
 	testRedistributionUsesLooseChildren();
 	testInPlaceDirtyUpdateWithinLooseNode();
