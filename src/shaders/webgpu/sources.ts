@@ -43,11 +43,7 @@ export type WebGPUPostProcessShaderPart =
 	| "fog"
 	| "motionBlur"
 	| "dof"
-	| "bloomDownsample"
-	| "bloomBlurH"
-	| "bloomBlurV"
-	| "bloomUpsample"
-	| "bloomComposite"
+	| "bloom"
 	| "gamma"
 	| "toneMapping"
 	| "colorFilter"
@@ -134,11 +130,7 @@ const WEBGPU_POST_PROCESS_SHADER_FILES: Record<
 	fog: "./webgpu/postprocess/fog.wgsl",
 	motionBlur: "./webgpu/postprocess/motionBlur.wgsl",
 	dof: "./webgpu/postprocess/dof.wgsl",
-	bloomDownsample: "./webgpu/postprocess/bloomDownsample.wgsl",
-	bloomBlurH: "./webgpu/postprocess/bloomBlurH.wgsl",
-	bloomBlurV: "./webgpu/postprocess/bloomBlurV.wgsl",
-	bloomUpsample: "./webgpu/postprocess/bloomUpsample.wgsl",
-	bloomComposite: "./webgpu/postprocess/bloomComposite.wgsl",
+	bloom: "./webgpu/postprocess/bloom.wgsl",
 	gamma: "./webgpu/postprocess/gamma.wgsl",
 	toneMapping: "./webgpu/postprocess/toneMapping.wgsl",
 	colorFilter: "./webgpu/postprocess/colorFilter.wgsl",

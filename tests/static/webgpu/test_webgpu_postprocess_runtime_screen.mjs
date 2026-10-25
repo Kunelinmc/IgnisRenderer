@@ -417,13 +417,14 @@ async function testBloomPassImplementationUsesDedicatedPipeline() {
 	assert.equal(backend.samplers.length, 1);
 	assert.deepEqual(
 		backend.shaderModules.map((module) => module.label),
-		[
-			"WebGPUBloomDownsampleShader",
-			"WebGPUBloomBlurHShader",
-			"WebGPUBloomBlurVShader",
-			"WebGPUBloomUpsampleShader",
-			"WebGPUBloomCompositeShader",
-		]
+		["WebGPUBloomShader"]
+	);
+	assert.ok(backend.computePipelines.every(
+		(pipeline) => pipeline.desc.compute.module === backend.shaderModules[0]
+	));
+	assert.deepEqual(
+		backend.computePipelines.map((pipeline) => pipeline.desc.compute.entryPoint),
+		["csDownsample", "csBlurH", "csBlurV", "csUpsample", "csComposite"]
 	);
 	assert.deepEqual(
 		backend.computePipelines.map((pipeline) => pipeline.label),
@@ -448,7 +449,44 @@ async function testBloomPassImplementationUsesDedicatedPipeline() {
 	assert.ok(backend.buffers.every((buffer) => buffer.desc.size === 16));
 	assert.equal(backend.textures.length, 10);
 	assert.equal(backend.bindingGroups.length, 20);
-	assert.equal(backend.writeBufferCalls, 20);
+	assert.equal(backend.writeBufferCalls, 15);
+
+	const getBinding = (label, binding) => backend.bindingGroups
+		.find((group) => group.label === label)
+		?.desc.entries.find((entry) => entry.binding === binding)?.resource;
+	const blurHSource = getBinding("WebGPUBloom_BlurH_0", 0);
+	const blurHDestination = getBinding("WebGPUBloom_BlurH_0", 3);
+	assert.notEqual(blurHSource, blurHDestination);
+	assert.equal(getBinding("WebGPUBloom_BlurV_0", 0), blurHDestination);
+	assert.equal(getBinding("WebGPUBloom_BlurV_0", 3), blurHSource);
+	assert.equal(
+		getBinding("WebGPUBloom_BlurH_0", 4),
+		backend.buffers.find((buffer) => buffer.desc.label === "WebGPUBloomBlurParams")
+	);
+	assert.equal(
+		getBinding("WebGPUBloom_BlurV_0", 4),
+		getBinding("WebGPUBloom_BlurH_0", 4)
+	);
+	assert.equal(
+		getBinding("WebGPUBloom_Upsample_1", 5),
+		getBinding("WebGPUBloom_BlurH_1", 0)
+	);
+	assert.equal(getBinding("WebGPUBloom_Composite", 0), sceneColorMain);
+	assert.equal(getBinding("WebGPUBloom_Composite", 3), postPong);
+	assert.equal(
+		getBinding("WebGPUBloom_Upsample_1", 6),
+		backend.buffers.find((buffer) => buffer.desc.label === "WebGPUBloomUpsampleParams")
+	);
+	assert.equal(
+		getBinding("WebGPUBloom_Composite", 7),
+		backend.buffers.find((buffer) => buffer.desc.label === "WebGPUBloomCompositeParams")
+	);
+	for (const group of backend.bindingGroups) {
+		assert.equal(
+			group.desc.entries.find((entry) => entry.binding === 1)?.resource,
+			backend.samplers[0]
+		);
+	}
 
 	const compositeParams = backend.buffers.find(
 		(buffer) => buffer.desc.label === "WebGPUBloomCompositeParams"
@@ -1020,11 +1058,11 @@ async function testBloomImplementationLifecycleReleasesOwnedResources() {
 	assert.equal(backend.textureDestroyCalls, 10);
 
 	implementation.destroy();
-	assert.equal(backend.shaderModuleDestroyCalls, 5);
+	assert.equal(backend.shaderModuleDestroyCalls, 1);
 	assert.equal(backend.computePipelineDestroyCalls, 5);
 	assert.equal(backend.bufferDestroyCalls, 4);
 	implementation.destroy();
-	assert.equal(backend.shaderModuleDestroyCalls, 5);
+	assert.equal(backend.shaderModuleDestroyCalls, 1);
 	assert.equal(backend.computePipelineDestroyCalls, 5);
 	assert.equal(backend.bufferDestroyCalls, 4);
 

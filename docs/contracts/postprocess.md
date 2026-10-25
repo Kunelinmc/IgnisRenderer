@@ -100,6 +100,21 @@ This document defines logical post-process declarations, planning, backend execu
   internal to WebGPU execution; Software and WebGL implementations must not be
   required to expose or emulate that service.
 
+### Bloom
+
+- WebGPU bloom must load `webgpu.postprocess.bloom` from
+  `src/shaders/webgpu/postprocess/bloom.wgsl` and own one shader module shared
+  by its downsample, horizontal blur, vertical blur, upsample, and composite
+  compute pipelines.
+- These pipelines must select `csDownsample`, `csBlurH`, `csBlurV`,
+  `csUpsample`, and `csComposite`, respectively. Combining source ownership
+  must preserve separate dispatches and intermediate texture dependencies.
+- Horizontal and vertical blur must share one Gaussian filter implementation.
+  Their entry points must select fixed sampling axes without rewriting a
+  shared direction uniform between dispatches.
+- Each entry point must use only its own parameters and required textures.
+  Destruction must release the shared module once and every owned pipeline.
+
 ### Ambient occlusion
 
 - `SSAOOptions.radius` and `bias` must use view-space distance units on every

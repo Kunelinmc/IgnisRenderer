@@ -350,11 +350,10 @@ All entries in this section are pass-local `group(0)` unless stated otherwise.
 | `fog.wgsl` | `0 srcTex` texture, `1 gMotionDepth` texture, `2 linearSampler` sampler, `3 params` uniform, `4 outTex` write storage texture |
 | `motionBlur.wgsl` | `0 srcTex` texture, `1 gMotionDepth` texture, `2 linearSampler` sampler, `3 params` uniform, `4 outTex` write storage texture |
 | `dof.wgsl` | `0 srcTex` texture, `1 gMotionDepth` texture, `2 linearSampler` sampler, `3 params` uniform, `4 outTex` write storage texture |
-| `bloomDownsample.wgsl` | `0 srcTex` texture, `1 linearSampler` sampler, `2 params` uniform, `3 dstTex` write storage texture |
-| `bloomBlurH.wgsl` | `0 srcTex` texture, `1 linearSampler` sampler, `2 params` uniform, `3 dstTex` write storage texture |
-| `bloomBlurV.wgsl` | `0 srcTex` texture, `1 linearSampler` sampler, `2 params` uniform, `3 dstTex` write storage texture |
-| `bloomUpsample.wgsl` | `0 srcTex` texture, `1 blendTex` texture, `2 linearSampler` sampler, `3 params` uniform, `4 dstTex` write storage texture |
-| `bloomComposite.wgsl` | `0 sceneTex` texture, `1 bloomTex` texture, `2 linearSampler` sampler, `3 params` uniform, `4 dstTex` write storage texture |
+| `bloom.wgsl` (`csDownsample`) | `0 srcTex` texture, `1 linearSampler` sampler, `2 downsampleParams` uniform, `3 dstTex` write storage texture |
+| `bloom.wgsl` (`csBlurH`, `csBlurV`) | `0 srcTex` texture, `1 linearSampler` sampler, `3 dstTex` write storage texture, `4 blurParams` uniform |
+| `bloom.wgsl` (`csUpsample`) | `0 srcTex` texture, `1 linearSampler` sampler, `3 dstTex` write storage texture, `5 secondaryTex` texture, `6 upsampleParams` uniform |
+| `bloom.wgsl` (`csComposite`) | `0 srcTex` scene texture, `1 linearSampler` sampler, `3 dstTex` write storage texture, `5 secondaryTex` bloom texture, `7 compositeParams` uniform |
 | `ssao.wgsl` | `0 texA` texture, `1 texB` texture, `2 linearSampler` sampler, `3 params` uniform, `4 outTex` write storage texture |
 | `ssgi.wgsl` trace/temporal | `0 sceneColor` texture, `1 gNormalRoughMetal` texture, `2 gMotionDepth` texture, `3 hiZ` texture, `4 ssgiHistory` texture, `5 motionHistory` texture, `6 linearSampler` sampler, `7 traceParams` uniform, `8 outSSGIHistory` write storage texture |
 | `ssgi.wgsl` trace frame group | `group(1) binding(0) frame` uniform. Runtime supplies the shared scene frame bind group. |

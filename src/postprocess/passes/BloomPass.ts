@@ -21,10 +21,7 @@ import type {
 } from "../../backends/webgl/WebGLProgramCompiler";
 import { clamp } from "../../maths/Common";
 import { ceilDiv, finiteOr } from "../../maths/Misc";
-import {
-	ShaderSource,
-	type WebGPUPostProcessShaderPart,
-} from "../../shaders/ShaderSource";
+import { ShaderSource } from "../../shaders/ShaderSource";
 import {
 	PostProcessPass,
 	type PostProcessPassConfig,
@@ -118,11 +115,7 @@ interface WebGLBloomProgram {
 
 interface WebGPUBloomResources {
 	shared: WebGPUPostProcessServices;
-	downsampleModule: IShaderModule | null;
-	blurHModule: IShaderModule | null;
-	blurVModule: IShaderModule | null;
-	upsampleModule: IShaderModule | null;
-	compositeModule: IShaderModule | null;
+	shaderModule: IShaderModule | null;
 	downsamplePipeline: IComputePipeline | null;
 	blurHPipeline: IComputePipeline | null;
 	blurVPipeline: IComputePipeline | null;
@@ -199,24 +192,8 @@ export class WebGPUBloomImplementation
 				"bloom composite pipeline"
 			);
 			shared.destroyManagedResource(
-				resources.downsampleModule,
-				"bloom downsample shader module"
-			);
-			shared.destroyManagedResource(
-				resources.blurHModule,
-				"bloom horizontal blur shader module"
-			);
-			shared.destroyManagedResource(
-				resources.blurVModule,
-				"bloom vertical blur shader module"
-			);
-			shared.destroyManagedResource(
-				resources.upsampleModule,
-				"bloom upsample shader module"
-			);
-			shared.destroyManagedResource(
-				resources.compositeModule,
-				"bloom composite shader module"
+				resources.shaderModule,
+				"bloom shader module"
 			);
 			shared.destroyManagedResource(
 				resources.downsampleParams,
@@ -370,7 +347,7 @@ export class WebGPUBloomImplementation
 			const invH = 1 / Math.max(texA.height, 1);
 			context.shared.compute.writeBuffer(
 				resources.blurParams,
-				new Float32Array([invW, invH, 1, 0])
+				new Float32Array([invW, invH])
 			);
 			binding = context.shared.getCachedBindGroup(
 				`bloom-blurH-${i}`,
@@ -378,8 +355,8 @@ export class WebGPUBloomImplementation
 				[
 					{ binding: 0, resource: texA },
 					{ binding: 1, resource: context.shared.sampler },
-					{ binding: 2, resource: resources.blurParams },
 					{ binding: 3, resource: texB },
+					{ binding: 4, resource: resources.blurParams },
 				],
 				`WebGPUBloom_BlurH_${i}`
 			);
@@ -392,18 +369,14 @@ export class WebGPUBloomImplementation
 				1
 			);
 			context.encoder.endComputePass();
-			context.shared.compute.writeBuffer(
-				resources.blurParams,
-				new Float32Array([invW, invH, 0, 1])
-			);
 			binding = context.shared.getCachedBindGroup(
 				`bloom-blurV-${i}`,
 				resources.blurVPipeline,
 				[
 					{ binding: 0, resource: texB },
 					{ binding: 1, resource: context.shared.sampler },
-					{ binding: 2, resource: resources.blurParams },
 					{ binding: 3, resource: texA },
+					{ binding: 4, resource: resources.blurParams },
 				],
 				`WebGPUBloom_BlurV_${i}`
 			);
@@ -436,10 +409,10 @@ export class WebGPUBloomImplementation
 				resources.upsamplePipeline,
 				[
 					{ binding: 0, resource: smallerMip },
-					{ binding: 1, resource: currentMip },
-					{ binding: 2, resource: context.shared.sampler },
-					{ binding: 3, resource: resources.upsampleParams },
-					{ binding: 4, resource: dstMip },
+					{ binding: 1, resource: context.shared.sampler },
+					{ binding: 3, resource: dstMip },
+					{ binding: 5, resource: currentMip },
+					{ binding: 6, resource: resources.upsampleParams },
 				],
 				`WebGPUBloom_Upsample_${i}`
 			);
@@ -472,10 +445,10 @@ export class WebGPUBloomImplementation
 			resources.compositePipeline,
 			[
 				{ binding: 0, resource: input },
-				{ binding: 1, resource: bloomResult },
-				{ binding: 2, resource: context.shared.sampler },
-				{ binding: 3, resource: resources.compositeParams },
-				{ binding: 4, resource: target },
+				{ binding: 1, resource: context.shared.sampler },
+				{ binding: 3, resource: target },
+				{ binding: 5, resource: bloomResult },
+				{ binding: 7, resource: resources.compositeParams },
 			],
 			"WebGPUBloom_Composite"
 		);
@@ -498,11 +471,7 @@ export class WebGPUBloomImplementation
 		if (!resources) {
 			resources = {
 				shared,
-				downsampleModule: null,
-				blurHModule: null,
-				blurVModule: null,
-				upsampleModule: null,
-				compositeModule: null,
+				shaderModule: null,
 				downsamplePipeline: null,
 				blurHPipeline: null,
 				blurVPipeline: null,
@@ -520,60 +489,36 @@ export class WebGPUBloomImplementation
 			this._resources.set(shared, resources);
 		}
 		await shared.ensureCommonResources();
-		if (!resources.downsampleModule) {
-			resources.downsampleModule = await this._createModule(
-				shared,
-				"bloomDownsample",
-				"WebGPUBloomDownsampleShader"
-			);
-		}
-		if (!resources.blurHModule) {
-			resources.blurHModule = await this._createModule(
-				shared,
-				"bloomBlurH",
-				"WebGPUBloomBlurHShader"
-			);
-		}
-		if (!resources.blurVModule) {
-			resources.blurVModule = await this._createModule(
-				shared,
-				"bloomBlurV",
-				"WebGPUBloomBlurVShader"
-			);
-		}
-		if (!resources.upsampleModule) {
-			resources.upsampleModule = await this._createModule(
-				shared,
-				"bloomUpsample",
-				"WebGPUBloomUpsampleShader"
-			);
-		}
-		if (!resources.compositeModule) {
-			resources.compositeModule = await this._createModule(
-				shared,
-				"bloomComposite",
-				"WebGPUBloomCompositeShader"
-			);
+		if (!resources.shaderModule) {
+			const shader = await ShaderSource.load("webgpu.postprocess.bloom");
+			resources.shaderModule = await shared.compute.createShaderModule({
+				label: "WebGPUBloomShader",
+				code: shader.source.code,
+				sourceMap: shader.source.sourceMap,
+				language: "wgsl",
+				stage: "compute",
+				sourceKind: "postprocess",
+			});
 		}
 		resources.downsamplePipeline ??= await shared.compute.createComputePipeline({
 			label: "WebGPUBloomDownsamplePipeline",
-			compute: { module: resources.downsampleModule, entryPoint: "csMain" },
+			compute: { module: resources.shaderModule, entryPoint: "csDownsample" },
 		});
 		resources.blurHPipeline ??= await shared.compute.createComputePipeline({
 			label: "WebGPUBloomBlurHPipeline",
-			compute: { module: resources.blurHModule, entryPoint: "csMain" },
+			compute: { module: resources.shaderModule, entryPoint: "csBlurH" },
 		});
 		resources.blurVPipeline ??= await shared.compute.createComputePipeline({
 			label: "WebGPUBloomBlurVPipeline",
-			compute: { module: resources.blurVModule, entryPoint: "csMain" },
+			compute: { module: resources.shaderModule, entryPoint: "csBlurV" },
 		});
 		resources.upsamplePipeline ??= await shared.compute.createComputePipeline({
 			label: "WebGPUBloomUpsamplePipeline",
-			compute: { module: resources.upsampleModule, entryPoint: "csMain" },
+			compute: { module: resources.shaderModule, entryPoint: "csUpsample" },
 		});
 		resources.compositePipeline ??= await shared.compute.createComputePipeline({
 			label: "WebGPUBloomCompositePipeline",
-			compute: { module: resources.compositeModule, entryPoint: "csMain" },
+			compute: { module: resources.shaderModule, entryPoint: "csComposite" },
 		});
 		resources.downsampleParams ??= shared.compute.createBuffer({
 			label: "WebGPUBloomDownsampleParams",
@@ -596,24 +541,6 @@ export class WebGPUBloomImplementation
 			usage: BufferUsage.Uniform | BufferUsage.CopyDst,
 		});
 		return resources;
-	}
-
-	private async _createModule(
-		shared: WebGPUPostProcessServices,
-		part: WebGPUPostProcessShaderPart,
-		label: string
-	): Promise<IShaderModule> {
-		const shader = await ShaderSource.load(
-			`webgpu.postprocess.${part}`
-		);
-		return shared.compute.createShaderModule({
-			label,
-			code: shader.source.code,
-			sourceMap: shader.source.sourceMap,
-			language: "wgsl",
-			stage: "compute",
-			sourceKind: "postprocess",
-		});
 	}
 
 	private _ensureMipTextures(
