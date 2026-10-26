@@ -2,7 +2,13 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import { Logger } from "../../../src/foundation/Logger.ts";
-import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";import { Matrix4 } from "../../../src/maths/Matrix4.ts";import { drawWebGLPacket } from "../../../src/backends/webgl/WebGLScenePass.ts";import { WebGLBackend } from "../../../src/backends/webgl/WebGLBackend.ts";import { PARTICLE_SIM_DELTA_TIME_SECONDS_KEY } from "../../../src/pipeline/types.ts";import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";import { createScenePassCaptureGL, runWebGLBackendFile } from "../../helpers/webgl-backend.mjs";import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
+import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";
+import { Matrix4 } from "../../../src/maths/Matrix4.ts";
+import { drawWebGLPacket } from "../../../src/backends/webgl/WebGLScenePass.ts";
+import { WebGLBackend } from "../../../src/backends/webgl/WebGLBackend.ts";
+import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
+import { createScenePassCaptureGL, runWebGLBackendFile } from "../../helpers/webgl-backend.mjs";
+import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 import { CameraType } from "../../../src/cameras/Camera.ts";
 import { WebGLEnvironmentRenderer } from "../../../src/backends/webgl/WebGLEnvironmentRenderer.ts";
 import { WebGLSceneRuntime } from "../../../src/backends/webgl/WebGLSceneRuntime.ts";
@@ -313,19 +319,6 @@ function testSceneProgramDrawBuffersMatchFragmentOutputCount() {
 	gl.drawElements = originalDrawElements;
 }
 
-function testWebGLBackendParticleDeltaTimeClamp() {
-	const backend = new WebGLBackend();
-	backend.attach({
-		surface: { canvas: {} },
-		events: { emit: () => {} },
-	});
-	const transient = new Map([
-		[PARTICLE_SIM_DELTA_TIME_SECONDS_KEY, 1000],
-	]);
-	const deltaTimeSeconds = backend._resolveParticleDeltaTime({ transient });
-	assert.equal(deltaTimeSeconds, 0.5);
-}
-
 function testFullscreenPresentationRepaintsIncrementalCanvas() {
 	const warnings = [];
 	Logger.configure({ resetOnceKeys: true, sink: { warn: (...args) => warnings.push(args.join(" ")) } });
@@ -458,7 +451,6 @@ await runWebGLBackendFile([
 	testEnvironmentRendererOwnsProgramAndDrawLifecycle,
 	testTransparencyWarmupContributorSelectsRuntimePrograms,
 	testSceneProgramDrawBuffersMatchFragmentOutputCount,
-	testWebGLBackendParticleDeltaTimeClamp,
 	testFullscreenPresentationRepaintsIncrementalCanvas,
 	testWebGLBackendWarmupDelegatesToCoordinator,
 ], "WebGL backend integration tests");

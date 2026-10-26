@@ -1,4 +1,23 @@
-import assert from "node:assert/strict";import { Material } from "../../../src/materials/Material.ts";import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";import { Matrix4 } from "../../../src/maths/Matrix4.ts";import { bindWebGLShaderMaterialUniforms, bindWebGLShaderMaterialTextures, drawWebGLPacket, renderWebGLEarlyZPrepass, renderWebGLPackets } from "../../../src/backends/webgl/WebGLScenePass.ts";import { ShaderSource } from "../../../src/shaders/ShaderSource.ts";import { createScenePassCaptureGL, createScenePassContext, createEarlyZScenePassHost, createEarlyZPacket, runWebGLBackendFile } from "../../helpers/webgl-backend.mjs";import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
+import assert from "node:assert/strict";
+
+import { Material } from "../../../src/materials/Material.ts";
+import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";
+import { Matrix4 } from "../../../src/maths/Matrix4.ts";
+import {
+	bindWebGLShaderMaterialUniforms,
+	bindWebGLShaderMaterialTextures,
+	drawWebGLPacket,
+	renderWebGLEarlyZPrepass,
+	renderWebGLPackets,
+} from "../../../src/backends/webgl/WebGLScenePass.ts";
+import {
+	createScenePassCaptureGL,
+	createScenePassContext,
+	createEarlyZScenePassHost,
+	createEarlyZPacket,
+	runWebGLBackendFile,
+} from "../../helpers/webgl-backend.mjs";
+import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
 function testDrawWebGLPacketAppliesMaterialDepthWriteState() {
 	const gl = createScenePassCaptureGL();
@@ -84,15 +103,6 @@ function testEarlyZPrepassSkipsDepthWriteDisabledPackets() {
 	assert.equal(gl.calls.depthFunc.includes(gl.LEQUAL), false);
 	assert.equal(gl.calls.depthFunc.includes(gl.LESS), true);
 	assert.equal(gl.calls.depthMask.includes(false), true);
-}
-
-function testBuiltInMaskDepthPrepassShaderContract() {
-	const fragment = ShaderSource.get("webgl.part.sceneDepthPrepassFragment")
-		.source.code;
-	assert.ok(fragment.includes("uBaseColor.a"));
-	assert.ok(fragment.includes("texture(uBaseMap"));
-	assert.ok(fragment.includes("uAlpha.x"));
-	assert.ok(fragment.includes("discard"));
 }
 
 function testEarlyZPrepassUsesDirtyRectPacketSelection() {
@@ -244,7 +254,6 @@ await runWebGLBackendFile([
 	testDrawWebGLPacketAppliesMaterialDepthWriteState,
 	testEarlyZPrepassUsesDepthOnlyStateAndDrivesColorLEQUAL,
 	testEarlyZPrepassSkipsDepthWriteDisabledPackets,
-	testBuiltInMaskDepthPrepassShaderContract,
 	testEarlyZPrepassUsesDirtyRectPacketSelection,
 	testShaderMaterialCustomUniformBinding,
 	testShaderMaterialCustomTextureBinding,

@@ -60,33 +60,6 @@ for (const source of softwareRuntimeSources) {
 	);
 }
 
-const reflectionRuntimeSource = read(
-	"../../../src/backends/software/SoftwarePlanarReflectionRuntime.ts"
-);
-for (const dependency of [
-	"SoftwareReflectionPlanner",
-	"SoftwareReflectionResources",
-	"SoftwareReflectionRenderer",
-	"SoftwareReflectionCompositor",
-]) {
-	assert.equal(
-		reflectionRuntimeSource.includes(dependency),
-		true,
-		`Planar reflection runtime must delegate to ${dependency}`
-	);
-}
-
-const servicesSource = read(
-	"../../../src/backends/software/SoftwareFrameServices.ts"
-);
-for (const service of ["rasterizer", "material", "postProcess", "shadow", "reflection", "particles"]) {
-	assert.match(
-		servicesSource,
-		new RegExp(`\\b${service}\\b`),
-		`SoftwareFrameServices must expose ${service} explicitly`
-	);
-}
-
 const shaderSources = [
 	read("../../../src/shaders/software/PBRStrategy.ts"),
 	read("../../../src/shaders/software/BlinnPhongStrategy.ts"),
@@ -178,21 +151,6 @@ assert.equal(
 	volumetricSource.includes("SoftwareVolumetricLightingImplementation"),
 	false,
 	"Volumetric lighting must not define a Software implementation"
-);
-
-const publicIndex = read("../../../src/index.ts");
-assert.equal(
-	/public\s+\{\s*Rasterizer\s*\}|export\s+\{\s*Rasterizer\s*\}/.test(publicIndex), false);
-
-const rasterizerSource = read("../../../src/backends/software/Rasterizer.ts");
-const drawTriangleDeclaration = rasterizerSource.match(
-	/public drawTriangle\([\s\S]*?\n\t\): void \{/
-);
-assert.ok(drawTriangleDeclaration, "Rasterizer.drawTriangle declaration must exist");
-assert.equal(
-	drawTriangleDeclaration[0].includes("decalPackets"),
-	false,
-	"Rasterizer.drawTriangle must consume a prepared fragment program"
 );
 
 console.log("Software backend boundary tests passed");

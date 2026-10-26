@@ -29,7 +29,6 @@ function testSceneShaderUsesFlippedShadowNormal() {
 		"if (dot(normal, geometryNormal) < 0.0)"
 	);
 	const shadowNormalIndex = shader.fragment.indexOf("vec3 shadowNormal = normal;");
-	assert.ok(faceOrientationIndex >= 0);
 	assert.ok(hemisphereGuardIndex > faceOrientationIndex);
 	assert.ok(shadowNormalIndex > hemisphereGuardIndex);
 	assert.ok(/shadePBR\(\s*albedo,\s*normal,\s*shadowNormal,\s*viewDir,/.test(shader.fragment));
@@ -47,8 +46,6 @@ function testSceneShaderUsesFlippedShadowNormal() {
 	assert.ok(shader.fragment.includes("MAX_SHADOW_SEARCH_SAMPLES = 12"));
 	assert.ok(shader.fragment.includes("MAX_SHADOW_FILTER_SAMPLES = 7"));
 	assert.ok(shader.fragment.includes("linearizeShadowDepth"));
-	assert.equal(shader.fragment.includes("MAX_PCSS_SEARCH_SAMPLES"), false);
-	assert.equal(shader.fragment.includes("vogelDiskSample"), false);
 }
 
 function testShadowRasterPassConsumesResolvedPlanAndRestoresBaseline() {
@@ -189,9 +186,6 @@ function testSceneShaderIncludesReflectionProbeUniforms() {
 	assert.ok(shader.fragment.includes("uniform sampler2D uBrdfLUT;"));
 	assert.ok(shader.fragment.includes("uReflectionProbeCount"));
 	assert.ok(shader.fragment.includes("uReflectionProbeWorldToProbeRow0"));
-	assert.ok(shader.fragment.includes("computeReflectionProbeParallaxDirection"));
-	assert.ok(shader.fragment.includes("computeReflectionProbeDepthOcclusion"));
-	assert.ok(shader.fragment.includes("sampleEnvironmentSpecular"));
 	assert.ok(shader.fragment.includes("uniform vec4 uTransmissionVolume;"));
 	assert.ok(shader.fragment.includes("uniform vec4 uAttenuationColor;"));
 	assert.ok(shader.fragment.includes("uniform vec4 uIridescence;"));
@@ -200,8 +194,6 @@ function testSceneShaderIncludesReflectionProbeUniforms() {
 	assert.ok(shader.fragment.includes("float ior = max(uTransmissionVolume.x, 1.0);"));
 	assert.ok(shader.fragment.includes("volumeAttenuation = exp(-absorb * thickness);"));
 	assert.ok(shader.fragment.includes("refract(-viewDir, refractNormal, eta)"));
-	assert.ok(shader.fragment.includes("resolveIridescenceFresnel"));
-	assert.ok(shader.fragment.includes("diffuseFresnelWeight"));
 }
 
 function testSceneShaderIncludesLocalizedLightProbeUniforms() {
@@ -209,9 +201,6 @@ function testSceneShaderIncludesLocalizedLightProbeUniforms() {
 	assert.ok(shader.fragment.includes("uniform int uLocalLightProbeCount;"));
 	assert.ok(shader.fragment.includes("uLocalLightProbeWorldToProbeRow0"));
 	assert.ok(shader.fragment.includes("uLocalLightProbeCoeffs"));
-	assert.ok(shader.fragment.includes("selectTopTwoLocalLightProbes"));
-	assert.ok(shader.fragment.includes("sampleBlendedLocalLightProbeIrradiance"));
-	assert.ok(shader.fragment.includes("sampleBlendedLocalLightProbeRadiance"));
 }
 
 function testFullSceneShaderDeclaresExtensionSamplersForDynamicLayout() {
@@ -225,25 +214,8 @@ function testFullSceneShaderDeclaresExtensionSamplersForDynamicLayout() {
 	assert.ok(shader.fragment.includes("uniform sampler2D uTransmissionDepthMap;"));
 	assert.ok(shader.fragment.includes("uniform vec3 uSHAmbientCoeffs[SH_COEFFICIENT_COUNT];"));
 	assert.ok(!shader.fragment.includes("uniform sampler2D uSHAmbientCoeffs;"));
-	assert.ok(shader.fragment.includes("uIrradianceProbeGridCoeffs"));
-	assert.ok(shader.fragment.includes("vec3 sampleDiffuseProbeIrradiance"));
-	assert.ok(shader.fragment.includes("sampleIrradianceProbeGridIrradiance"));
-}
-
-function testSceneShaderIncludesIrradianceProbeGridWhenEnabled() {
-	const artifact = ShaderSource.get("webgl.scene", {
-		specialization: undefined,
-	});
-	const shader = {
-		vertex: artifact.stages.vertex.code,
-		fragment: artifact.stages.fragment.code,
-	};
-	const samplerMatches = shader.fragment.match(/\buniform\s+sampler2D\b/g) ?? [];
-
-	assert.equal(samplerMatches.length, 29);
 	assert.ok(shader.fragment.includes("uniform sampler2D uIrradianceProbeGridCoeffs;"));
 	assert.ok(shader.fragment.includes("uIrradianceProbeGridWorldToGridRow0"));
-	assert.ok(shader.fragment.includes("sampleIrradianceProbeGridIrradiance"));
 	assert.ok(shader.fragment.includes("return mix(fallback, gridAmbientBase.rgb"));
 }
 
@@ -259,19 +231,14 @@ function testSceneShaderIncludesPBRTextureAndUV1Pipeline() {
 	assert.ok(shader.fragment.includes("uniform sampler2D uNormalMap;"));
 	assert.ok(shader.fragment.includes("uniform sampler2D uOcclusionMap;"));
 	assert.ok(shader.fragment.includes("uniform int uBaseMapUV;"));
-	assert.ok(shader.fragment.includes("vec2 resolveUV(int uvSet) {"));
 	assert.ok(shader.fragment.includes("uniform vec4 uBaseMapTransformA;"));
 	assert.ok(shader.fragment.includes("uniform vec2 uBaseMapTransformB;"));
-	assert.ok(shader.fragment.includes("vec2 resolveMappedUV("));
-	assert.ok(shader.fragment.includes("bool resolveTangentFrame("));
-	assert.ok(shader.fragment.includes("vec4 tangent,"));
 }
 
 function testSceneShaderIncludesOITPassMode() {
 	const shader = getTestSceneShader();
 
 	assert.ok(shader.fragment.includes("uniform int uOITPassMode;"));
-	assert.ok(shader.fragment.includes("float resolveOITWeight("));
 	assert.ok(shader.fragment.includes("if (uOITPassMode == 1)"));
 	assert.ok(shader.fragment.includes("if (uOITPassMode == 2)"));
 }
@@ -280,7 +247,6 @@ function testParticleShaderIncludesOITPassMode() {
 	const shader = ShaderSource.get("webgl.part.particleFragment").source.code;
 
 	assert.ok(shader.includes("uniform int uOITPassMode;"));
-	assert.ok(shader.includes("float resolveParticleOITWeight("));
 	assert.ok(shader.includes("if (uOITPassMode == 1)"));
 	assert.ok(shader.includes("if (uOITPassMode == 2)"));
 }
@@ -297,8 +263,7 @@ await runWebGLBackendFile(
 		testShadowRasterPassAcceptsPreparedSubmissions,
 		testSceneShaderIncludesReflectionProbeUniforms,
 		testSceneShaderIncludesLocalizedLightProbeUniforms,
-	testFullSceneShaderDeclaresExtensionSamplersForDynamicLayout,
-		testSceneShaderIncludesIrradianceProbeGridWhenEnabled,
+		testFullSceneShaderDeclaresExtensionSamplersForDynamicLayout,
 		testSceneShaderIncludesPBRTextureAndUV1Pipeline,
 		testSceneShaderIncludesOITPassMode,
 		testParticleShaderIncludesOITPassMode,

@@ -123,7 +123,8 @@ function testLightCollectorCollectsLocalizedLightProbes() {
 }
 
 function testLightCollectorSupportsCubeTextureEnvironmentMaps() {
-	const warn = () => {};
+	const warnings = [];
+	const warn = (key, message) => warnings.push({ key, message });
 	const cubeProbeMap = createTinyCubeTexture(3, 0.75);
 	const cubeEnvironment = createTinyCubeTexture(2, 0.5);
 	const reflectionProbe = new ReflectionProbe({
@@ -154,6 +155,11 @@ function testLightCollectorSupportsCubeTextureEnvironmentMaps() {
 	assert.equal(environmentState.envSpecularMap.width, 4);
 	assert.equal(environmentState.envSpecularMap.height, 2);
 	assert.equal(environmentState.reflectionProbeCount, 0);
+	assert.equal(environmentState.reflectionProbes.length, 0);
+	assert.equal(
+		warnings.some((warning) => warning.key.startsWith("webgl-environment-")),
+		false,
+	);
 }
 
 function testLightCollectorUsesParentedProbeCaptureOrigin() {
@@ -195,25 +201,6 @@ function testLightCollectorUsesProbeCaptureOriginWhenParentedToSceneRoot() {
 	});
 	assert.equal(state.reflectionProbeCount, 1);
 	assert.deepEqual(state.reflectionProbes[0].captureWorldPosition, [5, 0, 0]);
-}
-
-function testLightCollectorDoesNotExposeEnvironmentSpecularFallbackMap() {
-	const warnings = [];
-	const warn = (key, message) => warnings.push({ key, message });
-	const environment = createTinyCubeTexture(2, 0.5);
-	const state = collectWebGLLights([], {
-		enableLighting: true,
-		warn,
-		environmentTexture: environment,
-	});
-	assert.ok(state.envSpecularMap);
-	assert.equal(state.envSpecularFallbackMap, null);
-	assert.equal(state.reflectionProbeCount, 0);
-	assert.equal(state.reflectionProbes.length, 0);
-	assert.equal(
-		warnings.some((warning) => warning.key.startsWith("webgl-environment-")),
-		false,
-	);
 }
 
 function testLightCollectorShadowBias() {
@@ -415,7 +402,6 @@ await runWebGLBackendFile(
 		testLightCollectorSupportsCubeTextureEnvironmentMaps,
 		testLightCollectorUsesParentedProbeCaptureOrigin,
 		testLightCollectorUsesProbeCaptureOriginWhenParentedToSceneRoot,
-		testLightCollectorDoesNotExposeEnvironmentSpecularFallbackMap,
 		testLightCollectorShadowBias,
 		testLightCollectorPCSSShadowParams,
 		testLightCollectorDirectionalCSMShadowData,

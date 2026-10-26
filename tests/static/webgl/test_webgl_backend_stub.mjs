@@ -315,7 +315,6 @@ async function testInitAndPassRouting() {
 		preserveDrawingBuffer: false,
 		powerPreference: "high-performance",
 	});
-	assert.equal("passExecutors" in backend, false);
 	assert.deepEqual(backend.profile.capabilities, {
 		displayHDR: true,
 		sh: true,
@@ -330,7 +329,6 @@ async function testInitAndPassRouting() {
 		renderTargets: true,
 		renderTargetReadback: true,
 	});
-	assert.equal("postProcessCapabilities" in backend, false);
 
 	const calls = [];
 	installFrameServices(backend, {

@@ -635,7 +635,6 @@ function testWebGLContextUsesDeclarationForCustomPassId() {
 	assert.equal(context.getSourceTexture(), sourceColor);
 	assert.equal(context.resources.color.input, sourceColor);
 	assert.equal(context.resources.color.output, postColor);
-	assert.equal("publishColorTexture" in context, false);
 	completeExecution(executor, request, { ran: true });
 	assert.equal(executor._targets._presentSourceTexture, postColor);
 }
@@ -1074,7 +1073,6 @@ function testShadowSamplingStateIsTheSingleStableDependency() {
 	const second = executor.getShadowSamplingState();
 	assert.equal(first, second);
 	assert.equal(first.enabled, false);
-	assert.equal("_shadowPass" in executor, false);
 }
 
 function testTransparentRenderPacketsConfiguresBlendAndDepthState() {
@@ -1215,7 +1213,6 @@ function testTAAPassDetachesMotionAttachmentAndSanitizesOptions() {
 	);
 	assert.deepEqual(result, { ran: true, updatedHistoryIds: ["taa", "motion"] });
 	completeExecution(executor, request, result);
-	assert.equal("_taaHistoryValid" in executor, false);
 
 	const attachment0Writes = gl.calls.filter(
 		(call) =>

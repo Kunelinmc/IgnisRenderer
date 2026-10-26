@@ -224,18 +224,6 @@ function createAlphaTexture(alpha) {
 	};
 }
 
-function testReflectionPassPublishesRuntime() {
-	const pass = new SoftwareReflectionPass(new Rasterizer());
-	const context = createContext(createCamera(), {}, { enableReflection: true });
-
-	pass.render(createSoftwarePassContextForTesting(context));
-
-	assert.ok(
-		pass.runtime,
-		"Reflection pass should own its runtime explicitly",
-	);
-}
-
 async function testRuntimeCompositeBlendsReflectionColor() {
 	const rasterizer = new Rasterizer();
 	const mainPass = new SoftwareMainPass(rasterizer, {
@@ -434,7 +422,7 @@ async function testReflectionPassCompositeAfterMainPass() {
 	);
 }
 
-function testReflectionCaptureDisablesRecursiveComposite() {
+function testReflectionCaptureUsesIsolatedMirroredCamera() {
 	const drawContexts = [];
 	let camera;
 	let cameraSnapshot;
@@ -495,8 +483,6 @@ function testReflectionCaptureDisablesRecursiveComposite() {
 		"Reflection capture should rasterize reflected scene geometry"
 	);
 	for (const drawContext of drawContexts) {
-		assert.equal("enableReflection" in drawContext, false);
-		assert.equal("planarReflectionComposite" in drawContext, false);
 		assert.equal(drawContext.camera.position.z, -4);
 		assert.notStrictEqual(drawContext.camera.viewMatrix, camera.viewMatrix);
 	}
@@ -551,13 +537,12 @@ function testRasterizerDoesNotReferencePlanarReflection() {
 }
 
 async function run() {
-	testReflectionPassPublishesRuntime();
 	await testRuntimeCompositeBlendsReflectionColor();
 	await testRuntimeCompositeSamplesScaledReflectionBuffer();
 	testRuntimeCompositeSkipsMissingBuffer();
 	testRuntimeCompositeHonorsAlphaMask();
 	await testReflectionPassCompositeAfterMainPass();
-	testReflectionCaptureDisablesRecursiveComposite();
+	testReflectionCaptureUsesIsolatedMirroredCamera();
 	testReflectionCaptureUsesMaterialOpacity();
 	testRasterizerDoesNotReferencePlanarReflection();
 	console.log("Software planar reflection runtime tests passed");

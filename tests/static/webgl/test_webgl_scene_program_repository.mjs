@@ -466,6 +466,9 @@ function testSceneProgramRepositoryBuiltinDepthPrepassProgram() {
 	assert.ok(
 		gl.shaderSources.some((entry) => entry.source.includes("discard"))
 	);
+	assert.ok(
+		gl.shaderSources.some((entry) => entry.source.includes("uAlpha.x"))
+	);
 }
 
 function testSceneProgramRepositoryShaderMaterialDepthPrepassProgram() {
