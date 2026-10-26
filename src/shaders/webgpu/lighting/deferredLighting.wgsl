@@ -92,19 +92,6 @@ fn reconstructDeferredWorldPosition(uv: vec2<f32>, depth: f32) -> vec3<f32> {
 	);
 }
 
-fn applyDeferredFog(color: vec3<f32>, linearDepth: f32) -> vec3<f32> {
-	let fogMode = i32(floor(fog.fogParams0.x + 0.5));
-	let fogFactor = ignisComputeFogFactor(
-		fogMode,
-		max(linearDepth, 0.0),
-		fog.fogParams0.y,
-		fog.fogParams0.z,
-		fog.fogParams0.w,
-		fog.fogParams1.w
-	);
-	return max(mix(color, fog.fogParams1.rgb, fogFactor), vec3<f32>(0.0));
-}
-
 // Return the oriented geometric normal and a reliability flag in w. Use the
 // same cardinal samples for validation and reconstruction; derivatives of a
 // fullscreen resolve may include a different surface in an unchecked diagonal.
@@ -919,7 +906,6 @@ fn fsMainDeferredLighting(input: DeferredVSOut) -> @location(0) vec4<f32> {
 	) {
 		linearColor = evaluateDeferredPhong(surface);
 	}
-	linearColor = applyDeferredFog(linearColor, surface.linearDepth);
 	return vec4<f32>(
 		clamp(linearColor, vec3<f32>(0.0), vec3<f32>(65504.0)),
 		1.0

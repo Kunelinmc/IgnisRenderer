@@ -24,7 +24,6 @@ import { ShaderSource } from "../../shaders/ShaderSource";
 import {
 	PostProcessPass,
 	type PostProcessPassConfig,
-	type PostProcessPassResolveRequest,
 } from "../PostProcessPass";
 import type { PostProcessScheduleEntry } from "../ordering";
 import {
@@ -50,18 +49,13 @@ export const FOG_PASS_ORDER = {
 		firstPass: "fog",
 		grade: "cinematic",
 		inflationRadius: 20,
-		isEnabled: (postProcess) =>
-			postProcess.isEnabled(FOG_PASS_ID) &&
-			(postProcess.getOptions<FogOptions>(FOG_PASS_ID)?.application ??
-				"postprocess") !== "scene",
+		isEnabled: (postProcess) => postProcess.isEnabled(FOG_PASS_ID),
 	},
 } as const satisfies PostProcessScheduleEntry;
 
 export interface FogOptions {
 	/** Distance falloff model used to convert depth into fog opacity. */
 	mode?: "linear" | "exp" | "exp2";
-	/** Executes fog in the post-process stack or during scene shading. */
-	application?: "postprocess" | "scene";
 	/** Linear RGB fog color mixed over the scene. */
 	color?: Vec3Tuple;
 	/** World/view depth where linear fog starts contributing. */
@@ -80,7 +74,6 @@ export const DEFAULT_FOG_OPTIONS: Required<
 	Pick<
 		FogOptions,
 		| "mode"
-		| "application"
 		| "color"
 		| "start"
 		| "end"
@@ -89,7 +82,6 @@ export const DEFAULT_FOG_OPTIONS: Required<
 	>
 > = {
 	mode: "linear",
-	application: "postprocess",
 	color: [0.58, 0.64, 0.72],
 	start: 20,
 	end: 200,
@@ -157,7 +149,7 @@ export function resolveFogModeCode(mode: FogOptions["mode"] | undefined): number
 }
 
 /**
- * Resolves fog uniforms shared by scene and post-process fog paths.
+ * Resolves fog uniforms for the WebGPU and WebGL post-process implementations.
  *
  * @param options User-provided fog options.
  * @param enabled Whether fog strength should be applied.
@@ -535,21 +527,5 @@ export class FogPass extends PostProcessPass<FogOptions, FogOptions> {
 			...DEFAULT_FOG_OPTIONS,
 			...this.getRawOptions(),
 		};
-	}
-
-	public override shouldExecute(
-		request: PostProcessPassResolveRequest<FogOptions>
-	): boolean {
-		return (request.options?.application ?? "postprocess") !== "scene";
-	}
-
-	public override execute(
-		request: PostProcessPassRequest<FogOptions>,
-		context: unknown
-	): PostProcessPassResult | Promise<PostProcessPassResult> {
-		if ((request.options.application ?? "postprocess") === "scene") {
-			return { ran: false };
-		}
-		return super.execute(request, context);
 	}
 }

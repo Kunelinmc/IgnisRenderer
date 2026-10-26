@@ -192,7 +192,7 @@ lighting, presentation configuration, reflections, and structured buffer packing
 - `WebGPUFrameServiceOwner` must own particle-render resources through a
 	delegated `WebGPUParticleRenderResources` service. The service must own only
 	billboard pipelines, buffers, bindings, and pass recording; frame scopes
-	retain camera and fog binding ownership. Billboard particle passes must not
+	retain camera binding ownership. Billboard particle passes must not
   bind shadow textures, comparison samplers, or shadow uniforms.
   Billboard particle frame-graph nodes must not declare shadow-resource reads.
 - `WebGPUParticleRenderResources` must select particle pipeline sample counts

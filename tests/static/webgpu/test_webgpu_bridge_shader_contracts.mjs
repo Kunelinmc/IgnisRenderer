@@ -636,7 +636,8 @@ async function testSceneShaderCoverage() {
 		assert.ok(!postProcessShader.includes("sqrt(z2)"));
 	}
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(2)"));
-	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(4) var<uniform> fog"));
+	assert.doesNotMatch(WEBGPU_SCENE_SHADER, /FogUniforms|ignisComputeFogFactor/);
+	assert.doesNotMatch(WEBGPU_DEFERRED_LIGHTING_SHADER, /FogUniforms|ignisComputeFogFactor/);
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(7) var brdfLUTTexture"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(9) var shadowComparisonSampler"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(2) @binding(0)"));
@@ -1008,8 +1009,8 @@ async function testParticleShaderDepthConsistency() {
 	assert.deepEqual(
 		[...WEBGPU_PARTICLE_SHADER.matchAll(/@group\(0\) @binding\((\d+)\)/g)]
 			.map((match) => Number(match[1])),
-		[0, 4],
-		"billboard frame bindings contain only camera and fog uniforms",
+		[0],
+		"billboard frame bindings contain only camera uniforms",
 	);
 
 	assert.ok(
@@ -1026,9 +1027,7 @@ async function testParticleShaderDepthConsistency() {
 	assert.ok(
 		WEBGPU_PARTICLE_SHADER.includes("@group(1) @binding(2) var<uniform>")
 	);
-	assert.ok(
-		WEBGPU_PARTICLE_SHADER.includes("@group(0) @binding(4) var<uniform> fog")
-	);
+	assert.doesNotMatch(WEBGPU_PARTICLE_SHADER, /FogUniforms|ignisComputeFogFactor/);
 	assert.ok(
 		WEBGPU_PARTICLE_SHADER.includes(
 			"input.uv.x * particleUVTransform.transformA.x"

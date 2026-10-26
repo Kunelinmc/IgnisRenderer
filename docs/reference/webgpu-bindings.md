@@ -27,7 +27,7 @@ This document does not list vertex attribute `shaderLocation` values.
 WebGPU scene rendering uses stable bind group roles:
 
 - `group(0)` is frame-scoped scene data for scene, deferred, and post-process
-  frame-aware passes. Billboard particles use a separate camera-and-fog group.
+  frame-aware passes. Billboard particles use a separate camera-only group.
 - `group(1)` is model/material data for mesh scene passes, particle material
   data for particle render passes, or pass-specific animation data for shadow
   passes.
@@ -82,7 +82,6 @@ pass-specific.
 | `1` | `shadowAtlas` | `texture_depth_2d` |
 | `2` | `envSpecularTexture` | `texture_2d<f32>` |
 | `3` | `envSpecularSampler` | Filtering sampler |
-| `4` | `fog` | `FogUniforms` uniform buffer |
 | `6` | `shadowTransmittanceAtlas` | `texture_2d<f32>` |
 | `7` | `brdfLUTTexture` | `texture_2d<f32>` |
 | `8` | `irradianceProbeGridCoeffs` | `texture_2d<f32>` |
@@ -263,7 +262,6 @@ Particle render pipelines use `particleFrameBindGroupLayout` as `group(0)` and
 | Group | Binding | Shader name | Resource contract |
 | --- | --- | --- | --- |
 | `0` | `0` | `frame` | `FrameCameraUniforms` uniform buffer |
-| `0` | `4` | `fog` | `FogUniforms` uniform buffer |
 | `1` | `0` | `particleTexture` | `texture_2d<f32>` |
 | `1` | `1` | `particleSampler` | Filtering sampler |
 | `1` | `2` | `particleUVTransform` | Particle UV transform uniform buffer |

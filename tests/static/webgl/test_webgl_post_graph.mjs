@@ -37,7 +37,7 @@ function testBuiltInOrderUsesPipelineAuthority() {
 		createPostProcess({
 			ssao: { enabled: true },
 			taa: { enabled: true },
-			fog: { enabled: true, options: { application: "postprocess" } },
+			fog: { enabled: true },
 			"motion-blur": { enabled: true },
 			dof: { enabled: true },
 			bloom: { enabled: true },
@@ -65,7 +65,7 @@ function testBuiltInOrderUsesPipelineAuthority() {
 	);
 }
 
-function testFogSceneModeSkipsFogInPipelineOrder() {
+function testLegacyFogApplicationCannotSkipPostProcessing() {
 	const order = resolvePostProcessExecutionOrder(
 		createPostProcess({
 			fog: { enabled: true, options: { application: "scene" } },
@@ -73,14 +73,14 @@ function testFogSceneModeSkipsFogInPipelineOrder() {
 		}),
 		{ backend: "webgl" }
 	);
-	assert.equal(order.some((pass) => pass.id === "fog"), false);
+	assert.equal(order.filter((pass) => pass.id === "fog").length, 1);
 	assert.ok(order.some((pass) => pass.id === "motion-blur"));
 }
 
 function run() {
 	testSyntheticGBufferBridgeDoesNotRequireDeviceServices();
 	testBuiltInOrderUsesPipelineAuthority();
-	testFogSceneModeSkipsFogInPipelineOrder();
+	testLegacyFogApplicationCannotSkipPostProcessing();
 	console.log("WebGL post-process pipeline-order tests passed");
 }
 

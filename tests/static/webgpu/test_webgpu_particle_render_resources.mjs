@@ -124,7 +124,7 @@ async function testBillboardPipelinesBindingsScissorAndLifecycle() {
 	assert.deepEqual(
 		encoder.calls.filter((call) => call[0] === "setBindGroup" && call[1] === 0),
 		[["setBindGroup", 0, frameResources.particleFrameBinding]],
-		"CPU billboard draws must bind camera and fog without scene shadow resources",
+		"CPU billboard draws must bind the camera without scene shadow resources",
 	);
 	const instanceData = backend.buffers.find(
 		(buffer) => buffer.desc.label === "WebGPUParticleInstances",
@@ -271,7 +271,7 @@ async function testGPUIndirectDrawAndFallback() {
 	assert.deepEqual(
 		indirectEncoder.calls.find((call) => call[0] === "setBindGroup" && call[1] === 0),
 		["setBindGroup", 0, frameResources.particleFrameBinding],
-		"GPU billboard draws must bind camera and fog without scene shadow resources",
+		"GPU billboard draws must bind the camera without scene shadow resources",
 	);
 
 	const fallbackEncoder = new FakeCommandEncoder(backend);

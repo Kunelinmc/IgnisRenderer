@@ -44,7 +44,7 @@ export const ALL_ENABLED_POST_PROCESS_REQUEST = {
 	ssr: { enabled: true },
 	ssrefraction: { enabled: true },
 	volumetric: { enabled: true },
-	fog: { enabled: true, options: { application: "postprocess" } },
+	fog: { enabled: true },
 	"motion-blur": { enabled: true },
 	dof: { enabled: true },
 	bloom: { enabled: true },

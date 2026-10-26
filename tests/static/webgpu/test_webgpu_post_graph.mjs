@@ -85,7 +85,7 @@ function testBuiltInOrderUsesPipelineAuthority() {
 			taa: { enabled: true },
 			ssr: { enabled: true },
 			volumetric: { enabled: true },
-			fog: { enabled: true, options: { application: "postprocess" } },
+			fog: { enabled: true },
 			"motion-blur": { enabled: true },
 			dof: { enabled: true },
 			bloom: { enabled: true },
@@ -116,7 +116,7 @@ function testBuiltInOrderUsesPipelineAuthority() {
 	);
 }
 
-function testFogSceneModeSkipsFogInPipelineOrder() {
+function testLegacyFogApplicationCannotSkipPostProcessing() {
 	const order = resolvePostProcessExecutionOrder(
 		createPostProcess({
 			volumetric: { enabled: true },
@@ -125,7 +125,8 @@ function testFogSceneModeSkipsFogInPipelineOrder() {
 		}),
 		{ backend: "webgpu" }
 	);
-	assert.equal(order.some((pass) => pass.id === "fog"), false);
+	assert.equal(order.filter((pass) => pass.id === "fog").length, 1);
+	assert.deepEqual(order.map((pass) => pass.id), ["volumetric", "fog", "motion-blur"]);
 }
 
 function testIncrementalStartPassIsResolvedByPlanner() {
@@ -300,7 +301,7 @@ function testUndeclaredHDRCustomPassWarnsButRuns() {
 
 async function run() {
 	testBuiltInOrderUsesPipelineAuthority();
-	testFogSceneModeSkipsFogInPipelineOrder();
+	testLegacyFogApplicationCannotSkipPostProcessing();
 	testIncrementalStartPassIsResolvedByPlanner();
 	testSSGIRequiresHiZAndSharesMotionHistory();
 	testColorDomainPlanning();

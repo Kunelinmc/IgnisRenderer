@@ -5,6 +5,24 @@ IgnisRenderer consumers and contributors. Completed implementation history that
 does not require an action is retained in Git rather than in the documentation
 tree.
 
+## Fog Rendering
+
+Remove `FogOptions.application` from fog configuration. `FogPass` now always
+executes in the post-process stack; scene-mode fog is no longer supported.
+The default post-process falloff, color, density, strength, order, and alpha
+behavior remain unchanged. Configurations that previously selected scene mode
+must account for screen-space depth and the later fog composition order,
+especially when rendering transparent surfaces and particles.
+
+Custom WebGPU scene and particle integrations must remove the frame-group fog
+uniform at binding `4`. Other frame binding numbers remain unchanged. Custom
+WebGL scene and particle integrations must remove `uFogParams0` and
+`uFogParams1`; the dedicated fog post-process shader retains its own uniforms.
+
+The unused `webgl.part.postProcessStubFragment` source is no longer available.
+Use dedicated post-process passes instead of requesting the combined placeholder
+shader.
+
 ## Texture Sampling Color Space
 
 Remove uses of `Texture.formatExplicit`; current format and source encoding

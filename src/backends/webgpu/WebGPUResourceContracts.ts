@@ -215,7 +215,7 @@ export interface WebGPUPreparedFrameResources {
 	readonly staticBatchingStats?: WebGPUStaticBatchingStats;
 	frameBinding: IBindingGroup;
 	depthFrameBinding: IBindingGroup;
-	/** Camera and fog uniforms for billboard rendering without scene shadow resources. */
+	/** Camera uniforms for billboard rendering without scene shadow resources. */
 	particleFrameBinding: IBindingGroup;
 	decalFrameBinding: IBindingGroup;
 	environmentBinding: IBindingGroup;

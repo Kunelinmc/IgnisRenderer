@@ -189,8 +189,8 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   declaration plan while warming post-process implementations.
 - `WebGLPostProcessExecutor.createGBufferBridge(context)` must return a
   `LogicalGBufferBridge` that wraps WebGL texture handles.
-- `FogPass` must provide a WebGL implementation and must support both
-  post-process fog and scene-mode fog.
+- `FogPass` must provide a WebGL post-process implementation. Scene and particle
+  programs must not bind fog uniforms or apply fog during shading.
 - WebGL G-buffer bridge channels must report actual runtime attachment formats.
 - TAA and motion history textures must be allocated and destroyed by the
   backend post-process resource pool. WebGL frame-target allocation must not
@@ -483,9 +483,7 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   `WebGLFrameTargetManager`; post-process histories must be owned exclusively
   by `BackendPostProcessRuntime` resource pools.
 - Probe SH coefficient textures must be created, uploaded to, and destroyed
-  exclusively by `WebGLProbeSHTextures`. Scene fog uniform packing must be
-  owned by `WebGLFogState`; global uniform binding and the particle pass must
-  consume them through narrow structural contracts.
+  exclusively by `WebGLProbeSHTextures`.
 - WebGL scene-pass functions must consume an explicitly constructed
   `WebGLScenePassDeps` dependency bundle and must not read or write mutable
   frame state through the concrete `WebGLFrameServices` type. Per-draw scratch
@@ -568,9 +566,6 @@ renderer.features.clusteredLightingOptions = {
 };
 renderer.postProcess.registerPass(new FogPass({
 	enabled: true,
-	options: {
-		application: "postprocess",
-	},
 }));
 
 await renderer.initialize();

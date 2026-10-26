@@ -1,4 +1,3 @@
-#import <ignis/postprocess/fog>
 #import <ignis/webgpu/frame-camera>
 
 struct ParticleVertexInput {
@@ -28,13 +27,7 @@ struct ParticleOITOutput {
 	@location(1) reveal: vec4<f32>,
 }
 
-struct FogUniforms {
-	fogParams0: vec4<f32>,
-	fogParams1: vec4<f32>,
-}
-
 @group(0) @binding(0) var<uniform> frame: FrameCameraUniforms;
-@group(0) @binding(4) var<uniform> fog: FogUniforms;
 
 @group(1) @binding(0) var particleTexture: texture_2d<f32>;
 @group(1) @binding(1) var particleSampler: sampler;
@@ -112,18 +105,8 @@ fn shadeParticle(input: ParticleVertexOutput) -> vec4<f32> {
 		discard;
 	}
 
-	let viewDepth = length(cameraPosition(frame.inverseView) - input.worldPosition);
-	let fogMode = i32(floor(fog.fogParams0.x + 0.5));
-	let fogFactor = ignisComputeFogFactor(
-		fogMode,
-		max(viewDepth, 0.0),
-		fog.fogParams0.y,
-		fog.fogParams0.z,
-		fog.fogParams0.w,
-		fog.fogParams1.w
-	);
 	color = vec4<f32>(
-		max(mix(color.rgb, fog.fogParams1.rgb, fogFactor), vec3<f32>(0.0)),
+		max(color.rgb, vec3<f32>(0.0)),
 		color.a
 	);
 	return color;
