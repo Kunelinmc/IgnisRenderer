@@ -100,7 +100,7 @@ export class Node {
 		return this._worldTransformRevision;
 	}
 
-	/** @internal Scene change journals use this to publish local transform changes. */
+	/** @internal Scene journals track authored TRS and resolved local matrix changes. */
 	public get localTransformRevision(): number {
 		return this._localTransformRevision;
 	}
@@ -131,7 +131,8 @@ export class Node {
 	}
 
 	/**
-	 * @internal Scene-owned ECS binding. External code must not call this.
+	 * @internal Owned by scene graph attachment. Applications should use
+	 * `Scene.add()` and `Scene.remove()` to change node ownership.
 	 */
 	public _setSceneInternal(scene: Scene | null): void {
 		this._scene = scene;
@@ -267,7 +268,7 @@ export class Node {
 		const quaternion = this.quaternion;
 		const scale = this.scale;
 		const input = this._transformInputSnapshot;
-		if (
+		const inputsMatch =
 			Object.is(input[0], position.x) &&
 			Object.is(input[1], position.y) &&
 			Object.is(input[2], position.z) &&
@@ -277,9 +278,8 @@ export class Node {
 			Object.is(input[6], quaternion.w) &&
 			Object.is(input[7], scale.x) &&
 			Object.is(input[8], scale.y) &&
-			Object.is(input[9], scale.z) &&
-			matrixMatchesSnapshot(this.localMatrix, this._localTransformSnapshot)
-		) {
+			Object.is(input[9], scale.z);
+		if (inputsMatch && matrixMatchesSnapshot(this.localMatrix, this._localTransformSnapshot)) {
 			return;
 		}
 
@@ -295,9 +295,12 @@ export class Node {
 		input[7] = scale.x;
 		input[8] = scale.y;
 		input[9] = scale.z;
-		if (this._captureTransform(this.localMatrix, this._localTransformSnapshot)) {
+		const matrixChanged = this._captureTransform(this.localMatrix, this._localTransformSnapshot);
+		// Different TRS inputs can resolve to the same matrix, especially at zero scale.
+		if (!inputsMatch || matrixChanged) {
 			this._localTransformRevision++;
 			this._localTransformChangePending = true;
+			this._scene?.notifyNodeTransformChanged(this);
 		}
 	}
 
@@ -348,7 +351,10 @@ export class Node {
 			this.worldMatrix,
 			this._worldTransformSnapshot,
 		);
-		if (changed && increment) this._worldTransformRevision++;
+		if (changed && increment) {
+			this._worldTransformRevision++;
+			this._scene?.notifyNodeTransformChanged(this);
+		}
 		return changed;
 	}
 

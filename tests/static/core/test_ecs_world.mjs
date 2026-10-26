@@ -52,7 +52,75 @@ function run() {
 	world.destroy();
 	assert.equal(world.getEntityByNode(meshInstance), null);
 
-	console.log("ECS world tests passed");
 }
 
-run();
+function testExternalIdTransfersKeepBothIndexesConsistent() {
+	const world = new ECSWorld(new Scene());
+	const first = world.createEntity("shared");
+	const second = world.createEntity("shared");
+	assert.equal(world.getExternalId(first), null);
+	assert.equal(world.getEntityByExternalId("shared"), second);
+	world.destroyEntity(first);
+	assert.equal(world.getEntityByExternalId("shared"), second);
+
+	const third = world.createEntity("third");
+	world.setExternalId(third, "shared");
+	assert.equal(world.getExternalId(second), null);
+	assert.equal(world.getEntityByExternalId("third"), null);
+	world.setExternalId(second, "second");
+	assert.equal(world.getEntityByExternalId("shared"), third);
+	world.destroyEntity(third);
+	assert.equal(world.getEntityByExternalId("shared"), null);
+	assert.equal(world.getEntityByExternalId("second"), second);
+	world.destroy();
+}
+
+function testEmptyExternalIdsAreCreatedTransferredAndRemoved() {
+	const world = new ECSWorld(new Scene());
+	const first = world.createEntity("");
+	assert.equal(world.getExternalId(first), "");
+	assert.equal(world.getEntityByExternalId(""), first);
+	const second = world.createEntity();
+	world.setExternalId(second, "");
+	assert.equal(world.getExternalId(first), null);
+	world.setExternalId(first, "first");
+	assert.equal(world.getEntityByExternalId(""), second);
+	world.setExternalId(second, "second");
+	assert.equal(world.getEntityByExternalId(""), null);
+	world.setExternalId(second, "");
+	world.destroyEntity(second);
+	assert.equal(world.getEntityByExternalId(""), null);
+	world.destroy();
+}
+
+function testProjectionTransfersConflictingExternalId() {
+	const scene = new Scene();
+	const world = new ECSWorld(scene);
+	const node = new Node();
+	const standalone = world.createEntity(node.id);
+	scene.add(node);
+	const projected = world.getEntityByNode(node);
+	assert.ok(projected !== null);
+	assert.equal(world.getExternalId(standalone), null);
+	world.destroyEntity(standalone);
+	assert.equal(world.getEntityByExternalId(node.id), projected);
+	scene.remove(node);
+	assert.equal(world.getEntityByExternalId(node.id), null);
+	world.destroy();
+}
+
+for (const check of [
+	run,
+	testExternalIdTransfersKeepBothIndexesConsistent,
+	testEmptyExternalIdsAreCreatedTransferredAndRemoved,
+	testProjectionTransfersConflictingExternalId,
+]) {
+	try {
+		check();
+	} catch (error) {
+		console.error(check.name, error);
+		process.exitCode = 1;
+	}
+}
+
+if (!process.exitCode) console.log("ECS world tests passed");

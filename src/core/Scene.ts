@@ -94,7 +94,9 @@ export class Scene {
 	private _spatialIndexMode: SpatialIndexMode;
 	private _spatialQueryScratch: MeshInstance[] = [];
 	private _nodeLifecycleListeners = new Set<SceneNodeLifecycleListener>();
+	private _pendingTransformChanges = new Set<Node>();
 	private _transformChangeScratch: Node[] = [];
+	private _publishingTransforms = false;
 
 	constructor(options: SceneOptions = {}) {
 		this.root = new Node({
@@ -138,6 +140,7 @@ export class Scene {
 		this._nodeLifecycleListeners.add(listener);
 		return () => {
 			this._nodeLifecycleListeners.delete(listener);
+			if (this._nodeLifecycleListeners.size === 0) this._pendingTransformChanges.clear();
 		};
 	}
 
@@ -333,17 +336,40 @@ export class Scene {
 		return spatial.queryFrustumInto(camera.frustum, out);
 	}
 
+	/**
+	 * Resolves scene transforms and publishes pending changes, including direct
+	 * node evaluations. Reentrant publications are delivered in subsequent batches.
+	 * @throws The first listener error, after the remaining listeners are notified.
+	 */
 	public updateWorldMatrices(): void {
-		if (this._nodeLifecycleListeners.size === 0) {
-			this.root.updateWorldMatrix();
-			return;
+		this.root.updateWorldMatrix();
+		if (this._publishingTransforms || this._pendingTransformChanges.size === 0) return;
+		this._publishingTransforms = true;
+		try {
+			while (this._pendingTransformChanges.size > 0) {
+				const nodes = this._transformChangeScratch;
+				nodes.length = 0;
+				for (const node of this._pendingTransformChanges) {
+					if (node.scene === this) nodes.push(node);
+				}
+				this._pendingTransformChanges.clear();
+				if (nodes.length === 0) continue;
+				this._notifyNodeLifecycleListeners("transformsChanged", nodes);
+			}
+		} finally {
+			this._transformChangeScratch.length = 0;
+			this._publishingTransforms = false;
 		}
-		this._transformChangeScratch.length = 0;
-		this.root.updateWorldMatrix(undefined, this._transformChangeScratch);
-		if (this._transformChangeScratch.length === 0) return;
-		for (const listener of this._nodeLifecycleListeners) {
-			listener.transformsChanged?.(this._transformChangeScratch);
-		}
+	}
+
+	/**
+	 * Retains a resolved transform change until the next scene publication.
+	 * @internal Owned by the scene change journal; applications should edit node
+	 * transforms and call `updateWorldMatrices()` when synchronization is needed.
+	 */
+	public notifyNodeTransformChanged(node: Node): void {
+		if (node.scene !== this || this._nodeLifecycleListeners.size === 0) return;
+		this._pendingTransformChanges.add(node);
 	}
 
 	public markNodeReparenting(node: Node, active: boolean): void {
@@ -360,9 +386,7 @@ export class Scene {
 		this._markTypedCachesDirty();
 		this._boundsDirty = true;
 		this.invalidate();
-		for (const listener of this._nodeLifecycleListeners) {
-			listener.nodeAttached?.({ parent, child });
-		}
+		this._notifyNodeLifecycleListeners("nodeAttached", { parent, child });
 	}
 
 	public onNodeDetachedFromAPI(_parent: Node, child: Node): void {
@@ -377,18 +401,34 @@ export class Scene {
 		this._markTypedCachesDirty();
 		this._boundsDirty = true;
 		this.invalidate();
-		for (const listener of this._nodeLifecycleListeners) {
-			listener.nodeDetached?.({ parent: _parent, child });
-		}
+		this._notifyNodeLifecycleListeners("nodeDetached", { parent: _parent, child });
 	}
 
 	/** @internal Publishes metadata changes to optional scene projections. */
 	public notifyNodeStateChanged(node: Node, field: SceneNodeStateField): void {
 		if (node.scene !== this) return;
 		this.invalidate("unknown");
+		this._notifyNodeLifecycleListeners("nodeStateChanged", { node, field });
+	}
+
+	private _notifyNodeLifecycleListeners<K extends keyof SceneNodeLifecycleListener>(
+		method: K,
+		event: Parameters<NonNullable<SceneNodeLifecycleListener[K]>>[0],
+	): void {
+		let failed = false;
+		let firstError: unknown;
 		for (const listener of this._nodeLifecycleListeners) {
-			listener.nodeStateChanged?.({ node, field });
+			const notify = listener[method] as ((event: unknown) => void) | undefined;
+			if (!notify) continue;
+			try {
+				// Metadata/lifecycle payloads remain independent for each listener.
+				notify.call(listener, Array.isArray(event) ? event : { ...event });
+			} catch (error) {
+				if (!failed) firstError = error;
+				failed = true;
+			}
 		}
+		if (failed) throw firstError;
 	}
 
 	public invalidate(reason: RenderDirtyReason = "unknown"): void {
@@ -530,6 +570,7 @@ export class Scene {
 	}
 
 	private _setSceneRecursive(node: Node, scene: Scene | null): void {
+		if (scene !== this) this._pendingTransformChanges.delete(node);
 		node._setSceneInternal(scene);
 		for (const child of node.children) {
 			this._setSceneRecursive(child, scene);

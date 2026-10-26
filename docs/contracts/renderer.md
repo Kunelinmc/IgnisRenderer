@@ -370,6 +370,19 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
 - Transform revisions and `changedNodes` must continue to describe changes to
   resolved transform values. An unchanged synchronization must not increment
   revisions or publish a node to the scene change journal.
+- Local transform revisions must also observe authored TRS changes whose
+  matrices are equal, including quaternion sign changes and rotation under zero
+  scale. World transform revisions must remain tied to resolved matrix changes.
+- `Scene` must retain resolved transform changes until its next publication,
+  including changes resolved by direct `Node.updateWorldMatrix()` calls.
+  Reentrant scene synchronization must not overwrite a batch being delivered;
+  changes resolved during delivery must be published in a subsequent batch.
+- Detached nodes must be removed from pending scene transform notifications.
+  A synchronization with no remaining changed nodes must not publish an empty
+  transform batch.
+- Scene lifecycle, metadata, and transform publication must notify all current
+  listeners even when an earlier listener throws. After notifying the remaining
+  listeners, publication must rethrow the first listener error.
 - Subclasses that override `updateLocalMatrix()` must retain their custom local
   transform behavior. World evaluation must not assume that the base class's
   transform inputs describe an override's complete state.

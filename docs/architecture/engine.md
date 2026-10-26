@@ -65,6 +65,12 @@ projection, subscribes to generic scene change batches, and incrementally
 maintains world-local entity mappings. Renderer and `FrameCoordinator` do not
 create, retain, discover, or synchronize that world.
 
+Nodes record resolved transform changes in a scene-owned journal independently
+of matrix evaluation. Scene synchronization publishes those changes to optional
+listeners, so directly evaluating a node does not discard pending projection
+work. Scene-derived ECS components expose stable read-only views while the
+underlying scene nodes remain the authoring boundary.
+
 ## Backend Ownership
 
 The engine supports Software, WebGPU, and WebGL backend families. They share

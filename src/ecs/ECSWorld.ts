@@ -4,7 +4,7 @@ import type {
 	SceneNodeLifecycleListener,
 	SceneNodeStateChangeEvent,
 } from "../core/Scene";
-import type { Node } from "../core/Node";
+import { Node } from "../core/Node";
 import { Decal } from "../decals";
 import { Light, type SceneLight } from "../lights";
 import { MeshInstance } from "../meshes";
@@ -88,8 +88,8 @@ export class ECSWorld {
 	private _nodeByEntity = new Map<EntityId, Node>();
 	private _localRevisionByNode = new WeakMap<Node, number>();
 	private _worldRevisionByNode = new WeakMap<Node, number>();
+	private _readOnlyViews = new WeakMap<object, object>();
 	private _unsubscribeScene: (() => void) | null = null;
-	private _applyingWriteThrough = false;
 	private _destroyed = false;
 
 	constructor(scene: Scene) {
@@ -106,10 +106,10 @@ export class ECSWorld {
 			NodeKind: new ComponentStore<NodeKindComponent>(),
 		};
 		scene.updateWorldMatrices();
-		this._projectSubtree(scene.root, null, ROOT_PATH);
+		this._projectSubtree(scene.root, ROOT_PATH);
 		const listener: SceneNodeLifecycleListener = {
-			nodeAttached: ({ parent, child }) => this._handleAttached(parent, child),
-			nodeDetached: ({ parent, child }) => this._handleDetached(parent, child),
+			nodeAttached: ({ parent, child }) => this._handleStructureChanged(parent, child),
+			nodeDetached: ({ parent, child }) => this._handleStructureChanged(parent, child),
 			nodeStateChanged: (event) => this._handleNodeStateChanged(event),
 			transformsChanged: (nodes) => this._handleTransformsChanged(nodes),
 		};
@@ -139,13 +139,14 @@ export class ECSWorld {
 		return !this._destroyed && this._entityIds.has(entity);
 	}
 
+	/**
+	 * Assigns an external identifier, transferring it from any previous owner.
+	 * Empty strings are valid identifiers. The previous owner remains alive.
+	 */
 	public setExternalId(entity: EntityId, externalId: string): void {
 		this._assertEntity(entity);
-		const current = this._externalIdByEntity.get(entity);
-		if (current === externalId) return;
-		if (current) this._entityByExternalId.delete(current);
-		this._externalIdByEntity.set(entity, externalId);
-		this._entityByExternalId.set(externalId, entity);
+		if (this._externalIdByEntity.get(entity) === externalId) return;
+		this._assignExternalId(entity, externalId);
 		this._bumpDataVersion();
 	}
 
@@ -188,12 +189,21 @@ export class ECSWorld {
 		this._setInternalComponent(entity, name, value);
 	}
 
+	/**
+	 * Returns the stored component, or a stable read-only view for scene-derived
+	 * components. Nested arrays and matrices are protected; `NodeRef.node` remains
+	 * the mutable authoring node. Mirrored edits must be applied with `setComponent()`.
+	 */
 	public getComponent<K extends ECSComponentName>(
 		entity: EntityId,
 		name: K,
 	): ECSComponentMap[K] | undefined {
 		if (this._destroyed) return undefined;
-		return this._stores[name].get(entity);
+		const component = this._stores[name].get(entity);
+		if (component && this._nodeByEntity.has(entity) && SCENE_DERIVED_COMPONENTS.has(name)) {
+			return this._getReadOnlyView(component);
+		}
+		return component;
 	}
 
 	public hasComponent<K extends ECSComponentName>(
@@ -300,35 +310,33 @@ export class ECSWorld {
 		this._entityByNode = new WeakMap<Node, EntityId>();
 		this._localRevisionByNode = new WeakMap<Node, number>();
 		this._worldRevisionByNode = new WeakMap<Node, number>();
+		this._readOnlyViews = new WeakMap<object, object>();
 	}
 
-	private _handleAttached(parent: Node, child: Node): void {
+	private _handleStructureChanged(parent: Node, child: Node): void {
 		if (this._destroyed) return;
-		const existing = this._entityByNode.get(child);
-		if (existing === undefined) {
-			const parentEntity = this._entityByNode.get(parent) ?? null;
-			this._projectSubtree(child, parentEntity, this._resolvePath(child));
-			this._syncHierarchy(parent);
-			return;
-		}
-		const hierarchy = this._stores.Hierarchy.get(existing);
-		const oldParent = hierarchy?.parent == null
+		const entity = this._entityByNode.get(child);
+		const hierarchy = entity === undefined ? undefined : this._stores.Hierarchy.get(entity);
+		const previousParent = hierarchy?.parent == null
 			? null
 			: this._nodeByEntity.get(hierarchy.parent) ?? null;
-		this._refreshSubtreePaths(child);
-		this._syncHierarchy(child);
-		if (oldParent) this._syncHierarchy(oldParent);
-		this._syncHierarchy(parent);
-	}
-
-	private _handleDetached(parent: Node, child: Node): void {
-		if (this._destroyed) return;
-		this._destroyProjectionSubtree(child);
+		// Events are invalidation hints: earlier listeners may have moved the subtree again.
+		if (child.scene === this._scene) {
+			let subtree = child;
+			while (subtree.parent && !this._entityByNode.has(subtree.parent)) {
+				subtree = subtree.parent;
+			}
+			this._projectSubtree(subtree, this._resolvePath(subtree));
+			if (subtree.parent) this._syncHierarchy(subtree.parent);
+		} else {
+			this._destroyProjectionSubtree(child);
+		}
+		if (previousParent) this._syncHierarchy(previousParent);
 		this._syncHierarchy(parent);
 	}
 
 	private _handleNodeStateChanged(event: SceneNodeStateChangeEvent): void {
-		if (this._destroyed || this._applyingWriteThrough) return;
+		if (this._destroyed) return;
 		const entity = this._entityByNode.get(event.node);
 		if (entity === undefined) return;
 		if (event.field === "name") {
@@ -353,44 +361,72 @@ export class ECSWorld {
 		}
 	}
 
-	private _projectSubtree(
-		node: Node,
-		parent: EntityId | null,
-		path: string,
-	): EntityId {
-		const entity = this._createEntity(node.id);
-		this._entityByNode.set(node, entity);
-		this._nodeByEntity.set(entity, node);
-		this._setInternalComponent(entity, "Name", { value: node.name });
-		this._setInternalComponent(entity, "Visibility", { visible: node.visible });
-		this._setInternalComponent(entity, "LocalTransform", createLocalTransform(node));
-		this._setInternalComponent(entity, "WorldTransform", {
-			matrix: node.worldMatrix.clone(),
-		});
-		this._setInternalComponent(entity, "PathBinding", { path });
-		this._setInternalComponent(entity, "NodeRef", { node });
-		this._setInternalComponent(entity, "NodeKind", { kind: resolveNodeKind(node) });
-		this._localRevisionByNode.set(node, node.localTransformRevision);
-		this._worldRevisionByNode.set(node, node.worldTransformRevision);
-		const childEntities: EntityId[] = [];
-		for (const child of node.children) {
-			childEntities.push(this._projectSubtree(
-				child,
-				entity,
-				`${path}/${sanitizePathSegment(child.name)}_${child.id}`,
-			));
+	private _projectSubtree(node: Node, path: string): EntityId {
+		const existing = this._entityByNode.get(node);
+		let entity: EntityId;
+		let oldParent: Node | null = null;
+		if (existing !== undefined) {
+			entity = existing;
+			const hierarchy = this._stores.Hierarchy.get(entity);
+			if (hierarchy?.parent != null) {
+				oldParent = this._nodeByEntity.get(hierarchy.parent) ?? null;
+			}
+			this._syncName(entity, node);
+			this._syncVisibility(entity, node);
+			this._syncLocalTransform(entity, node);
+			if (this._worldRevisionByNode.get(node) !== node.worldTransformRevision) {
+				this._syncWorldTransform(entity, node);
+			}
+			this._syncPath(entity, path);
+		} else {
+			entity = this._createEntity(node.id);
+			this._entityByNode.set(node, entity);
+			this._nodeByEntity.set(entity, node);
+			this._setInternalComponent(entity, "Name", { value: node.name });
+			this._setInternalComponent(entity, "Visibility", { visible: node.visible });
+			this._setInternalComponent(entity, "LocalTransform", createLocalTransform(node));
+			this._setInternalComponent(entity, "WorldTransform", {
+				matrix: node.worldMatrix.clone(),
+			});
+			this._setInternalComponent(entity, "PathBinding", { path });
+			this._setInternalComponent(entity, "NodeRef", { node });
+			this._setInternalComponent(entity, "NodeKind", { kind: resolveNodeKind(node) });
+			this._localRevisionByNode.set(node, node.localTransformRevision);
+			this._worldRevisionByNode.set(node, node.worldTransformRevision);
 		}
-		this._setInternalComponent(entity, "Hierarchy", { parent, children: childEntities });
+		for (const child of node.children) {
+			this._projectSubtree(
+				child,
+				`${path}/${sanitizePathSegment(child.name)}_${child.id}`,
+			);
+		}
+		this._syncHierarchy(node);
+		if (oldParent && oldParent !== node.parent) this._syncHierarchy(oldParent);
 		return entity;
 	}
 
 	private _destroyProjectionSubtree(node: Node): void {
-		for (const child of node.children) this._destroyProjectionSubtree(child);
+		for (const child of node.children) {
+			if (child.scene !== this._scene) this._destroyProjectionSubtree(child);
+		}
 		const entity = this._entityByNode.get(node);
 		if (entity === undefined) return;
+		// Detached trees can be edited before their lifecycle event reaches this world.
+		const hierarchy = this._stores.Hierarchy.get(entity);
+		const children = hierarchy?.children;
+		// Removing a projected child also unlinks it from this list.
+		for (let index = (children?.length ?? 0) - 1; index >= 0; index--) {
+			const child = this._nodeByEntity.get(children![index]);
+			if (child && child.scene !== this._scene) this._destroyProjectionSubtree(child);
+		}
 		this._entityByNode.delete(node);
 		this._nodeByEntity.delete(entity);
 		this._destroyEntityInternal(entity);
+		if (hierarchy?.parent != null) {
+			const siblings = this._stores.Hierarchy.get(hierarchy.parent)?.children;
+			const index = siblings?.indexOf(entity) ?? -1;
+			if (index >= 0) siblings!.splice(index, 1);
+		}
 	}
 
 	private _refreshSubtreePaths(node: Node): void {
@@ -412,6 +448,8 @@ export class ECSWorld {
 	}
 
 	private _syncHierarchy(node: Node): void {
+		// Preserve the projected child list until detach cleanup has consumed it.
+		if (node.scene !== this._scene) return;
 		const entity = this._entityByNode.get(node);
 		if (entity === undefined) return;
 		const parent = node.parent ? this._entityByNode.get(node.parent) ?? null : null;
@@ -420,6 +458,12 @@ export class ECSWorld {
 			return childEntity === undefined ? [] : [childEntity];
 		});
 		const current = this._stores.Hierarchy.get(entity);
+		if (current) {
+			for (let index = current.children.length - 1; index >= 0; index--) {
+				const child = this._nodeByEntity.get(current.children[index]);
+				if (child && child.scene !== this._scene) this._destroyProjectionSubtree(child);
+			}
+		}
 		if (current && current.parent === parent && arraysEqual(current.children, children)) {
 			return;
 		}
@@ -495,11 +539,18 @@ export class ECSWorld {
 		const nodeChanged = node.name !== value.value;
 		const storeChanged = current?.value !== value.value;
 		if (!nodeChanged && !storeChanged) return;
-		if (nodeChanged) this._withWriteThrough(() => { node.name = value.value; });
-		if (current) current.value = value.value;
-		else this._setInternalComponent(entity, "Name", { value: value.value });
-		if (current) this._bumpDataVersion();
-		this._refreshSubtreePaths(node);
+		const version = this._version;
+		try {
+			if (nodeChanged) node.name = value.value;
+		} finally {
+			// Listeners may normalize, detach, reattach, or destroy during the setter.
+			const finalEntity = this.getEntityByNode(node);
+			if (finalEntity !== null) {
+				this._syncName(finalEntity, node);
+				this._refreshSubtreePaths(node);
+				if (this._version === version) this._bumpDataVersion();
+			}
+		}
 	}
 
 	private _writeVisibility(node: Node, value: VisibilityComponent): void {
@@ -508,10 +559,16 @@ export class ECSWorld {
 		const nodeChanged = node.visible !== value.visible;
 		const storeChanged = current?.visible !== value.visible;
 		if (!nodeChanged && !storeChanged) return;
-		if (nodeChanged) this._withWriteThrough(() => { node.visible = value.visible; });
-		if (current) current.visible = value.visible;
-		else this._setInternalComponent(entity, "Visibility", { visible: value.visible });
-		if (current) this._bumpDataVersion();
+		const version = this._version;
+		try {
+			if (nodeChanged) node.visible = value.visible;
+		} finally {
+			const finalEntity = this.getEntityByNode(node);
+			if (finalEntity !== null) {
+				this._syncVisibility(finalEntity, node);
+				if (this._version === version) this._bumpDataVersion();
+			}
+		}
 	}
 
 	private _writeLocalTransform(node: Node, value: LocalTransformComponent): void {
@@ -520,33 +577,54 @@ export class ECSWorld {
 		const nodeChanged = !nodeMatchesLocalTransform(node, value);
 		const storeChanged = !current || !localTransformsEqual(current, value);
 		if (!nodeChanged && !storeChanged) return;
-		this._withWriteThrough(() => {
-			if (nodeChanged) {
-				node.position.set(value.positionX, value.positionY, value.positionZ);
-				node.quaternion.set(
-					value.rotationX,
-					value.rotationY,
-					value.rotationZ,
-					value.rotationW,
-				);
-				node.scale.set(value.scaleX, value.scaleY, value.scaleZ);
-				node.updateLocalMatrix();
-				node.scene?.invalidate("transform");
-			}
-		});
-		if (current) Object.assign(current, value);
-		else this._setInternalComponent(entity, "LocalTransform", { ...value });
-		if (current) this._bumpDataVersion();
-		this._localRevisionByNode.set(node, node.localTransformRevision);
+		const version = this._version;
+		if (nodeChanged) {
+			node.position.set(value.positionX, value.positionY, value.positionZ);
+			node.quaternion.set(
+				value.rotationX,
+				value.rotationY,
+				value.rotationZ,
+				value.rotationW,
+			);
+			node.scale.set(value.scaleX, value.scaleY, value.scaleZ);
+			node.updateLocalMatrix();
+			node.scene?.invalidate("transform");
+		}
+		const finalEntity = this.getEntityByNode(node);
+		if (finalEntity === null) return;
+		this._syncLocalTransform(finalEntity, node);
+		if (this._version === version) this._bumpDataVersion();
 	}
 
-	private _withWriteThrough(operation: () => void): void {
-		this._applyingWriteThrough = true;
-		try {
-			operation();
-		} finally {
-			this._applyingWriteThrough = false;
-		}
+	private _getReadOnlyView<T extends object>(value: T): T {
+		// The node itself is an authoring object, not owned component storage.
+		if (value instanceof Node) return value;
+		const existing = this._readOnlyViews.get(value);
+		if (existing) return existing as T;
+		const protect = (nested: unknown): unknown => nested !== null && typeof nested === "object"
+			? this._getReadOnlyView(nested)
+			: nested;
+		const rejectMutation = (): never => {
+			throw new Error("ECSWorld scene-derived component is read-only");
+		};
+		const view = new Proxy(value, {
+			get: (target, key, receiver) => protect(Reflect.get(target, key, receiver)),
+			getOwnPropertyDescriptor: (target, key) => {
+				const descriptor: PropertyDescriptor | undefined =
+					Reflect.getOwnPropertyDescriptor(target, key);
+				if (descriptor && "value" in descriptor) {
+					descriptor.value = protect(descriptor.value);
+				}
+				return descriptor;
+			},
+			set: rejectMutation,
+			defineProperty: rejectMutation,
+			deleteProperty: rejectMutation,
+			setPrototypeOf: rejectMutation,
+			preventExtensions: rejectMutation,
+		});
+		this._readOnlyViews.set(value, view);
+		return view;
 	}
 
 	private _findNodesByKind<K extends NodeKind>(
@@ -567,19 +645,27 @@ export class ECSWorld {
 	private _createEntity(externalId?: string): EntityId {
 		const entity = this._nextEntityId++;
 		this._entityIds.add(entity);
-		if (externalId) {
-			this._entityByExternalId.set(externalId, entity);
-			this._externalIdByEntity.set(entity, externalId);
-		}
+		if (externalId !== undefined) this._assignExternalId(entity, externalId);
 		this._bumpStructureVersion();
 		return entity;
+	}
+
+	private _assignExternalId(entity: EntityId, externalId: string): void {
+		const current = this._externalIdByEntity.get(entity);
+		if (current !== undefined) this._entityByExternalId.delete(current);
+		const previousOwner = this._entityByExternalId.get(externalId);
+		if (previousOwner !== undefined) this._externalIdByEntity.delete(previousOwner);
+		this._externalIdByEntity.set(entity, externalId);
+		this._entityByExternalId.set(externalId, entity);
 	}
 
 	private _destroyEntityInternal(entity: EntityId): boolean {
 		if (!this._entityIds.delete(entity)) return false;
 		for (const name of COMPONENT_NAMES) this._stores[name].delete(entity);
 		const externalId = this._externalIdByEntity.get(entity);
-		if (externalId) this._entityByExternalId.delete(externalId);
+		if (externalId !== undefined && this._entityByExternalId.get(externalId) === entity) {
+			this._entityByExternalId.delete(externalId);
+		}
 		this._externalIdByEntity.delete(entity);
 		this._nodeByEntity.delete(entity);
 		this._bumpStructureVersion();
