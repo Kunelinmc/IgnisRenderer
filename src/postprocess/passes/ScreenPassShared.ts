@@ -6,6 +6,7 @@ import type {
 	WebGPUPostProcessServices,
 } from "../../backends/webgpu/WebGPUPostProcessContracts";
 import type { WebGLProgramCompiler } from "../../backends/webgl/WebGLProgramCompiler";
+import type { WebGPUVolumetricLightingData } from "../../backends/webgpu/types";
 import type { PostProcessResourceAccessor } from "../types";
 import type { DisplayOutputState } from "../../rendering/DisplayOutput";
 export type { IncrementalDirtyRect } from "../../pipeline/incremental";
@@ -28,7 +29,7 @@ export interface WebGPUScreenPostProcessContext {
 	readonly resources: PostProcessResourceAccessor<IRenderTexture>;
 	readonly frameBinding?: unknown;
 	readonly lightingState?: unknown;
-	getFrameData<T>(key: unknown): T | undefined;
+	readonly volumetricLightingData: WebGPUVolumetricLightingData | null;
 }
 
 /** @internal WebGPU runtime context supplied to built-in screen implementations. */

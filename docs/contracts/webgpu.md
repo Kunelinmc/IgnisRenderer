@@ -163,6 +163,17 @@ lighting, presentation configuration, reflections, and structured buffer packing
   composition root. It owns device-lifetime scene, texture, deferred, shadow,
   and particle-render resources; consumers must receive only the corresponding
   narrow resource-provider capability.
+- Each frame-scope preparation must normalize scene lights into one
+  `WebGPULightingCatalog` and derive lighting data through stateless functions
+  in `src/backends/webgpu/lights.ts`. Clustered-light preparation must preserve
+  camera eligibility, light budgets, and diagnostics. Volumetric lighting must
+  use the effective surface-light selection without duplicating legacy and
+  clustered lights.
+- Clustered-light data and the intermediate surface-light view must remain
+  local to scope preparation. `WebGPUPreparedFrameResources` must expose
+  `volumetricLightingData` as a typed nullable field, populated only while the
+  volumetric pass is enabled. Preparing another scope or disabling the pass
+  must not overwrite a previously prepared scope's lighting data.
 - `WebGPUScenePipelineResources` must own only built-in and custom scene shader
   modules together with forward, G-buffer, Early-Z, and scene-capture pipeline
   variants. It must not own environment, deferred-lighting, or planar-reflection

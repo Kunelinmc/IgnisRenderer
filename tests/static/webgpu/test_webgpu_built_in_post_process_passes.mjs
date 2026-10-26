@@ -13,8 +13,6 @@ import {
 	RENDERER_OCCLUSION_VISIBILITY_INSERTION_POINT,
 	WEBGPU_OCCLUSION_AFTER_DEPTH_INSERTION_POINT,
 } from "../../../src/backends/BackendExtensions.ts";
-import { WebGPUFrameFeatureDataStore } from "../../../src/backends/webgpu/FrameFeatures.ts";
-import { WEBGPU_VOLUMETRIC_LIGHTING_DATA } from "../../../src/backends/webgpu/WebGPUFrameFeatureModules.ts";
 import { FakeWebGPUBackend as FakeBackend } from "../../helpers/fakes.mjs";
 import {
 	WebGPUFrameExecutor,
@@ -162,10 +160,6 @@ async function createExecutorHarness(postProcessRequest = {
 	volumetric: { enabled: true },
 }) {
 	const backend = new FakeBackend();
-	const featureData = new WebGPUFrameFeatureDataStore();
-	featureData.set(WEBGPU_VOLUMETRIC_LIGHTING_DATA, {
-		id: "volumetric-lighting-data",
-	});
 	const frameResources = {
 		scopeKey: "main",
 		sceneTargetMode: "mrt",
@@ -174,7 +168,7 @@ async function createExecutorHarness(postProcessRequest = {
 		environmentBinding: null,
 		clusteredSceneBinding: null,
 		lightingState: { id: "lighting-state" },
-		featureData,
+		volumetricLightingData: { lights: [], warnings: [] },
 		featureState: {},
 		environmentState: {},
 		jointMatrixMap: new Map(),
@@ -402,8 +396,8 @@ async function testTemporalExecutePassUsesPipelineHistories() {
 		createExecutionContextRequest("volumetric", ssrRequest)
 	);
 	assert.deepEqual(volumetricContext.frameBinding, { id: "frame-binding" });
-	assert.deepEqual(volumetricContext.getFrameData(WEBGPU_VOLUMETRIC_LIGHTING_DATA), {
-		id: "volumetric-lighting-data",
+	assert.deepEqual(volumetricContext.volumetricLightingData, {
+		lights: [], warnings: [],
 	});
 	assert.ok(volumetricContext.shared);
 	assert.equal(volumetricContext.resources.getHistory("volumetric").read.id, "vol-read");

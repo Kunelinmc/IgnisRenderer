@@ -27,7 +27,6 @@ import type {
 	WebGPUPostProcessFrameTargets,
 	WebGPUPostProcessServices,
 } from "../../backends/webgpu/WebGPUPostProcessContracts";
-import { WEBGPU_VOLUMETRIC_LIGHTING_DATA } from "../../backends/webgpu/WebGPUFrameFeatureModules";
 import type { WebGPUVolumetricLightingData } from "../../backends/webgpu/types";
 import { ceilDiv, finiteOr } from "../../maths/Misc";
 import { ShaderSource } from "../../shaders/ShaderSource";
@@ -162,7 +161,7 @@ export interface WebGPUVolumetricLightingContext {
 	readonly shared: WebGPUPostProcessServices;
 	readonly frameBinding?: IBindingGroup;
 	readonly resources: PostProcessResourceAccessor<IRenderTexture>;
-	getFrameData<T>(key: unknown): T | undefined;
+	readonly volumetricLightingData: WebGPUVolumetricLightingData | null;
 }
 
 interface WebGPUVolumetricResources {
@@ -287,9 +286,7 @@ export class WebGPUVolumetricLightingImplementation
 		const resources = await this._ensureResources(context.shared);
 		const lightCount = this._updateLightBuffer(
 			resources,
-			context.getFrameData<WebGPUVolumetricLightingData>(
-				WEBGPU_VOLUMETRIC_LIGHTING_DATA,
-			),
+			context.volumetricLightingData,
 		);
 		const hiZ = context.resources.getShared(WEBGPU_HIZ_SHARED_RESOURCE.id);
 		const history = context.resources.getHistory("volumetric");
@@ -485,7 +482,7 @@ export class WebGPUVolumetricLightingImplementation
 
 	private _updateLightBuffer(
 		resources: WebGPUVolumetricResources,
-		volumetricLighting: WebGPUVolumetricLightingData | undefined
+		volumetricLighting: WebGPUVolumetricLightingData | null
 	): number {
 		const sourceLights = volumetricLighting?.lights ?? [];
 		const clampedLightCount = Math.min(sourceLights.length, MAX_VOLUMETRIC_LIGHTS);

@@ -212,6 +212,7 @@ async function executeVolumetricImplementation(
 			targets.sceneColor.height
 		),
 		lightingState = null,
+		volumetricLightingData = null,
 		encoder = new FakeEncoder(backend),
 	} = options;
 	const frameBinding =
@@ -231,7 +232,7 @@ async function executeVolumetricImplementation(
 		shared: runtime,
 		frameBinding,
 		lightingState,
-		getFrameData: () => null,
+		volumetricLightingData,
 		resources: {
 			color: { input: targets.sceneColor, output: targets.postPong },
 			getGBuffer: () => targets.gMotionDepth,
@@ -375,6 +376,18 @@ async function testSSRAndVolumetricReportHistoryUpdates() {
 		historyValid: true,
 		frameBinding,
 		lightingState: null,
+		volumetricLightingData: {
+			lights: [{
+				type: 1,
+				position: [2, 3, 4],
+				range: 10,
+				direction: [0, 0, 0],
+				outerCos: -2,
+				innerCos: -2,
+				color: [0.5, 0.25, 0.125],
+			}],
+			warnings: [],
+		},
 	});
 	assert.deepEqual(volumetricRun.result, {
 		ran: true,
@@ -383,6 +396,12 @@ async function testSSRAndVolumetricReportHistoryUpdates() {
 	assert.strictEqual(volumetricRun.published, volumetricTargets.postPong);
 	assert.strictEqual(volumetricTargets.sceneColor, volumetricTargets.postPong);
 	assert.equal(volumetricRun.motionWrites, 1);
+	const lightBuffer = backend.buffers.find((buffer) => buffer.label === "WebGPUVolumetricLights");
+	assert.deepEqual(Array.from(lightBuffer?.lastWrite?.data ?? []), [
+		2, 3, 4, 10,
+		0, 0, 0, -2,
+		0.5, 0.25, 0.125, -2,
+	]);
 
 	destroySnapshotPasses(ssrFrameContext.postProcess);
 	destroySnapshotPasses(volumetricFrameContext.postProcess);

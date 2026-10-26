@@ -25,6 +25,8 @@ import {
 	PointLight
 } from "../../../src/lights/PointLight.ts";
 import { DirectionalLight } from "../../../src/lights/DirectionalLight.ts";
+import { CameraType } from "../../../src/cameras/Camera.ts";
+import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import {
 	PBRMaterial
@@ -450,6 +452,89 @@ async function testStaticBatchSplitDiagnosticsAccumulateAndResetPerFrame() {
 	}
 }
 
+function testVolumetricLightingUsesEffectiveSurfaceLights() {
+	const backend = new FakeBackend();
+	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
+	try {
+		for (const entry of [
+			{ clustered: false, maxLights: 2, pointCount: 16 },
+			{ clustered: true, maxLights: 2, pointCount: 2 },
+			{ clustered: true, maxLights: 1.9, pointCount: 1 },
+			{ clustered: true, maxLights: 0, pointCount: 1 },
+			{ clustered: true, maxLights: NaN, sourceCount: 300, pointCount: 256 },
+			{ clustered: true, sourceCount: 300, pointCount: 256 },
+			{ clustered: true, maxLights: 2000, sourceCount: 1025, pointCount: 1024 },
+			{ clustered: true, cameraType: CameraType.Orthographic, pointCount: 16 },
+			{ clustered: true, invalidDepthRange: true, pointCount: 16 },
+			{ clustered: true, enableLighting: false, pointCount: 0 },
+		]) {
+			const frame = createFrame(createPacket(createModel([new PBRMaterial()])));
+			frame.camera.type = entry.cameraType ?? CameraType.Perspective;
+			if (entry.invalidDepthRange) {
+				frame.camera.near = 1e20;
+				frame.camera.far = 1e20;
+			}
+			const pointLights = Array.from({ length: entry.sourceCount ?? 17 }, (_, i) => {
+				const light = new PointLight({ position: { x: i + 1, y: 0, z: 0 } });
+				light.updateWorldMatrix();
+				return light;
+			});
+			frame.lights = [new DirectionalLight(), ...pointLights];
+			const context = createFrameContextWithFeatures(frame, {
+				enableLighting: entry.enableLighting ?? true,
+				enableClusteredLighting: entry.clustered,
+				clusteredLightingOptions: { maxLights: entry.maxLights },
+			}, { clusteredLighting: true }, {
+				postProcess: createResolvedPostProcess({ volumetric: { enabled: true } }),
+			});
+			const prepared = resources.prepareFrame(context, createMainFrameOptions());
+			const lights = prepared.volumetricLightingData?.lights;
+			assert.ok(lights, "Enabled volumetric lighting must receive prepared light data.");
+			assert.equal(
+				lights.filter((light) => light.type === 0).length,
+				entry.enableLighting === false ? 0 : 1,
+			);
+			assert.deepEqual(
+				lights.filter((light) => light.type === 1).map((light) => light.position[0]),
+				Array.from({ length: entry.pointCount }, (_, i) => i + 1),
+			);
+			assert.equal(lights.length, entry.pointCount + (entry.enableLighting === false ? 0 : 1));
+			resources.abortTemporalFrame();
+		}
+	} finally {
+		resources.destroy();
+	}
+}
+
+function testVolumetricLightingDataStaysScopedAndClearsWhenDisabled() {
+	const backend = new FakeBackend();
+	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
+	try {
+		const frame = createFrame(createPacket(createModel([new PBRMaterial()])));
+		frame.lights = [new PointLight()];
+		const context = createFrameContextWithFeatures(frame, { enableLighting: true }, {}, {
+			postProcess: createResolvedPostProcess({ volumetric: { enabled: true } }),
+		});
+		const main = resources.prepareFrame(context, createMainFrameOptions());
+		const captureFrame = createFrame(createPacket(createModel([new PBRMaterial()])));
+		captureFrame.lights = [new DirectionalLight()];
+		const captureContext = createFrameContextWithFeatures(captureFrame,
+			{ enableLighting: true }, {}, { postProcess: context.postProcess });
+		const capture = resources.prepareFrame(captureContext,
+			createMainFrameOptions({ scopeKey: "capture" }));
+		assert.deepEqual(main.volumetricLightingData?.lights.map((light) => light.type), [1]);
+		assert.deepEqual(capture.volumetricLightingData?.lights.map((light) => light.type), [0]);
+		resources.commitTemporalFrame();
+		context.postProcess = createResolvedPostProcess({ volumetric: { enabled: false } });
+		const disabled = resources.prepareFrame(context, createMainFrameOptions());
+		assert.equal(disabled.volumetricLightingData, null);
+		assert.deepEqual(main.volumetricLightingData.lights.map((light) => light.type), [1]);
+		assert.deepEqual(capture.volumetricLightingData.lights.map((light) => light.type), [0]);
+	} finally {
+		resources.destroy();
+	}
+}
+
 async function run() {
 	try {
 		await testRenderResourcesConsumeInjectedComputeFacade();
@@ -458,6 +543,8 @@ async function run() {
 		await testFrameExecutorConsumesComputeFacadeFromHost();
 		await testRenderResourcesUseCopyDstForUploads();
 		await testStaticBatchSplitDiagnosticsAccumulateAndResetPerFrame();
+		testVolumetricLightingUsesEffectiveSurfaceLights();
+		testVolumetricLightingDataStaysScopedAndClearsWhenDisabled();
 		console.log("WebGPU bridge render resources tests passed");
 	} finally {
 		ShaderSource.resetConfiguration();

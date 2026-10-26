@@ -9,8 +9,6 @@ export * from "./StructuredBufferPacker";
 export * from "./texture";
 export * from "./ComputeFacade";
 export * from "./ComputeRuntime";
-export * from "./FrameFeatures";
 export * from "./WebGPUClusteredLightingRuntime";
-export * from "./WebGPUFrameFeatureModules";
 export * from "./WebGPUFrameTargetContracts";
 export * from "./WebGPUPostProcessContracts";

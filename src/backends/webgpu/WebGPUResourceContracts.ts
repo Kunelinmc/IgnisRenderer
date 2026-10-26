@@ -15,13 +15,13 @@ import type {
 	IRenderTexture,
 	ISampler,
 } from "../types";
-import type { WebGPUFrameFeatureDataStore } from "./FrameFeatures";
 import type {
 	WebGPUEnvironmentState,
 	WebGPUFeatureState,
 	WebGPULightingState,
 	WebGPUMaterialUniformData,
 	WebGPUShadingFamily,
+	WebGPUVolumetricLightingData,
 } from "./types";
 import type { WebGPUVertexBufferBinding } from "./WebGPUGeometryRegistry";
 import type { WebGPUGeometryHandle } from "./WebGPUGeometryRegistry";
@@ -221,7 +221,8 @@ export interface WebGPUPreparedFrameResources {
 	environmentBinding: IBindingGroup;
 	clusteredSceneBinding: IBindingGroup;
 	readonly lightingState: WebGPULightingState;
-	readonly featureData: WebGPUFrameFeatureDataStore;
+	/** Effective surface lights for volumetric lighting; null while the pass is disabled. */
+	readonly volumetricLightingData: WebGPUVolumetricLightingData | null;
 	readonly featureState: WebGPUFeatureState;
 	readonly environmentState: WebGPUEnvironmentState;
 	readonly jointMatrixMap: JointMatrixMap | null;

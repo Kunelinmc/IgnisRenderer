@@ -158,7 +158,7 @@ function createPreparedFrameResources(options = {}) {
 		environmentBinding: null,
 		clusteredSceneBinding: null,
 		lightingState: {},
-		featureData: { get: () => undefined },
+		volumetricLightingData: null,
 		featureState: {},
 		environmentState: {},
 		jointMatrixMap: new Map(),

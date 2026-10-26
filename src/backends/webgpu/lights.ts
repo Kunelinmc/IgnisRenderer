@@ -1,3 +1,5 @@
+import { CameraType } from "../../cameras/Camera";
+import type { Camera } from "../../cameras/Camera";
 import {
 	LightType,
 	type AmbientLight,
@@ -25,6 +27,7 @@ import {
 	WEBGPU_CLUSTERED_LIGHT_TYPE_AREA,
 	WEBGPU_CLUSTERED_LIGHT_TYPE_POINT,
 	WEBGPU_CLUSTERED_LIGHT_TYPE_SPOT,
+	WEBGPU_CLUSTERED_MAX_LIGHTS,
 } from "./constants";
 import {
 	MAX_AREA_LIGHTS,
@@ -37,6 +40,7 @@ import type {
 	WebGPUClusteredLightUniform,
 	WebGPUClusteredLightingData,
 	WebGPUDirectionalLightUniform,
+	WebGPUFeatureState,
 	WebGPULightingCatalog,
 	WebGPULightingCatalogLight,
 	WebGPULightingState,
@@ -217,6 +221,37 @@ export function createWebGPULightingState(
 	}
 
 	return state;
+}
+
+/**
+ * Prepares the eligible, budgeted clustered-light selection for one view scope.
+ *
+ * @internal WebGPU lighting preparation; configure lighting through Renderer.features.
+ * @returns Prepared lights, or null when lighting or the camera cannot use clustering.
+ */
+export function prepareWebGPUClusteredLightingData(
+	catalog: WebGPULightingCatalog,
+	camera: Pick<Camera, "type" | "near" | "far">,
+	features: Pick<
+		WebGPUFeatureState,
+		"enableLighting" | "enableClusteredLighting" | "clusteredLightingOptions"
+	>,
+): WebGPUClusteredLightingData | null {
+	if (
+		!features.enableClusteredLighting || !features.enableLighting ||
+		camera.type !== CameraType.Perspective
+	) {
+		return null;
+	}
+	const near = Math.max(0.05, camera.near ?? 0.1);
+	const far = Math.max(near + 1e-3, camera.far ?? near + 1);
+	if (!(Math.log(far) - Math.log(near) > 1e-6)) {
+		return null;
+	}
+	const requested = features.clusteredLightingOptions?.maxLights;
+	const requestedMaxLights = Number.isFinite(requested) ? Math.trunc(Number(requested)) : 256;
+	const maxLights = Math.min(WEBGPU_CLUSTERED_MAX_LIGHTS, Math.max(1, requestedMaxLights));
+	return createWebGPUClusteredLightingData(catalog, maxLights);
 }
 
 export function createWebGPUClusteredLightingData(

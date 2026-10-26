@@ -217,8 +217,10 @@ This document defines logical post-process declarations, planning, backend execu
   must not introduce a shared copy service for pass-local transfers.
 - Hi-Z must be declared as required shared resource
   `"backend:frame-hiz"` and obtained through `getShared()`.
-- Frame bindings, lighting state, and feature data are backend services, not
-  graph-resource metadata.
+- Frame bindings, lighting state, and prepared volumetric lighting are backend
+  services, not graph-resource metadata. The fixed WebGPU execution context
+  must expose typed nullable `volumetricLightingData` directly. Warmup must
+  supply `null` without preparing scene lights.
 - Built-in shared-resource IDs must be resolved through one WebGPU catalog that
   defines graph bindings, allocation groups, availability, and execution-time
   texture access. Unknown custom IDs must remain unavailable.

@@ -28,16 +28,13 @@ import {
 	collectWebGPUEnvironment,
 	collectWebGPULightingCatalog,
 	createWebGPULightingState,
+	createWebGPUSurfaceLightingView,
+	createWebGPUVolumetricLightingData,
+	prepareWebGPUClusteredLightingData,
 	type WebGPUEnvironmentState,
 	type WebGPUFeatureState,
 	type WebGPULightingState,
 } from "./";
-import type { WebGPUFrameFeatureDataStore } from "./FrameFeatures";
-import {
-	WEBGPU_CLUSTERED_LIGHTING_DATA,
-	canPrepareClusteredLighting,
-	createWebGPUFrameFeatureRegistry,
-} from "./WebGPUFrameFeatureModules";
 import { createWebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
 import { WebGPUDrawResourceCache } from "./WebGPUDrawResourceCache";
 import { WebGPUDepthMaterialResources } from "./WebGPUDepthMaterialResources";
@@ -155,7 +152,6 @@ export class WebGPUFrameServiceOwner {
 	};
 	private _shadowRuntime: WebGPUShadowRuntime;
 	private _shadowRuntimeDestroyed = false;
-	private _frameFeatureRegistry = createWebGPUFrameFeatureRegistry();
 	private _frameScopes = new Map<string, WebGPUFrameResourceScope>();
 	private _nextFrameScopeId = 0;
 	private _deferredResources: WebGPUDeferredResources;
@@ -482,13 +478,14 @@ export class WebGPUFrameServiceOwner {
 			context.shadowPlan?.hasRasterWork === true,
 			context.shadowPlan,
 		);
-		const enableClusteredSurfaceLighting = canPrepareClusteredLighting({
-			scene,
+		const clusteredLightingData = prepareWebGPUClusteredLightingData(
+			lightingCatalog,
+			scene.camera,
 			featureState,
-		});
+		);
 		const lightingState = createWebGPULightingState(
 			lightingCatalog,
-			enableClusteredSurfaceLighting,
+			clusteredLightingData !== null,
 		);
 		for (const warning of lightingState.warnings) {
 			Logger.warn(`[${warning.key}] ${warning.message}`, {
@@ -496,16 +493,11 @@ export class WebGPUFrameServiceOwner {
 				onceKey: warning.key,
 			});
 		}
-		const featureData = this._frameFeatureRegistry.prepareFrame({
-			frameContext: context,
-			scene,
-			featureState,
-			lightingCatalog,
-			lightingState,
-			renderWidth,
-			renderHeight,
-		});
-		const clusteredLightingData = featureData.get(WEBGPU_CLUSTERED_LIGHTING_DATA) ?? null;
+		const volumetricLightingData = postProcess.isEnabled("volumetric")
+			? createWebGPUVolumetricLightingData(
+				createWebGPUSurfaceLightingView(lightingState, clusteredLightingData),
+			)
+			: null;
 		for (const warning of clusteredLightingData?.warnings ?? []) {
 			Logger.warn(`[${warning.key}] ${warning.message}`, {
 				scope: "WebGPUFrameServiceOwner",
@@ -563,7 +555,7 @@ export class WebGPUFrameServiceOwner {
 			environmentBinding: scope.frameBindings.getEnvironmentBinding(),
 			clusteredSceneBinding: scope.clusteredLighting.getSceneBinding(),
 			lightingState,
-			featureData,
+			volumetricLightingData,
 			featureState,
 			environmentState,
 			jointMatrixMap,
@@ -750,7 +742,6 @@ export class WebGPUFrameServiceOwner {
 		this._particleRenderResources.destroy();
 		this._deferredResources.destroy();
 		this._environmentResources.destroy();
-		this._frameFeatureRegistry.destroy();
 		for (const scope of this._frameScopes.values()) {
 			this._drawResourceAssembler.releaseFrameScope(scope);
 			scope.frameBindings.destroy();

@@ -305,8 +305,7 @@ export class WebGPUPostProcessBridge {
 			shared: this._runtime,
 			frameBinding: frameResources.frameBinding,
 			lightingState: frameResources.lightingState,
-			getFrameData: <T>(key: unknown): T | undefined =>
-				frameResources.featureData.get(key as never) as T | undefined,
+			volumetricLightingData: frameResources.volumetricLightingData,
 			resources: createPostProcessResourceAccessor<IRenderTexture>({
 				passId: request.passId,
 				declaration: request.declaration,
@@ -342,7 +341,7 @@ export class WebGPUPostProcessBridge {
 			shared: this._runtime,
 			frameBinding: undefined,
 			lightingState: undefined,
-			getFrameData: (): undefined => undefined,
+			volumetricLightingData: null,
 			resources: createPostProcessResourceAccessor<IRenderTexture>({
 				passId,
 				declaration,
