@@ -26,6 +26,18 @@ import { WebGPUShadowFrameModule } from "./WebGPUShadowFrameModule";
 import { WebGPUTransparencyRuntime } from "./WebGPUTransparencyRuntime";
 import { WebGPUVisibilityFrameModule } from "./WebGPUVisibilityFrameModule";
 import type { WebGPUShadowRenderProvider } from "../WebGPUResourceContracts";
+import type { FrameContext } from "../../../pipeline/types";
+import type { WarmupOptions, WarmupReport } from "../../IRenderBackend";
+import {
+	addWarmupPhase,
+	buildWarmupPlan,
+	createWarmupReport,
+	finalizeWarmupReport,
+	toShaderCompileError,
+	type WarmupPhaseCounters,
+} from "../../../pipeline/WarmupPlanner";
+import { createBaselineFramePacketSet } from "../../../pipeline/FramePackets";
+import { createWarmupYieldController } from "../../../pipeline/WarmupScheduler";
 
 /** @internal Sealed backend-private frame runtime composition. */
 export interface WebGPUFrameRuntimeComposition {
@@ -37,7 +49,7 @@ export interface WebGPUFrameRuntimeComposition {
 	>;
 	readonly postProcess: Pick<
 		WebGPUPostProcessFrameModule,
-		"getDebugState" | "warmup" | "invalidateFrameResources" |
+		"getDebugState" | "invalidateFrameResources" |
 		"createSessionPort" | "createGBufferBridge" |
 		"createPassExecutionContext" | "completePass"
 	>;
@@ -45,11 +57,25 @@ export interface WebGPUFrameRuntimeComposition {
 		WebGPUVisibilityFrameModule,
 		"reset" | "getVisibilityProvider"
 	>;
-	readonly reflection: Pick<WebGPUReflectionFrameModule, "warmup">;
 	readonly renderTargets: Pick<
 		WebGPUCustomRenderTargetRuntime,
 		"readColor"
 	>;
+	/**
+	 * Warms this device session's feature pipelines and reports completed phases.
+	 * Planning failures reject; compilation failures are collected in the report.
+	 *
+	 * @internal WebGPU runtime composition; applications use Renderer.warmup().
+	 * @param context Prepared scene and post-process inputs.
+	 * @param options Scheduling, diagnostics, and progress options.
+	 * @param sampleCount Requested main-scene sample count.
+	 * @returns Aggregated feature phase reports without executing a frame.
+	 */
+	warmup(
+		context: FrameContext,
+		options: WarmupOptions,
+		sampleCount: number,
+	): Promise<WarmupReport>;
 }
 
 /** Creates one backend-owned, sealed frame runtime composition. */
@@ -91,9 +117,10 @@ export function createWebGPUFrameRuntimeComposition(options: {
 	const postBridge = new WebGPUPostProcessBridge(host, postRuntime, {
 		isHiZReady: () => visibility.isHiZReady(),
 	});
+	const postProcessRuntime = host.postProcessRuntime;
 	const postProcess = new WebGPUPostProcessFrameModule(
 		postRuntime,
-		host.postProcessRuntime,
+		postProcessRuntime,
 		postBridge,
 		presentation,
 	);
@@ -158,7 +185,60 @@ export function createWebGPUFrameRuntimeComposition(options: {
 		lifecycle: modules,
 		postProcess,
 		visibility,
-		reflection,
 		renderTargets,
+		async warmup(context, warmupOptions, sampleCount) {
+			const report = createWarmupReport("webgpu");
+			const postProcessPlan = postProcessRuntime.planWarmup(context);
+			const plan = buildWarmupPlan(context, warmupOptions, {
+				passIds: postProcessPlan.orderedPasses.map((pass) => pass.id),
+				descriptors: postProcessPlan.orderedPasses.map((pass) => pass.pass),
+			});
+			const framePackets = createBaselineFramePacketSet(context);
+			const reportPhase = (phase: WarmupPhaseCounters): void => {
+				addWarmupPhase(report, phase);
+				warmupOptions.onProgress?.({
+					phase: phase.phase,
+					completed: phase.compiled + phase.skipped + phase.failed,
+					total: phase.total,
+				});
+			};
+			try {
+				reportPhase(await postProcess.warmup(
+					context,
+					plan,
+					warmupOptions,
+					postProcessPlan,
+				));
+				const resourcePhases = await frameServices.warmup(
+					context,
+					plan,
+					warmupOptions,
+					framePackets,
+					{
+						enableEarlyZPrepass: host.enableEarlyZPrepass,
+						enableDeferredLighting: host.enableDeferredLighting,
+						sampleCount,
+					},
+				);
+				for (const phase of resourcePhases) reportPhase(phase);
+				const reflectionYield = createWarmupYieldController(warmupOptions);
+				reportPhase(await reflection.warmup(
+					context,
+					framePackets,
+					sampleCount,
+					() => reflectionYield.yieldIfNeeded(),
+				));
+			} catch (error) {
+				reportPhase({
+					phase: "webgpu-warmup",
+					total: 1,
+					compiled: 0,
+					skipped: 0,
+					failed: 1,
+					errors: [toShaderCompileError(error, "webgpu", "WebGPUWarmup")],
+				});
+			}
+			return finalizeWarmupReport(report);
+		},
 	};
 }

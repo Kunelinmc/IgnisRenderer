@@ -16,8 +16,10 @@ import {
 import { FakeWebGPUBackend as FakeBackend } from "../../helpers/fakes.mjs";
 import {
 	WebGPUFrameExecutor,
+	createFrameContext,
 	getFrameGraphDebugState,
 } from "../../helpers/webgpu_frame_executor_resilience.mjs";
+import { toShaderCompileError } from "../../../src/pipeline/WarmupPlanner.ts";
 
 const particleRenderer = {
 	async renderParticles() {
@@ -455,6 +457,144 @@ async function testCustomImplementationUsesFixedContext() {
 	executor.abortFrame();
 }
 
+function createWarmupHarness(resourcePhases = []) {
+	const backend = new FakeBackend();
+	let resourceRequest;
+	const resources = {
+		sceneFrameLayout: {},
+		createFrameScope() {
+			return {
+				prepare() { throw new Error("warmup must not prepare a graph frame"); },
+				destroy() {},
+			};
+		},
+		async warmup(context, plan, options, framePackets, runtimeOptions) {
+			resourceRequest = { context, plan, options, framePackets, runtimeOptions };
+			return resourcePhases;
+		},
+	};
+	const executor = createFrameExecutor(backend, resources);
+	const context = createFrameContext(4, 4);
+	context.postProcess = createResolvedPostProcess({
+		tonemap: { enabled: true },
+		gamma: { enabled: true },
+	}, "webgpu");
+	return {
+		backend,
+		resources,
+		runtime: executor.frameRuntime,
+		context,
+		getResourceRequest: () => resourceRequest,
+	};
+}
+
+async function testWarmupAggregatesFeaturePhasesAndProgress() {
+	const compileError = toShaderCompileError(new Error("shadow compile failure"),
+		"webgpu", "WebGPUShadowWarmup");
+	const { backend, resources, runtime, context, getResourceRequest } = createWarmupHarness([
+		{ phase: "scene", total: 3, compiled: 2, skipped: 1, failed: 0, errors: [] },
+		{ phase: "shadows", total: 1, compiled: 0, skipped: 0, failed: 1,
+			errors: [compileError] },
+	]);
+	const progress = [];
+	const events = [];
+	const warmupResources = resources.warmup.bind(resources);
+	resources.warmup = async (...args) => {
+		events.push("resources");
+		return warmupResources(...args);
+	};
+	const options = {
+		includeParticles: false,
+		scheduling: "idle",
+		yieldIntervalMs: 0,
+		onProgress(update) {
+			progress.push(update);
+			events.push(update.phase);
+		},
+	};
+	const report = await runtime.warmup(context, options, 4);
+	assert.equal(report.backend, "webgpu");
+	assert.equal(report.total, 7);
+	assert.equal(report.compiled, 5);
+	assert.equal(report.skipped, 1);
+	assert.equal(report.failed, 1);
+	assert.deepEqual(report.errors, [compileError]);
+	assert.deepEqual(report.phases.map((phase) => phase.phase), [
+		"webgpu-frame", "scene", "shadows", "webgpu-reflection",
+	]);
+	assert.deepEqual(progress, [
+		{ phase: "webgpu-frame", completed: 3, total: 3 },
+		{ phase: "scene", completed: 3, total: 3 },
+		{ phase: "shadows", completed: 1, total: 1 },
+		{ phase: "webgpu-reflection", completed: 0, total: 0 },
+	]);
+	assert.deepEqual(events, [
+		"webgpu-frame", "resources", "scene", "shadows", "webgpu-reflection",
+	]);
+	assert.ok(report.finishedAt >= report.startedAt);
+	assert.equal(report.durationMs, report.finishedAt - report.startedAt);
+	const request = getResourceRequest();
+	assert.equal(request.context, context);
+	assert.equal(request.options, options);
+	assert.deepEqual(request.plan.postProcessPasses, ["tonemap", "gamma"]);
+	assert.equal(request.plan.enableParticles, false);
+	assert.deepEqual(request.framePackets.all, []);
+	assert.deepEqual(request.runtimeOptions, {
+		enableEarlyZPrepass: true,
+		enableDeferredLighting: true,
+		sampleCount: 4,
+	});
+	assert.equal(backend.textures.length, 0);
+	assert.equal(backend.submits, 0);
+}
+
+async function testWarmupReportsPostProcessCompilationFailures() {
+	const { backend, runtime, context } = createWarmupHarness();
+	const failure = new Error("gamma compile failure");
+	const createComputePipeline = backend.createComputePipeline.bind(backend);
+	backend.createComputePipeline = async (desc) => {
+		if (desc.label === "WebGPUGammaPipeline") throw failure;
+		return createComputePipeline(desc);
+	};
+	const report = await runtime.warmup(context, {}, 1);
+	assert.equal(report.total, 3);
+	assert.equal(report.compiled, 2);
+	assert.equal(report.failed, 1);
+	assert.equal(report.errors[0].cause, failure);
+	assert.deepEqual(report.phases.map((phase) => phase.phase), [
+		"webgpu-frame", "webgpu-reflection",
+	]);
+}
+
+async function testWarmupRejectsSetupFailures() {
+	const { backend, runtime, context } = createWarmupHarness();
+	const failure = new Error("warmup planning failed");
+	backend.postProcessRuntime.planWarmup = () => { throw failure; };
+	await assert.rejects(runtime.warmup(context, {}, 1), (error) => error === failure);
+	assert.equal(backend.pipelines.length, 0);
+}
+
+async function testWarmupRetainsCompletedPhasesAfterUnexpectedFailure() {
+	const { resources, runtime, context } = createWarmupHarness();
+	const failure = new Error("resource warmup failed");
+	resources.warmup = async () => { throw failure; };
+	const progress = [];
+	const report = await runtime.warmup(context, {
+		onProgress: (update) => progress.push(update),
+	}, 1);
+	assert.equal(report.total, 4);
+	assert.equal(report.compiled, 3);
+	assert.equal(report.failed, 1);
+	assert.equal(report.errors[0].cause, failure);
+	assert.deepEqual(report.phases.map((phase) => phase.phase), [
+		"webgpu-frame", "webgpu-warmup",
+	]);
+	assert.deepEqual(progress, [
+		{ phase: "webgpu-frame", completed: 3, total: 3 },
+		{ phase: "webgpu-warmup", completed: 1, total: 1 },
+	]);
+}
+
 async function testWarmupHintsFollowPlanPostProcessPasses() {
 	const backend = new FakeBackend();
 	const resources = {
@@ -467,8 +607,11 @@ async function testWarmupHintsFollowPlanPostProcessPasses() {
 		},
 	};
 	const executor = createFrameExecutor(backend, resources);
+	const postProcess = executor.frameRuntime.modules.modules.find(
+		(module) => module.id === "post-process",
+	);
 
-	const emptyWarmup = await executor.frameRuntime.postProcess.warmup(
+	const emptyWarmup = await postProcess.warmup(
 		{
 			transient: new Map(),
 			postProcess: {
@@ -491,7 +634,7 @@ async function testWarmupHintsFollowPlanPostProcessPasses() {
 	assert.equal(emptyWarmup.failed, 0);
 
 	const taaPass = new TemporalAntiAliasingPass({ enabled: true });
-	const taaWarmup = await executor.frameRuntime.postProcess.warmup(
+	const taaWarmup = await postProcess.warmup(
 		{
 			transient: new Map(),
 			postProcess: {
@@ -586,6 +729,10 @@ async function run() {
 	await testGammaOwnsWebGPUKernelBeforeRawPresent();
 	await testTemporalExecutePassUsesPipelineHistories();
 	await testCustomImplementationUsesFixedContext();
+	await testWarmupAggregatesFeaturePhasesAndProgress();
+	await testWarmupReportsPostProcessCompilationFailures();
+	await testWarmupRejectsSetupFailures();
+	await testWarmupRetainsCompletedPhasesAfterUnexpectedFailure();
 	await testWarmupHintsFollowPlanPostProcessPasses();
 	await testBackendPostProcessSurfaceKeepsOnlyExecutorBridge();
 	await testWebGPUOcclusionExtensionDescriptor();

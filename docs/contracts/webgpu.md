@@ -87,8 +87,17 @@ lighting, presentation configuration, reflections, and structured buffer packing
   Those resources must compile lazily on first use or explicit warmup.
 - Scene, environment, deferred, and reflection owners must enumerate their own
   warmup variants from the current frame inputs, resolved backend options,
-  device capabilities, and sample count. The warmup coordinator may aggregate
-  phase reports but must not reproduce feature pipeline-selection policy.
+  device capabilities, and sample count. `WebGPUFrameRuntimeComposition` must
+  expose one backend-private warmup entrypoint that plans warmup work, invokes
+  post-process/presentation, frame services, and reflection in that order, and
+  aggregates their phase reports and progress notifications. It must not
+  reproduce feature pipeline-selection policy or execute a normal frame.
+- `WebGPUBackend.warmup()` must validate runtime availability and manage
+  compilation logging, resetting logging in a `finally` block. One warmup call
+  must use one runtime composition throughout its work. Warmup planning failures
+  must reject; compilation failures must remain in `WarmupReport.errors`.
+  The composition must retain cooperative yielding and must not expose
+  separate post-process or reflection warmup ports.
 - Deferred warmup must reuse the same analysis and capability policy as frame
   configuration. Reflection warmup must own its temporary frame scope and
   release it in a `finally` block.

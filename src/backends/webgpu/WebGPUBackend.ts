@@ -56,7 +56,6 @@ import {
 	WebGPUSampleCountResolver,
 	type WebGPUSampleCountResolverHost,
 } from "./WebGPUSampleCountResolver";
-import { WebGPUWarmupCoordinator } from "./WebGPUWarmupCoordinator";
 import { WebGPUFrameServiceOwner } from "./WebGPUFrameServiceOwner";
 import type { WebGPUCommandSchedulerHost } from "./WebGPUBackendContracts";
 import {
@@ -281,7 +280,6 @@ export class WebGPUBackend implements IRenderBackend {
 	private readonly _pipelineCache: WebGPUPipelineCache;
 	private readonly _bindingGroupCache: WebGPUBindingGroupCache;
 	private readonly _computeFacade: IWebGPUComputeFacade;
-	private readonly _warmupCoordinator: WebGPUWarmupCoordinator;
 
 	constructor(options: WebGPUBackendOptions = {}) {
 		if (Object.prototype.hasOwnProperty.call(options, "enableMSAA")) {
@@ -302,7 +300,6 @@ export class WebGPUBackend implements IRenderBackend {
 		const shaderMode = options.shaderMode ?? "strict";
 		this._shaderMode = shaderMode;
 		this._directiveHook = options.directiveHook ?? null;
-		const thisRef = this;
 		this._sampleCountResolver = new WebGPUSampleCountResolver(
 			this._createSampleCountResolverHost(),
 		);
@@ -341,35 +338,6 @@ export class WebGPUBackend implements IRenderBackend {
 		this._shaderModuleCompiler = new WebGPUShaderModuleCompiler();
 		this._pipelineCache = new WebGPUPipelineCache(this._createPipelineCacheHost());
 		this._bindingGroupCache = new WebGPUBindingGroupCache(this._createBindingGroupCacheHost());
-		this._warmupCoordinator = new WebGPUWarmupCoordinator({
-			get profile() {
-				return thisRef.profile;
-			},
-			get postProcess() {
-				return thisRef._frameRuntime?.postProcess ?? null;
-			},
-			get reflection() {
-				return thisRef._frameRuntime?.reflection ?? null;
-			},
-			get resources() {
-				return thisRef._resources;
-			},
-			get postProcessRuntime() {
-				return thisRef._postProcessRuntime;
-			},
-			get enableEarlyZPrepass() {
-				return thisRef._enableEarlyZPrepass;
-			},
-			get enableDeferredLighting() {
-				return thisRef._enableDeferredLighting;
-			},
-			get sampleCount() {
-				return thisRef._requestedSampleCount;
-			},
-			setWarmupLogCompilationInfo: (enabled) => {
-				this._warmupLogCompilationInfo = enabled;
-			},
-		});
 		this._commandScheduler = new WebGPUCommandScheduler(this._createCommandSchedulerHost());
 		this._resourceManager = new WebGPUResourceManager(this._createResourceManagerHost());
 		this._computeFacade = createWebGPUComputeFacade(this._createComputeFacadeHost());
@@ -859,7 +827,16 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	public async warmup(context: FrameContext, options: WarmupOptions = {}): Promise<WarmupReport> {
-		return this._warmupCoordinator.warmup(context, options);
+		const frameRuntime = this._frameRuntime;
+		if (!frameRuntime) {
+			throw new Error("WebGPU backend has not been initialized.");
+		}
+		this._warmupLogCompilationInfo = options.logCompilationInfo === true;
+		try {
+			return await frameRuntime.warmup(context, options, this._requestedSampleCount);
+		} finally {
+			this._warmupLogCompilationInfo = false;
+		}
 	}
 
 	public async endFrame(): Promise<void> {

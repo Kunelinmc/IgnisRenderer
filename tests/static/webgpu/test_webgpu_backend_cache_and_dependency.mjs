@@ -13,6 +13,7 @@ import {
 	TextureUsage,
 } from "../../../src/backends/types.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
+import { createWarmupReport } from "../../../src/pipeline/WarmupPlanner.ts";
 
 if (!globalThis.GPUBufferUsage) {
 	globalThis.GPUBufferUsage = {
@@ -1487,47 +1488,41 @@ async function testEndFrameFailureStillEndsParticleFrameAndClearsPlanner() {
 	assert.equal(backend._activeFrameTransaction, null);
 }
 
-async function testWarmupAggregatesPhases() {
-	const { backend } = createBackend();
-	backend._postProcessRuntime = {
-		planWarmup() {
-			return { orderedPasses: [] };
-		},
-	};
-	backend._frameRuntime = {
-		postProcess: { warmup: async () => ({
-			phase: "frame",
-			total: 2,
-			compiled: 2,
-			skipped: 0,
-			failed: 0,
-			errors: [],
-		}) },
-		reflection: { warmup: async () => ({
-			phase: "reflection",
-			total: 1,
-			compiled: 1,
-			skipped: 0,
-			failed: 0,
-			errors: [],
-		}) },
-	};
-	backend._resources = {
-		warmup: async () => [{
-			phase: "resources",
-			total: 3,
-			compiled: 2,
-			skipped: 1,
-			failed: 0,
-			errors: [],
-		}],
-	};
-	const report = await backend.warmup(createFrameContext());
-	assert.equal(report.total, 6);
-	assert.equal(report.compiled, 5);
-	assert.equal(report.skipped, 1);
-	assert.equal(report.failed, 0);
-	assert.equal(report.phases.length, 3);
+async function testWarmupScopesCompilationLogging() {
+	for (const logCompilationInfo of [true, false]) {
+		for (const shouldReject of [false, true]) {
+			const { backend } = createBackend({ sampleCount: 4 });
+			const pending = createDeferred();
+			const context = createFrameContext();
+			const options = { logCompilationInfo };
+			const expectedReport = createWarmupReport("webgpu");
+			const failure = new Error("warmup setup failed");
+			backend._frameRuntime = {
+				async warmup(actualContext, actualOptions, sampleCount) {
+					assert.equal(actualContext, context);
+					assert.equal(actualOptions, options);
+					assert.equal(sampleCount, 4);
+					return pending.promise;
+				},
+			};
+			const result = backend.warmup(context, options);
+			assert.equal(backend._warmupLogCompilationInfo, logCompilationInfo);
+			if (shouldReject) {
+				pending.reject(failure);
+				await assert.rejects(result, (error) => error === failure);
+			} else {
+				pending.resolve(expectedReport);
+				assert.equal(await result, expectedReport);
+			}
+			assert.equal(backend._warmupLogCompilationInfo, false);
+		}
+	}
+}
+
+async function testWarmupRejectsWithoutInitializedRuntime() {
+	const backend = new WebGPUBackend();
+	await assert.rejects(backend.warmup(createFrameContext()), /has not been initialized/);
+	assert.equal(backend._warmupLogCompilationInfo, false);
 }
 
 async function run() {
@@ -1562,7 +1557,8 @@ async function run() {
 	await testPostProcessSessionBindsBeforeFrameGraphPlanning();
 	await testAbortFrameClearsPlannerAndDelegatesWithoutEndFrame();
 	await testEndFrameFailureStillEndsParticleFrameAndClearsPlanner();
-	await testWarmupAggregatesPhases();
+	await testWarmupScopesCompilationLogging();
+	await testWarmupRejectsWithoutInitializedRuntime();
 	console.log("WebGPU backend cache/dependency tests passed");
 }
 
