@@ -523,16 +523,6 @@ void main() {
 		alpha = 1.0;
 	}
 #endif
-	int fogMode = int(floor(uFogParams0.x + 0.5));
-	float fogFactor = ignisComputeFogFactor(
-		fogMode,
-		max(vViewDepth, 0.0),
-		uFogParams0.y,
-		uFogParams0.z,
-		uFogParams0.w,
-		uFogParams1.w
-	);
-	color = max(mix(color, uFogParams1.rgb, fogFactor), vec3(0.0));
 	vec3 finalColor = max(color, vec3(0.0));
 	float finalAlpha = uAlpha.z > 0.5 ? clamp(alpha, 0.0, 1.0) : 1.0;
 #if WEBGL_SCENE_OIT

@@ -17,9 +17,6 @@ __WEBGL_MATERIAL_COMMON_LEGACY_UNIFORMS__
 uniform int uDoubleSided;
 uniform vec4 uBaseColor;
 uniform vec4 uEmissive;
-__WEBGL_SCENE_FOG_UNIFORMS__
-uniform vec4 uFogParams0;
-uniform vec4 uFogParams1;
 __WEBGL_SCENE_LIGHTING_UNIFORMS__
 uniform int uEnableLighting;
 __WEBGL_SCENE_SH_UNIFORMS__

@@ -453,17 +453,6 @@ export class WebGLSceneClusterUniforms {
 	}
 }
 
-export class WebGLSceneFogUniforms {
-	public readonly fogParams0: WebGLSceneUniformLocation;
-	public readonly fogParams1: WebGLSceneUniformLocation;
-
-	public constructor(gl: WebGL2RenderingContext, program: WebGLProgram) {
-		const get = createUniformLookup(gl, program);
-		this.fogParams0 = get("uFogParams0");
-		this.fogParams1 = get("uFogParams1");
-	}
-}
-
 export class WebGLSceneCustomSamplerUniforms {
 	public readonly customSamplers: Record<string, WebGLSceneUniformLocation>;
 
@@ -511,7 +500,6 @@ export type WebGLSceneUniforms =
 	WebGLSceneLightUniforms &
 	WebGLSceneShadowUniforms &
 	WebGLSceneClusterUniforms &
-	WebGLSceneFogUniforms &
 	WebGLSceneCustomSamplerUniforms &
 	WebGLSceneCustomUniforms;
 
@@ -536,7 +524,6 @@ export function createWebGLSceneUniforms(
 		new WebGLSceneLightUniforms(gl, program),
 		new WebGLSceneShadowUniforms(gl, program),
 		new WebGLSceneClusterUniforms(gl, program),
-		new WebGLSceneFogUniforms(gl, program),
 		new WebGLSceneCustomSamplerUniforms(gl, program, customSamplerUniforms),
 		new WebGLSceneCustomUniforms(gl, program, customUniforms)
 	) as WebGLSceneUniforms;

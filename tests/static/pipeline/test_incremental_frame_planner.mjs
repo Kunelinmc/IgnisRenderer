@@ -229,10 +229,26 @@ function testPostFxStandardReasonStartsAtEarliestEnabledPostStage() {
 
 function testPostFxStartsAtFogWhenOnlyFogPostProcessEnabled() {
 	const registered = createRegisteredPostProcess({
+		fog: { enabled: true },
+		fxaa: { enabled: true },
+	});
+	const plan = IncrementalFramePlanner.plan({
+		enabled: true,
+		reasonMask: renderDirtyReasonToMask("postfx"),
+		features: createFeatures(),
+		postProcess: registered.postProcess,
+		registry: registered.registry,
+	});
+	assert.equal(plan.firstPass, "postprocess");
+	assert.equal(plan.postProcessStartPass, "fog");
+}
+
+function testLegacyFogApplicationStillStartsAtFog() {
+	const registered = createRegisteredPostProcess({
 		fog: {
 			enabled: true,
 			options: {
-				application: "postprocess",
+				application: "scene",
 			},
 		},
 		fxaa: { enabled: true },
@@ -248,35 +264,9 @@ function testPostFxStartsAtFogWhenOnlyFogPostProcessEnabled() {
 	assert.equal(plan.postProcessStartPass, "fog");
 }
 
-function testPostFxSkipsFogInSceneMode() {
-	const registered = createRegisteredPostProcess({
-		fog: {
-			enabled: true,
-			options: {
-				application: "scene",
-			},
-		},
-		fxaa: { enabled: true },
-	});
-	const plan = IncrementalFramePlanner.plan({
-		enabled: true,
-		reasonMask: renderDirtyReasonToMask("postfx"),
-		features: createFeatures(),
-		postProcess: registered.postProcess,
-		registry: registered.registry,
-	});
-	assert.equal(plan.firstPass, "postprocess");
-	assert.equal(plan.postProcessStartPass, "fxaa");
-}
-
 function testPostFxSkipsToneMappingWhenDisabled() {
 	const registered = createRegisteredPostProcess({
-		fog: {
-			enabled: true,
-			options: {
-				application: "scene",
-			},
-		},
+		fog: { enabled: false },
 		tonemap: { enabled: false },
 		fxaa: { enabled: true },
 	});
@@ -456,7 +446,7 @@ function run() {
 	testBuiltInPostProcessStageUsesPassMetadata();
 	testPostFxStandardReasonStartsAtEarliestEnabledPostStage();
 	testPostFxStartsAtFogWhenOnlyFogPostProcessEnabled();
-	testPostFxSkipsFogInSceneMode();
+	testLegacyFogApplicationStillStartsAtFog();
 	testPostFxSkipsToneMappingWhenDisabled();
 	testPostFxCinematicReasonResetsTemporalHistory();
 	testCameraForcesFullAndResetsTemporal();

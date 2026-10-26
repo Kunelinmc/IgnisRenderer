@@ -285,13 +285,13 @@ async function testRenderResourcesPrefersGPUDrawBatches() {
 	const particleFrameBinding = frameResources.particleFrameBinding;
 	assert.ok(particleFrameBinding);
 	assert.notEqual(particleFrameBinding, frameResources.frameBinding);
-	assert.deepEqual(particleFrameBinding.desc.entries.map((entry) => entry.binding), [0, 4]);
+	assert.deepEqual(particleFrameBinding.desc.entries.map((entry) => entry.binding), [0]);
 	assert.deepEqual(
 		particleFrameBinding.desc.entries.map((entry) => entry.resource.label),
-		["WebGPUFrameCameraUniforms", "WebGPUFogUniforms"],
+		["WebGPUFrameCameraUniforms"],
 	);
 	const particleFrameLayout = particleFrameBinding.desc.layout;
-	assert.deepEqual(particleFrameLayout.desc.entries.map((entry) => entry.binding), [0, 4]);
+	assert.deepEqual(particleFrameLayout.desc.entries.map((entry) => entry.binding), [0]);
 	assert.ok(particleFrameLayout.desc.entries.every((entry) => entry.buffer?.type === "uniform"));
 	const particlePipelineLayout = backend.pipelineLayouts.find(
 		(layout) => layout.desc.label === "WebGPUParticlePipelineLayout",

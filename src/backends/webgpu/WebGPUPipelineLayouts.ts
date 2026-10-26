@@ -149,14 +149,6 @@ export function createWebGPUPipelineLayouts(
 				sampler: { type: "filtering" },
 			},
 			{
-				binding: 4,
-				visibility:
-					GPUShaderStage.VERTEX |
-					GPUShaderStage.FRAGMENT |
-					GPUShaderStage.COMPUTE,
-				buffer: { type: "uniform" },
-			},
-			{
 				binding: 6,
 				visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE,
 				texture: { sampleType: "float" },
@@ -484,11 +476,6 @@ export function createWebGPUPipelineLayouts(
 			{
 				binding: 0,
 				visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-				buffer: { type: "uniform" },
-			},
-			{
-				binding: 4,
-				visibility: GPUShaderStage.FRAGMENT,
 				buffer: { type: "uniform" },
 			},
 		],

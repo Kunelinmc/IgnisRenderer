@@ -49,7 +49,6 @@ import {
 	type WebGLScenePassDeps,
 } from "./WebGLScenePass";
 import { WebGLProbeSHTextures } from "./WebGLProbeSHTextures";
-import { WebGLFogState } from "./WebGLFogState";
 import {
 	WebGLShadowRuntime,
 	type WebGLShadowSamplingState,
@@ -133,7 +132,6 @@ export class WebGLFrameServices {
 	private _maxRenderbufferSize: number;
 	public _clusteredLighting: WebGLClusteredLightingRuntime;
 	public _probeSHTextures: WebGLProbeSHTextures;
-	public _fog = new WebGLFogState();
 	private readonly _sceneDrawState = createWebGLSceneDrawState();
 	/** @internal Scene-pass dependency bundle; exposed for test stubbing. */
 	public readonly _sceneDeps: WebGLScenePassDeps;
@@ -214,24 +212,17 @@ export class WebGLFrameServices {
 			onUploadPending: options.onTextureUploadPending,
 		});
 		this._probeSHTextures = new WebGLProbeSHTextures(gl);
-		const fogUniformView = {
-			params0: this._fog.params0,
-			params1: this._fog.params1,
-		};
 		this._particlePass = new WebGLParticlePass({
 			gl,
 			programCompiler: this._programCompiler,
 			textures: this._textures,
 			getSceneFramebuffer: () => this._targets._sceneFramebuffer,
 			getViewportSize: () => ({ width: this._session.width, height: this._session.height }),
-			getFogParams: () => fogUniformView,
 			isIncrementalPartial: (context) => this._isIncrementalPartial(context),
 			resolveDirtyRects: (context, width, height) =>
 				this._resolveDirtyRects(context, width, height),
 			setScissorRect: (x, y, width, height, viewportHeight) =>
 				this._setScissorRect(x, y, width, height, viewportHeight),
-			updateFogParams: (fogOptions, enabled) =>
-				this._fog.update(fogOptions, enabled),
 		});
 		this._maxTextureSize = this._resolveLimit(gl.MAX_TEXTURE_SIZE, 4096);
 		this._vertexTextureUnits = createWebGLVertexTextureUnitLayout(gl);

@@ -118,11 +118,6 @@ function createBinderHost(gl, pointLights) {
 				return false;
 			},
 		},
-		_fog: {
-			params0: new Float32Array([0, 0, 0, 0]),
-			params1: new Float32Array([0, 0, 0, 0]),
-			update() {},
-		},
 	};
 }
 

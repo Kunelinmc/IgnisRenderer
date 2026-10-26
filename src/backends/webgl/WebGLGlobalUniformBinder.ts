@@ -5,7 +5,6 @@ import { Matrix4 } from "../../maths/Matrix4";
 import { finiteOr } from "../../maths/Misc";
 import type { SHCoefficients } from "../../maths/types";
 import type { FrameContext } from "../../pipeline/types";
-import type { FogOptions } from "../../postprocess/passes/FogPass";
 import { IBLBRDF } from "../../lights/ibl/IBLBRDF";
 import {
 	SHADOW_FILTER_MODE_CODE,
@@ -454,8 +453,6 @@ export interface WebGLGlobalUniformBinderHost {
 	_previousViewProjection: Float32Array | null;
 	/** Probe SH coefficient texture source consumed by scene uniform binding. */
 	_probeSHTextures: WebGLProbeSHUniformSource;
-	/** Packed scene-fog uniform values shared with the particle pass. */
-	_fog: WebGLSceneFogUniformState;
 }
 
 /**
@@ -475,16 +472,6 @@ export interface WebGLProbeSHUniformSource {
 	uploadIrradianceProbeGridCoefficients(
 		grid: WebGLLightState["irradianceProbeGrid"]
 	): boolean;
-}
-
-/**
- * Narrow packed-fog surface required by global uniform binding. Satisfied
- * structurally by `WebGLFogState`.
- */
-export interface WebGLSceneFogUniformState {
-	params0: Float32Array;
-	params1: Float32Array;
-	update(options: FogOptions | undefined, enabled: boolean): void;
 }
 
 export function bindWebGLGlobalUniforms(
@@ -586,17 +573,6 @@ export function bindWebGLGlobalUniforms(
 			);
 		}
 		gl.uniform3f(uniforms.cameraPosition, cameraX, cameraY, cameraZ);
-	}
-	const fogOptions = context.postProcess.getOptions<FogOptions>("fog") ?? {};
-	const sceneFogEnabled =
-		context.postProcess.isEnabled("fog") &&
-		(fogOptions.application ?? "postprocess") === "scene";
-	host._fog.update(fogOptions, sceneFogEnabled);
-	if (uniforms.fogParams0) {
-		gl.uniform4fv(uniforms.fogParams0, host._fog.params0);
-	}
-	if (uniforms.fogParams1) {
-		gl.uniform4fv(uniforms.fogParams1, host._fog.params1);
 	}
 	if (uniforms.ambientColor) {
 		const ambientR = finiteOr(lights.ambientColor[0], 0);

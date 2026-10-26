@@ -197,8 +197,9 @@ async function executeBloomPass(runtime, encoder, targets, frameContext) {
 
 async function executeFogPass(runtime, encoder, targets, frameContext) {
 	const request = createFogPassRequest(frameContext);
+	request.implementation = request.pass.getImplementation("webgpu");
 	const result = await executeWebGPUImplementation(
-		request.pass.getImplementation("webgpu"), request, runtime, encoder, targets
+		request.pass, request, runtime, encoder, targets
 	);
 	return { request, result };
 }
@@ -615,6 +616,7 @@ async function testFogPassImplementationUsesDedicatedPipeline() {
 		fog: {
 			enabled: true,
 			options: {
+				application: "scene", // Retired selectors must not bypass post-processing.
 				mode: "exp2",
 				color: [0.1, 0.2, 0.3],
 				start: 10,

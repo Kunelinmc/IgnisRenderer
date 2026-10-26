@@ -27,7 +27,6 @@ export type WebGLShaderPart =
 	| "shadowTransmittanceFragment"
 	| "copyFragment"
 	| "oitResolveFragment"
-	| "postProcessStubFragment"
 	| "gammaFragment"
 	| "toneMappingFragment"
 	| "colorFilterFragment"
@@ -83,7 +82,6 @@ const WEBGL_SHADER_PARTS: readonly WebGLShaderPart[] = [
 	"shadowTransmittanceFragment",
 	"copyFragment",
 	"oitResolveFragment",
-	"postProcessStubFragment",
 	"gammaFragment",
 	"toneMappingFragment",
 	"colorFilterFragment",
@@ -133,7 +131,6 @@ const WEBGL_SHADER_FILES: Record<WebGLShaderPart, string> = {
 	shadowTransmittanceFragment: "./webgl/shadow/shadowTransmittanceFragment.glsl",
 	copyFragment: "./webgl/postprocess/copyFragment.glsl",
 	oitResolveFragment: "./webgl/utility/oitResolveFragment.glsl",
-	postProcessStubFragment: "./webgl/postprocess/postProcessStubFragment.glsl",
 	gammaFragment: "./webgl/postprocess/gammaFragment.glsl",
 	toneMappingFragment: "./webgl/postprocess/toneMappingFragment.glsl",
 	colorFilterFragment: "./webgl/postprocess/colorFilterFragment.glsl",
@@ -361,7 +358,6 @@ const sceneDefines: ShaderSourceNode = {
 
 const uniformMarkers: readonly [string, ShaderManifestExpression][] = [
 	["__WEBGL_MATERIAL_COMMON_LEGACY_UNIFORMS__", isFull],
-	["__WEBGL_SCENE_FOG_UNIFORMS__", literal(true)],
 	["__WEBGL_SCENE_LIGHTING_UNIFORMS__", isLit],
 	["__WEBGL_SCENE_SH_UNIFORMS__", scene("sh")],
 	["__WEBGL_MATERIAL_SHADING_MODEL_UNIFORMS__", isFull],

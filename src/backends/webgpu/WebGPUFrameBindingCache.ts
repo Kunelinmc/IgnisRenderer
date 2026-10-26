@@ -43,11 +43,6 @@ import type {
 	PreparedScene,
 } from "../../pipeline/types";
 import type { FramePreparationRequirements } from "../../pipeline/FrameRequirements";
-import {
-	DEFAULT_FOG_OPTIONS,
-	FOG_PASS_ID,
-	type FogOptions,
-} from "../../postprocess";
 import { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
 import type { WebGPUShadowRuntime } from "./WebGPUShadowRuntime";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
@@ -100,7 +95,6 @@ export class WebGPUFrameBindingCache {
 	private _frameLightUniformBuffer: IRenderBuffer | null = null;
 	private _frameShadowUniformBuffer: IRenderBuffer | null = null;
 	private _frameEnvironmentUniformBuffer: IRenderBuffer | null = null;
-	private _fogUniformBuffer: IRenderBuffer | null = null;
 	private _environmentBackgroundParamsBuffer: IRenderBuffer | null = null;
 	private readonly _environmentBackgroundParamsData = new Float32Array(4);
 	private readonly _cameraWriter = WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT.createWriter();
@@ -121,7 +115,6 @@ export class WebGPUFrameBindingCache {
 		shAmbientEnabled: false, hasEnvSpecular: false,
 		hasBRDFLUT: false, envSpecularMaxMipLevel: 0,
 	};
-	private _fogUniformData: Float32Array<ArrayBuffer> = new Float32Array(8);
 	private _sceneBinding: IBindingGroup | null = null;
 	private _particleFrameBinding: IBindingGroup | null = null;
 	private _depthFrameBinding: IBindingGroup | null = null;
@@ -236,7 +229,6 @@ export class WebGPUFrameBindingCache {
 		this._backend.writeBuffer(this._getFrameLightUniformBuffer(), lightData);
 		this._backend.writeBuffer(this._getFrameShadowUniformBuffer(), shadowData);
 		this._backend.writeBuffer(this._getFrameEnvironmentUniformBuffer(), environmentData);
-		this._backend.writeBuffer(this._getFogUniformBuffer(), this._packFogUniformData(features));
 		this._backend.writeBuffer(
 			this._getEnvironmentBackgroundParamsBuffer(),
 			this._packEnvironmentBackgroundParams(frame),
@@ -453,7 +445,6 @@ export class WebGPUFrameBindingCache {
 						resource:
 							this._envSpecularSampler ?? this._textureRegistry.getWhiteSampler(),
 					},
-					{ binding: 4, resource: this._getFogUniformBuffer() },
 					{
 						binding: 6,
 						resource:
@@ -488,10 +479,10 @@ export class WebGPUFrameBindingCache {
 	}
 
 	/**
-	 * Returns camera and fog bindings for billboard particles.
+	 * Returns camera bindings for billboard particles.
 	 *
 	 * @internal Owned by WebGPU frame scopes; applications should use `Renderer.renderFrame()`.
-	 * @returns The cached particle frame group, sharing this scope's camera and fog buffers.
+	 * @returns The cached particle frame group, sharing this scope's camera buffer.
 	 * @sideEffects Lazily creates the binding group.
 	 */
 	public getParticleFrameBinding(): IBindingGroup {
@@ -501,7 +492,6 @@ export class WebGPUFrameBindingCache {
 				layout: this._layouts.particleFrameBindGroupLayout,
 				entries: [
 					{ binding: 0, resource: this._getFrameCameraUniformBuffer() },
-					{ binding: 4, resource: this._getFogUniformBuffer() },
 				],
 			});
 		}
@@ -625,17 +615,6 @@ export class WebGPUFrameBindingCache {
 		return this._frameEnvironmentUniformBuffer;
 	}
 
-	private _getFogUniformBuffer(): IRenderBuffer {
-		if (!this._fogUniformBuffer) {
-			this._fogUniformBuffer = this._backend.createBuffer({
-				size: 8 * 4,
-				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
-				label: "WebGPUFogUniforms",
-			});
-		}
-		return this._fogUniformBuffer;
-	}
-
 	private _getEnvironmentBackgroundParamsBuffer(): IRenderBuffer {
 		if (!this._environmentBackgroundParamsBuffer) {
 			this._environmentBackgroundParamsBuffer = this._backend.createBuffer({
@@ -645,31 +624,6 @@ export class WebGPUFrameBindingCache {
 			});
 		}
 		return this._environmentBackgroundParamsBuffer;
-	}
-
-	private _packFogUniformData(features: WebGPUFeatureState): Float32Array<ArrayBuffer> {
-		const source =
-			features.postProcess.getOptions<FogOptions>(FOG_PASS_ID) ?? DEFAULT_FOG_OPTIONS;
-		const color = source.color ?? DEFAULT_FOG_OPTIONS.color;
-		const start = Math.max(0, finiteOr(source.start, DEFAULT_FOG_OPTIONS.start));
-		const end = Math.max(start + 1e-4, finiteOr(source.end, DEFAULT_FOG_OPTIONS.end));
-		const density = Math.max(0, finiteOr(source.density, DEFAULT_FOG_OPTIONS.density));
-		const sceneFogEnabled =
-			features.postProcess.isEnabled(FOG_PASS_ID) &&
-			(source.application ?? DEFAULT_FOG_OPTIONS.application) === "scene";
-		const strength = sceneFogEnabled
-			? Math.max(0, finiteOr(source.strength, DEFAULT_FOG_OPTIONS.strength))
-			: 0;
-		const data = this._fogUniformData;
-		data[0] = this._resolveFogMode(source.mode);
-		data[1] = start;
-		data[2] = end;
-		data[3] = density;
-		data[4] = clamp(finiteOr(color[0], DEFAULT_FOG_OPTIONS.color[0]), 0, 1);
-		data[5] = clamp(finiteOr(color[1], DEFAULT_FOG_OPTIONS.color[1]), 0, 1);
-		data[6] = clamp(finiteOr(color[2], DEFAULT_FOG_OPTIONS.color[2]), 0, 1);
-		data[7] = strength;
-		return data;
 	}
 
 	private _packEnvironmentBackgroundParams(
@@ -684,17 +638,6 @@ export class WebGPUFrameBindingCache {
 			Math.max(1e-6, environment.backgroundExposure) *
 			Math.max(0, environment.backgroundStrength);
 		return data;
-	}
-
-	private _resolveFogMode(mode: FogOptions["mode"] | undefined): number {
-		switch (mode) {
-			case "exp":
-				return 1;
-			case "exp2":
-				return 2;
-			default:
-				return 0;
-		}
 	}
 
 	public destroy(): void {
@@ -716,8 +659,6 @@ export class WebGPUFrameBindingCache {
 		this._frameShadowUniformBuffer = null;
 		this._frameEnvironmentUniformBuffer?.destroy();
 		this._frameEnvironmentUniformBuffer = null;
-		this._fogUniformBuffer?.destroy();
-		this._fogUniformBuffer = null;
 		this._environmentBackgroundParamsBuffer?.destroy();
 		this._environmentBackgroundParamsBuffer = null;
 		this._ownedIrradianceProbeGridTexture?.destroy();

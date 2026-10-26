@@ -8,7 +8,6 @@ import {
 	PARTICLE_TRANSIENT_BATCHES_KEY,
 	type FrameContext,
 } from "../../pipeline/types";
-import type { FogOptions } from "../../postprocess/passes/FogPass";
 import { PARTICLE_QUAD_VERTICES } from "../constants";
 import { resolveTextureUVTransform } from "./WebGLMaterialUniformResolver";
 import type { WebGLRenderPass } from "./WebGLPassLifecycle";
@@ -45,8 +44,6 @@ export interface WebGLParticleProgramLike {
 		basisRight?: WebGLUniformLocation | string | null;
 		basisUp?: WebGLUniformLocation | string | null;
 		cameraPosition?: WebGLUniformLocation | string | null;
-		fogParams0?: WebGLUniformLocation | string | null;
-		fogParams1?: WebGLUniformLocation | string | null;
 		particleMap?: WebGLUniformLocation | string | null;
 		uvTransformA?: WebGLUniformLocation | string | null;
 		uvTransformB?: WebGLUniformLocation | string | null;
@@ -64,7 +61,6 @@ export interface WebGLParticlePassHost {
 	};
 	getSceneFramebuffer(): WebGLFramebuffer | null;
 	getViewportSize(): { width: number; height: number };
-	getFogParams(): { params0: Float32Array; params1: Float32Array };
 	isIncrementalPartial(context: FrameContext | null | undefined): boolean;
 	resolveDirtyRects(
 		context: FrameContext | null | undefined,
@@ -78,7 +74,6 @@ export interface WebGLParticlePassHost {
 		height: number,
 		viewportHeight: number
 	): void;
-	updateFogParams(options: FogOptions | undefined, enabled: boolean): void;
 }
 
 export interface WebGLParticleRenderOptions {
@@ -118,8 +113,6 @@ export class WebGLParticlePass
 					uvTransformA: gl.getUniformLocation(program, "uUvTransformA"),
 					uvTransformB: gl.getUniformLocation(program, "uUvTransformB"),
 					cameraPosition: gl.getUniformLocation(program, "uCameraPosition"),
-					fogParams0: gl.getUniformLocation(program, "uFogParams0"),
-					fogParams1: gl.getUniformLocation(program, "uFogParams1"),
 					oitPassMode: gl.getUniformLocation(program, "uOITPassMode"),
 				},
 			}),
@@ -229,24 +222,6 @@ export class WebGLParticlePass
 				finiteOr(cameraPosition.x, 0),
 				finiteOr(cameraPosition.y, 0),
 				finiteOr(cameraPosition.z, 0)
-			);
-		}
-		const fogOptions = context.postProcess.getOptions<FogOptions>("fog") ?? {};
-		const sceneFogEnabled =
-			context.postProcess.isEnabled("fog") &&
-			(fogOptions.application ?? "postprocess") === "scene";
-		this._host.updateFogParams(fogOptions, sceneFogEnabled);
-		const fogParams = this._host.getFogParams();
-		if (particleProgram.uniforms.fogParams0) {
-			gl.uniform4fv(
-				particleProgram.uniforms.fogParams0 as WebGLUniformLocation,
-				fogParams.params0
-			);
-		}
-		if (particleProgram.uniforms.fogParams1) {
-			gl.uniform4fv(
-				particleProgram.uniforms.fogParams1 as WebGLUniformLocation,
-				fogParams.params1
 			);
 		}
 		if (particleProgram.uniforms.particleMap) {

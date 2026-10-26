@@ -1,6 +1,5 @@
 #version 300 es
 precision highp float;
-#import <ignis/postprocess/fog>
 
 in vec2 vUv;
 in vec4 vColor;
@@ -10,8 +9,6 @@ in float vViewDepth;
 uniform sampler2D uParticleMap;
 uniform vec4 uUvTransformA;
 uniform vec2 uUvTransformB;
-uniform vec4 uFogParams0;
-uniform vec4 uFogParams1;
 uniform int uOITPassMode;
 
 layout(location = 0) out vec4 fragColor;
@@ -44,20 +41,11 @@ void main() {
 		discard;
 	}
 
-	int fogMode = int(floor(uFogParams0.x + 0.5));
-	float fogFactor = ignisComputeFogFactor(
-		fogMode,
-		max(vViewDepth, 0.0),
-		uFogParams0.y,
-		uFogParams0.z,
-		uFogParams0.w,
-		uFogParams1.w
-	);
-	vec3 foggedColor = max(mix(color.rgb, uFogParams1.rgb, fogFactor), vec3(0.0));
+	vec3 finalColor = max(color.rgb, vec3(0.0));
 	float finalAlpha = clamp(color.a, 0.0, 1.0);
 	if (uOITPassMode == 1) {
 		float weight = resolveParticleOITWeight(finalAlpha, max(vViewDepth, 0.0));
-		fragColor = vec4(foggedColor * finalAlpha, finalAlpha) * weight;
+		fragColor = vec4(finalColor * finalAlpha, finalAlpha) * weight;
 		fragMotion = vec4(0.0);
 		return;
 	}
@@ -66,6 +54,6 @@ void main() {
 		fragMotion = vec4(0.0);
 		return;
 	}
-	fragColor = vec4(foggedColor, finalAlpha);
+	fragColor = vec4(finalColor, finalAlpha);
 	fragMotion = vec4(0, 0, 0, 1);
 }

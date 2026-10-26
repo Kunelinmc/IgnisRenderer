@@ -1085,6 +1085,11 @@ async function testEmbeddedManifestMatchesShaderFiles() {
 	}
 	for (const manifest of [WEBGPU_SHADER_MANIFEST, WEBGL_SHADER_MANIFEST]) {
 		for (const asset of Object.values(manifest.assets)) {
+			assert.equal(
+				typeof embeddedShaderSources[asset.path],
+				"string",
+				`Every registered shader asset must be bundled: ${asset.path}`,
+			);
 			if (!asset.sync) continue;
 			assert.equal(
 				embeddedSyncShaderSources[asset.path],

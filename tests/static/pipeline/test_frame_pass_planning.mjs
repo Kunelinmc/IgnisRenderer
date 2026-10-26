@@ -331,7 +331,7 @@ function run() {
 		true,
 	);
 
-	const sceneFogPlan = createFramePlan(
+	const legacyFogPlan = createFramePlan(
 		createFrame(),
 		baseResolved,
 		createPostProcess({
@@ -341,13 +341,14 @@ function run() {
 					application: "scene",
 				},
 			},
-		})
+		}),
+		{ backendType: "webgpu", backendCapabilities },
 	);
-	assert.ok(sceneFogPlan.stageOrder.some((stage) => stage.id === "postprocess"));
+	assert.ok(legacyFogPlan.stageOrder.some((stage) => stage.id === "postprocess"));
 	assert.equal(
-		sceneFogPlan.backendPasses.find((pass) => pass.stage === "postprocess")
+		legacyFogPlan.backendPasses.find((pass) => pass.stage === "postprocess")
 			?.enabled,
-		false
+		true
 	);
 
 	const registry = new RenderPipelineRegistry({
