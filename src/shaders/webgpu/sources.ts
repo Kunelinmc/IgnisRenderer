@@ -68,7 +68,6 @@ export type WebGPUDirectiveShaderPart =
 	| "frameUniforms"
 	| "constants"
 	| "srgb"
-	| "fog"
 	| "lumaWeights"
 	| "lumaCommon";
 
@@ -195,7 +194,6 @@ const WEBGPU_DIRECTIVE_SHADER_FILES: Record<
 	frameUniforms: "./webgpu/common/frameUniforms.wgsl",
 	constants: "./webgpu/directives/constants.wgsl",
 	srgb: "./webgpu/directives/srgb.wgsl",
-	fog: "./webgpu/directives/fog.wgsl",
 	lumaWeights: "./webgpu/directives/lumaWeights.wgsl",
 	lumaCommon: "./webgpu/directives/lumaCommon.wgsl",
 };
@@ -350,7 +348,6 @@ export const WEBGPU_SHADER_MANIFEST: ShaderBackendManifest = {
 			{ id: "ignis/webgpu/frame-uniforms.wgsl", source: "webgpu.directive.frameUniforms" },
 			{ id: "ignis/webgpu/constants-base.wgsl", source: "webgpu.directive.constants" },
 			{ id: "ignis/color/srgb.wgsl", source: "webgpu.directive.srgb" },
-			{ id: "ignis/postprocess/fog.wgsl", source: "webgpu.directive.fog" },
 			{ id: "ignis/postprocess/luma-weights.wgsl", source: "webgpu.directive.lumaWeights" },
 			{ id: "ignis/postprocess/luma-common.wgsl", source: "webgpu.directive.lumaCommon" },
 		],

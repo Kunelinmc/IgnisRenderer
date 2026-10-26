@@ -62,7 +62,6 @@ export type WebGLDirectiveShaderPart =
 	| "animation"
 	| "constants"
 	| "srgb"
-	| "fog"
 	| "lumaWeights"
 	| "lumaCommon";
 
@@ -182,7 +181,6 @@ const WEBGL_DIRECTIVE_SHADER_FILES: Record<
 	animation: "./webgl/common/animation.glsl",
 	constants: "./webgl/directives/constants.glsl",
 	srgb: "./webgl/directives/srgb.glsl",
-	fog: "./webgl/directives/fog.glsl",
 	lumaWeights: "./webgl/directives/lumaWeights.glsl",
 	lumaCommon: "./webgl/directives/lumaCommon.glsl",
 };
@@ -620,7 +618,6 @@ export const WEBGL_SHADER_MANIFEST: ShaderBackendManifest = {
 			{ id: "ignis/webgl/animation.glsl", source: "webgl.directive.animation" },
 			{ id: "ignis/webgl/constants-base.glsl", source: "webgl.directive.constants" },
 			{ id: "ignis/color/srgb.glsl", source: "webgl.directive.srgb" },
-			{ id: "ignis/postprocess/fog.glsl", source: "webgl.directive.fog" },
 			{ id: "ignis/postprocess/luma-weights.glsl", source: "webgl.directive.lumaWeights" },
 			{ id: "ignis/postprocess/luma-common.glsl", source: "webgl.directive.lumaCommon" },
 		],

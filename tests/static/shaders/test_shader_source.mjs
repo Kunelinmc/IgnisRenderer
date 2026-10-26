@@ -17,6 +17,7 @@ import {
 	validateShaderBackendManifest,
 } from "../../../src/shaders/shaderManifest.ts";
 import {
+	composeShaderDirectiveProfile,
 	ShaderBackendCompileStage,
 	ShaderRuntime,
 } from "../../../src/shaders/runtime/index.ts";
@@ -575,6 +576,58 @@ async function testWebGPUCompositeIncludesSharedParts() {
 	assert.ok(ssr.code.includes("struct TraceParams"));
 	assert.ok(deferred.code.includes("struct DirectionalLightData"));
 	assert.ok(deferred.code.includes("fn activeClusteredLightCount() -> u32"));
+}
+
+async function testWebGPUFogCompilesWithoutSharedIncludes() {
+	const artifact = await ShaderSource.load("webgpu.postprocess.fog");
+	const profile = composeShaderDirectiveProfile(
+		{ id: "fog-test-base", backend: "webgpu", revision: 1, includeModules: [] },
+		{ id: "fog-test-overlay", backend: "webgpu", includeModules: [] },
+	);
+	const stage = new ShaderBackendCompileStage({
+		runtime: new ShaderRuntime({ mode: "strict" }),
+		profile,
+		mode: "strict",
+	});
+	const compiled = stage.compile({
+		code: artifact.source.code,
+		language: "wgsl",
+		stage: "compute",
+		entryPoint: "csMain",
+		label: "fog",
+		sourceKind: artifact.sourceKind,
+		sourceMap: artifact.source.sourceMap,
+	});
+	assert.equal(compiled.hasErrors, false, JSON.stringify(compiled.diagnostics));
+	for (const name of ["ignisFogLinear", "ignisFogExp", "ignisFogExp2"]) {
+		assert.match(compiled.code, new RegExp(`fn ${name}\\(`));
+	}
+}
+
+async function testWebGLFogCompilesWithoutSharedIncludes() {
+	const artifact = await ShaderSource.load("webgl.part.fogFragment");
+	const profile = composeShaderDirectiveProfile(
+		{ id: "fog-test-base", backend: "webgl", revision: 1, includeModules: [] },
+		{ id: "fog-test-overlay", backend: "webgl", includeModules: [] },
+	);
+	const stage = new ShaderBackendCompileStage({
+		runtime: new ShaderRuntime({ mode: "strict" }),
+		profile,
+		mode: "strict",
+	});
+	const compiled = stage.compile({
+		code: artifact.source.code,
+		language: "glsl",
+		stage: "fragment",
+		entryPoint: "main",
+		label: "fog",
+		sourceKind: artifact.sourceKind,
+		sourceMap: artifact.source.sourceMap,
+	});
+	assert.equal(compiled.hasErrors, false, JSON.stringify(compiled.diagnostics));
+	for (const name of ["ignisFogLinear", "ignisFogExp", "ignisFogExp2"]) {
+		assert.match(compiled.code, new RegExp(`float ${name}\\(`));
+	}
 }
 
 async function testWebGPUAnimationConsumers() {
@@ -1154,6 +1207,8 @@ async function run() {
 	await testWebGLPhongSceneVariantIncludesMaterialBlock();
 	await testWebGLPBRSceneVariantCompilesExactUniformBlocks();
 	await testWebGPUCompositeIncludesSharedParts();
+	await testWebGPUFogCompilesWithoutSharedIncludes();
+	await testWebGLFogCompilesWithoutSharedIncludes();
 	await testWebGPUAnimationConsumers();
 	await testGpuColorConsumersUseNativeDecoding();
 	await testWebGPUSharedNumericalConstants();
