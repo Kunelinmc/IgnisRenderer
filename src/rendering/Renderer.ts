@@ -38,7 +38,6 @@ import {
 	buildDirtyTileCoverage,
 	DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
 	getDefaultIncrementalRegistry,
-	IncrementalFramePlanner,
 	makeFullScreenRect,
 	mergeIncrementalRenderingOptions,
 	renderDirtyReasonToMask,

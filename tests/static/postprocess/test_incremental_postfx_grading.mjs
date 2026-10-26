@@ -1,12 +1,11 @@
 import assert from "node:assert/strict";
 import {
-	computePostProcessInflationRadius,
 	getDefaultIncrementalRegistry,
-	resolvePostProcessGrade,
-	scaleFullFrameFallbackAreaRatioForPostProcess,
 } from "../../../src/pipeline/incremental.ts";
 import { PostProcessPass } from "../../../src/postprocess/PostProcessPass.ts";
 import { createPostProcessRegistryFromRequest } from "../../helpers/postprocess.mjs";
+
+const incremental = getDefaultIncrementalRegistry();
 
 class CustomCinematicPass extends PostProcessPass {
 	constructor() {
@@ -33,7 +32,6 @@ function createPostProcess(overrides = {}) {
 		},
 		"test"
 	);
-	const incremental = getDefaultIncrementalRegistry();
 	for (const pass of registry.getPasses()) {
 		incremental.registerPostProcessPass(pass);
 	}
@@ -55,61 +53,66 @@ function testDefaultRegistryUsesExplicitDisplayPassRegistration() {
 		gamma: { enabled: true },
 	});
 	const postProcess = registry.createSnapshot("test");
-	assert.equal(resolvePostProcessGrade(postProcess), "none");
-	assert.equal(computePostProcessInflationRadius(postProcess), 0);
-	assert.equal(scaleFullFrameFallbackAreaRatioForPostProcess(0.3, postProcess), 0.3);
+	assert.equal(incremental.resolvePostProcessGrade(postProcess), "none");
+	assert.equal(incremental.computePostProcessInflationRadius(postProcess), 0);
+	assert.equal(
+		incremental.scaleFullFrameFallbackAreaRatioForPostProcess(0.3, postProcess),
+		0.3
+	);
 
-	const incremental = getDefaultIncrementalRegistry();
 	for (const pass of registry.getPasses()) {
 		incremental.registerPostProcessPass(pass);
 	}
-	assert.equal(resolvePostProcessGrade(postProcess), "light");
-	assert.equal(computePostProcessInflationRadius(postProcess), 2);
-	assert.equal(scaleFullFrameFallbackAreaRatioForPostProcess(0.3, postProcess), 0.3);
+	assert.equal(incremental.resolvePostProcessGrade(postProcess), "light");
+	assert.equal(incremental.computePostProcessInflationRadius(postProcess), 2);
+	assert.equal(
+		incremental.scaleFullFrameFallbackAreaRatioForPostProcess(0.3, postProcess),
+		0.3
+	);
 }
 
 function testResolvePostProcessGrade() {
-	assert.equal(resolvePostProcessGrade(createPostProcess()), "none");
+	assert.equal(incremental.resolvePostProcessGrade(createPostProcess()), "none");
 	assert.equal(
-		resolvePostProcessGrade(createPostProcess(enable("fxaa"))),
+		incremental.resolvePostProcessGrade(createPostProcess(enable("fxaa"))),
 		"light"
 	);
 	assert.equal(
-		resolvePostProcessGrade(createPostProcess(enable("tonemap"))),
+		incremental.resolvePostProcessGrade(createPostProcess(enable("tonemap"))),
 		"light"
 	);
 	assert.equal(
-		resolvePostProcessGrade(createPostProcess(enable("color-filter"))),
+		incremental.resolvePostProcessGrade(createPostProcess(enable("color-filter"))),
 		"light"
 	);
 	assert.equal(
-		resolvePostProcessGrade(createPostProcess(enable("ssgi"))),
+		incremental.resolvePostProcessGrade(createPostProcess(enable("ssgi"))),
 		"cinematic"
 	);
 	assert.equal(
-		resolvePostProcessGrade(createPostProcess(enable("dof"))),
+		incremental.resolvePostProcessGrade(createPostProcess(enable("dof"))),
 		"cinematic"
 	);
 }
 
 function testComputePostProcessInflationRadius() {
-	assert.equal(computePostProcessInflationRadius(createPostProcess()), 0);
+	assert.equal(incremental.computePostProcessInflationRadius(createPostProcess()), 0);
 	assert.equal(
-		computePostProcessInflationRadius(createPostProcess(enable("gamma"))),
+		incremental.computePostProcessInflationRadius(createPostProcess(enable("gamma"))),
 		2
 	);
 	assert.equal(
-		computePostProcessInflationRadius(
+		incremental.computePostProcessInflationRadius(
 			createPostProcess(enable("tonemap"))
 		),
 		2
 	);
 	assert.equal(
-		computePostProcessInflationRadius(createPostProcess(enable("ssgi"))),
+		incremental.computePostProcessInflationRadius(createPostProcess(enable("ssgi"))),
 		24
 	);
 	assert.equal(
-		computePostProcessInflationRadius(
+		incremental.computePostProcessInflationRadius(
 			createPostProcess({
 				...enable("taa"),
 				...enable("dof"),
@@ -121,15 +124,15 @@ function testComputePostProcessInflationRadius() {
 
 function testScaleFullFrameFallbackAreaRatioForPostProcess() {
 	const baseRatio = 0.3;
-	const noneRatio = scaleFullFrameFallbackAreaRatioForPostProcess(
+	const noneRatio = incremental.scaleFullFrameFallbackAreaRatioForPostProcess(
 		baseRatio,
 		createPostProcess()
 	);
-	const standardRatio = scaleFullFrameFallbackAreaRatioForPostProcess(
+	const standardRatio = incremental.scaleFullFrameFallbackAreaRatioForPostProcess(
 		baseRatio,
 		createPostProcess(enable("bloom"))
 	);
-	const cinematicRatio = scaleFullFrameFallbackAreaRatioForPostProcess(
+	const cinematicRatio = incremental.scaleFullFrameFallbackAreaRatioForPostProcess(
 		baseRatio,
 		createPostProcess(enable("taa"))
 	);
@@ -141,18 +144,18 @@ function testScaleFullFrameFallbackAreaRatioForPostProcess() {
 function testScreenSpaceRefractionUsesRegisteredIncrementalMetadata() {
 	const registry = getDefaultIncrementalRegistry();
 	const postProcess = createPostProcess(enable("ssrefraction"));
-	assert.equal(resolvePostProcessGrade(postProcess), "cinematic");
+	assert.equal(incremental.resolvePostProcessGrade(postProcess), "cinematic");
 	assert.equal(
 		registry.resolveFirstEnabledPostProcessStage(postProcess),
 		"ssrefraction"
 	);
-	assert.equal(computePostProcessInflationRadius(postProcess), 24);
+	assert.equal(incremental.computePostProcessInflationRadius(postProcess), 24);
 }
 
 function testCustomPostProcessDefaultIncrementalMetadata() {
 	const postProcess = createPostProcess(enable("custom-edge"));
-	assert.equal(resolvePostProcessGrade(postProcess), "light");
-	assert.equal(computePostProcessInflationRadius(postProcess), 2);
+	assert.equal(incremental.resolvePostProcessGrade(postProcess), "light");
+	assert.equal(incremental.computePostProcessInflationRadius(postProcess), 2);
 }
 
 function testCustomPostProcessIncrementalMetadataOverride() {
@@ -160,14 +163,14 @@ function testCustomPostProcessIncrementalMetadataOverride() {
 	registry.registerPostProcessPass(new CustomCinematicPass());
 	try {
 		const postProcess = createPostProcess(enable("custom-cinematic"));
-		assert.equal(resolvePostProcessGrade(postProcess), "cinematic");
+		assert.equal(incremental.resolvePostProcessGrade(postProcess), "cinematic");
 		assert.equal(
 			registry.resolveFirstEnabledPostProcessStage(postProcess),
 			"dof"
 		);
-		assert.equal(computePostProcessInflationRadius(postProcess), 40);
+		assert.equal(incremental.computePostProcessInflationRadius(postProcess), 40);
 		assert.equal(
-			scaleFullFrameFallbackAreaRatioForPostProcess(0.3, postProcess),
+			incremental.scaleFullFrameFallbackAreaRatioForPostProcess(0.3, postProcess),
 			0.15
 		);
 	} finally {

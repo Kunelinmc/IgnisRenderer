@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import {
 	buildDirtyTileCoverage,
 	getDirtyTileCoverageAreaRatio,
-	getDirtyRectsAreaRatio,
 	inflateDirtyRects,
 	mergeDirtyRects,
 	tileCoverageToDirtyRects,
@@ -67,19 +66,6 @@ function testInflationAndClamp() {
 	});
 }
 
-function testAreaRatio() {
-	const ratio = getDirtyRectsAreaRatio(
-		[
-			{ x: 0, y: 0, width: 20, height: 10 },
-			{ x: 50, y: 0, width: 10, height: 20 },
-		],
-		100,
-		100
-	);
-	assert.equal(ratio, 0.04);
-	assert.ok(ratio < 0.3);
-}
-
 function testTileCoverageRasterization() {
 	const coverage = buildDirtyTileCoverage(
 		[
@@ -121,7 +107,6 @@ function run() {
 	testOverlapMerge();
 	testRectCapMerge();
 	testInflationAndClamp();
-	testAreaRatio();
 	testTileCoverageRasterization();
 	testTileCoverageAreaRatio();
 	console.log("Dirty rect merger tests passed");

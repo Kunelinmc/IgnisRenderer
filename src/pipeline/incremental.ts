@@ -1023,7 +1023,7 @@ export function hasAnyDirtyReason(
 	return DEFAULT_INCREMENTAL_REGISTRY.hasAnyDirtyReason(mask, ...reasons);
 }
 
-export function normalizeIncrementalRenderingOptions(
+function normalizeIncrementalRenderingOptions(
 	options?: Partial<IncrementalRenderingOptions> | null
 ): IncrementalRenderingOptions {
 	const source = options ?? {};
@@ -1154,7 +1154,7 @@ export function makeFullScreenRect(width: number, height: number): DirtyRect {
 	};
 }
 
-export function clampDirtyRect(
+function clampDirtyRect(
 	rect: DirtyRect,
 	width: number,
 	height: number
@@ -1393,50 +1393,13 @@ export function mergeDirtyRects(
 	return merged;
 }
 
-export function getDirtyRectsAreaRatio(
-	rects: DirtyRect[],
-	width: number,
-	height: number
-): number {
-	const area = Math.max(1, Math.floor(width) * Math.floor(height));
-	let dirtyArea = 0;
-	for (const rect of rects) {
-		dirtyArea += getDirtyRectArea(rect);
-	}
-	return Math.max(0, Math.min(1, dirtyArea / area));
-}
-
-export function computePostProcessInflationRadius(
-	postProcess: ResolvedPostProcessState
-): number {
-	return DEFAULT_INCREMENTAL_REGISTRY.computePostProcessInflationRadius(
-		postProcess
-	);
-}
-
-export function resolvePostProcessGrade(
-	postProcess: ResolvedPostProcessState
-): PostProcessGrade {
-	return DEFAULT_INCREMENTAL_REGISTRY.resolvePostProcessGrade(postProcess);
-}
-
-export function getPostProcessGradeInflationRadius(
+function getPostProcessGradeInflationRadius(
 	grade: PostProcessGrade
 ): number {
 	return POST_PROCESS_GRADE_INFLATION_RADIUS[grade] ?? 0;
 }
 
-export function scaleFullFrameFallbackAreaRatioForPostProcess(
-	baseRatio: number,
-	postProcess: ResolvedPostProcessState
-): number {
-	return DEFAULT_INCREMENTAL_REGISTRY.scaleFullFrameFallbackAreaRatioForPostProcess(
-		baseRatio,
-		postProcess
-	);
-}
-
-export function unionDirtyRect(left: DirtyRect, right: DirtyRect): DirtyRect {
+function unionDirtyRect(left: DirtyRect, right: DirtyRect): DirtyRect {
 	const minX = Math.min(left.x, right.x);
 	const minY = Math.min(left.y, right.y);
 	const maxX = Math.max(left.x + left.width, right.x + right.width);
