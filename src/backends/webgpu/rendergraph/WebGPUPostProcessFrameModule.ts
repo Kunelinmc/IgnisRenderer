@@ -7,8 +7,6 @@ import type {
 	PostProcessPassExecutionContextRequest,
 	PostProcessPassRequest,
 	PostProcessPassResult,
-	PostProcessResourceDescriptor,
-	PostProcessResourceHandle,
 	PlannedPostProcessPass,
 } from "../../../postprocess";
 import type {
@@ -223,19 +221,6 @@ export class WebGPUPostProcessFrameModule implements WebGPUFrameGraphModule {
 		this._bridge.unbindFrame();
 	}
 
-	public describeFrame(context: FrameContext) {
-		return this._backendRuntime.describeFrame(context);
-	}
-
-	public buildGraphFrame(
-		context: FrameContext,
-		declarations: ReturnType<BackendPostProcessRuntime["describeFrame"]>,
-	): PostProcessRenderGraphFrame {
-		this._graphComposition = null;
-		this._graphFrame = this._backendRuntime.buildRenderGraphFrame(context, declarations);
-		return this._graphFrame;
-	}
-
 	public planStage(
 		input: WebGPUFrameModulePlanningInput,
 	): readonly WebGPUFrameGraphContribution[] {
@@ -259,14 +244,6 @@ export class WebGPUPostProcessFrameModule implements WebGPUFrameGraphModule {
 				inputs: composition.inputs,
 			},
 		}];
-	}
-
-	public createResource(desc: PostProcessResourceDescriptor): PostProcessResourceHandle {
-		return this._bridge.createResource(desc);
-	}
-
-	public destroyResource(handle: PostProcessResourceHandle): void {
-		this._bridge.destroyResource(handle);
 	}
 
 	public createGBufferBridge(context: FrameContext): LogicalGBufferBridge {

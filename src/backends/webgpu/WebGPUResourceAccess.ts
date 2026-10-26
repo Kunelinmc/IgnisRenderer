@@ -4,7 +4,6 @@ import type {
 	IRenderBuffer,
 	IRenderPipeline,
 	IRenderTexture,
-	ISampler,
 	IShaderModule,
 } from "../types";
 
@@ -22,10 +21,6 @@ interface WebGPUBackedRenderTexture extends IRenderTexture {
 	_gpuTexture?: GPUTexture;
 	_gpuView?: GPUTextureView;
 	_webgpuTexture?: WebGPUTexture;
-}
-
-interface WebGPUBackedSampler extends ISampler {
-	_gpuResource?: GPUSampler;
 }
 
 interface WebGPUBackedShaderModule extends IShaderModule {
@@ -127,14 +122,6 @@ export function tryGetWebGPUBuffer(resource: unknown): GPUBuffer | null {
 		return null;
 	}
 	return gpuBuffer;
-}
-
-export function getWebGPUSampler(sampler: ISampler): GPUSampler {
-	const resource = (sampler as WebGPUBackedSampler)._gpuResource;
-	if (!resource) {
-		throw new Error("Sampler is not backed by a WebGPU sampler.");
-	}
-	return resource;
 }
 
 export function getWebGPUShaderModule(module: IShaderModule): GPUShaderModule {

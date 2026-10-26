@@ -7,20 +7,11 @@ import type {
 	PostProcessPassRequest,
 	PostProcessPassResult,
 	PostProcessPassCompletion,
-	PostProcessResourceDescriptor,
-	PostProcessResourceHandle,
 } from "../../../postprocess";
 import { createPostProcessResourceAccessor } from "../../../postprocess/PostProcessResourceAccessor";
 import { Logger } from "../../../foundation/Logger";
-import {
-	TextureFormat,
-	tryGetTextureFormatInfo,
-} from "../../../core/TextureFormat";
-import {
-	TextureUsage,
-	type IRenderTexture,
-} from "../../types";
-import type { WebGPUFrameHost } from "./WebGPUFrameHost";
+import { TextureFormat } from "../../../core/TextureFormat";
+import type { IRenderTexture } from "../../types";
 import type { WebGPUFrameTargets } from "../WebGPUFrameTargetContracts";
 import type { WebGPUPostProcessFrameTargets } from "../WebGPUPostProcessContracts";
 import { WEBGPU_POST_PROCESS_GBUFFER_METADATA } from "../WebGPUPostProcessContracts";
@@ -36,7 +27,6 @@ export interface WebGPUPostProcessBridgePorts {
  * Packs the fixed WebGPU post-process context and commits assigned targets.
  */
 export class WebGPUPostProcessBridge {
-	private readonly _host: WebGPUFrameHost;
 	private readonly _runtime: WebGPUPostProcessRuntime;
 	private readonly _ports: WebGPUPostProcessBridgePorts;
 	private _execution: WebGPUFrameExecutionContext | null = null;
@@ -47,11 +37,9 @@ export class WebGPUPostProcessBridge {
 	private _nextPhysicalId = 1;
 
 	constructor(
-		host: WebGPUFrameHost,
 		runtime: WebGPUPostProcessRuntime,
 		ports: WebGPUPostProcessBridgePorts,
 	) {
-		this._host = host;
 		this._runtime = runtime;
 		this._ports = ports;
 	}
@@ -77,40 +65,6 @@ export class WebGPUPostProcessBridge {
 
 	public getFrameTargets(): WebGPUFrameTargets | null {
 		return this._execution?.targets.frameTargets ?? this._planningTargets;
-	}
-
-	public createResource(desc: PostProcessResourceDescriptor): PostProcessResourceHandle {
-		const requestedFormat =
-			tryGetTextureFormatInfo(desc.format)?.format ?? TextureFormat.RGBA16Float;
-		const texture = this._host.createTexture({
-			width: desc.width,
-			height: desc.height,
-			format: requestedFormat,
-			mipLevelCount:
-				desc.mipMode === "full-chain"
-					? Math.floor(Math.log2(Math.max(desc.width, desc.height))) + 1
-					: undefined,
-			usage:
-				TextureUsage.TextureBinding |
-				TextureUsage.StorageBinding |
-				TextureUsage.RenderAttachment |
-				TextureUsage.CopyDst |
-				TextureUsage.CopySrc,
-			label: `WebGPUPostHistory_${desc.id}`,
-		});
-		return {
-			id: desc.id,
-			backend: "webgpu",
-			width: desc.width,
-			height: desc.height,
-			format: texture.format ?? requestedFormat,
-			mipMode: desc.mipMode ?? "single",
-			resource: texture,
-		};
-	}
-
-	public destroyResource(handle: PostProcessResourceHandle): void {
-		(handle.resource as IRenderTexture | null)?.destroy?.();
 	}
 
 	public createGBufferBridge(context: FrameContext): LogicalGBufferBridge {

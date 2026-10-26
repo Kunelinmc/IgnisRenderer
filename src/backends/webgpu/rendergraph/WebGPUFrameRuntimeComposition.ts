@@ -114,7 +114,7 @@ export function createWebGPUFrameRuntimeComposition(options: {
 		hiZBuilder,
 		new WebGPUOcclusionCullingRuntime(host),
 	);
-	const postBridge = new WebGPUPostProcessBridge(host, postRuntime, {
+	const postBridge = new WebGPUPostProcessBridge(postRuntime, {
 		isHiZReady: () => visibility.isHiZReady(),
 	});
 	const postProcessRuntime = host.postProcessRuntime;
