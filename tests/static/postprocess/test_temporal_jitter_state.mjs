@@ -4,7 +4,7 @@ import { TemporalJitterState } from "../../../src/backends/cross/TemporalJitterS
 import { TemporalFrameState } from "../../../src/backends/cross/TemporalFrameState.ts";
 import { CameraType } from "../../../src/cameras/Camera.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
-import { computeHaltonJitterNDC } from "../../../src/maths/Misc.ts";
+import { computeHaltonJitterNDC, halton } from "../../../src/maths/Misc.ts";
 
 function testPerspectiveJitterTracksPreviousSample() {
 	const state = new TemporalJitterState();
@@ -154,6 +154,25 @@ function testTemporalFrameTransactionCommitsAndRollsBack() {
 	state.abortFrame();
 }
 
+function testHaltonSequenceAndJitterRange() {
+	assert.equal(halton(1, 2), 0.5);
+	assert.equal(halton(2, 2), 0.25);
+	assert.equal(halton(3, 2), 0.75);
+	assert.equal(halton(1, 3), 1 / 3);
+	assert.equal(halton(2, 3), 2 / 3);
+
+	const jA = computeHaltonJitterNDC(5, 1920, 1080, 1);
+	const jB = computeHaltonJitterNDC(5, 1920, 1080, 1);
+	const jCycleA = computeHaltonJitterNDC(0, 1920, 1080, 1, 16);
+	const jCycleB = computeHaltonJitterNDC(16, 1920, 1080, 1, 16);
+	assert.deepEqual(jA, jB);
+	assert.notDeepEqual(jCycleA, jCycleB);
+	assert.ok(Number.isFinite(jA[0]) && Number.isFinite(jA[1]));
+	assert.ok(Math.abs(jA[0]) <= 1 / 1920);
+	assert.ok(Math.abs(jA[1]) <= 1 / 1080);
+}
+
+testHaltonSequenceAndJitterRange();
 testPerspectiveJitterTracksPreviousSample();
 testOrthographicAndResetReturnZeroHistory();
 testFrameStateSnapshotUsesCurrentAndPreviousJitter();

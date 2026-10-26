@@ -15,9 +15,6 @@ import {
 	Matrix4
 } from "../../../src/maths/Matrix4.ts";
 import {
-	SH
-} from "../../../src/maths/SH.ts";
-import {
 	PBRMaterial
 } from "../../../src/materials/PBRMaterial.ts";
 import {
@@ -35,17 +32,8 @@ import { WebGPUPlanarReflectionPass } from "../../../src/backends/webgpu/WebGPUP
 import { WebGPUEnvironmentResources } from "../../../src/backends/webgpu/WebGPUEnvironmentResources.ts";
 import { WebGPUDeferredResources } from "../../../src/backends/webgpu/WebGPUDeferredResources.ts";
 import {
-	Texture
-} from "../../../src/core/Texture.ts";
-import {
 	Logger
 } from "../../../src/foundation/Logger.ts";
-import {
-	PARTICLE_TRANSIENT_BATCHES_KEY
-} from "../../../src/pipeline/types.ts";
-import {
-	ParticleBlendMode
-} from "../../../src/particles/types.ts";
 import { createBaselineFramePacketSet } from "../../../src/pipeline/FramePackets.ts";
 import {
 	WEBGPU_MODEL_BINDING_SHADER_UNIFORMS
@@ -53,13 +41,9 @@ import {
 import {
 	createWebGPUComputeFacade
 } from "../../../src/backends/webgpu/ComputeFacade.ts";
-import {
-	createResolvedPostProcess
-} from "../../helpers/postprocess.mjs";
 
 
 import {
-	FakeCommandEncoder as FakeRenderEncoder,
 	FakeWebGPUBackend as FakeBackend,
 } from "../../helpers/fakes.mjs";
 import {
@@ -898,173 +882,6 @@ async function testWebGPUOITTransmissionMaterialsStayLegacyPipeline() {
 	);
 }
 
-async function testWebGPUOITParticlePipelinesSplitAlphaAndAdditive() {
-	const backend = new FakeBackend();
-	const model = createModel([new PBRMaterial()]);
-	const packet = createPacket(model);
-	const frame = createFrame(packet);
-	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
-
-	const features = resolveFeatureState(
-		{
-			enableLighting: true,
-			enableGamma: true,
-			enableShadows: true,
-			enableOIT: true,
-		},
-		{
-			sh: false,
-			shadows: true,
-			reflection: false,
-			environment: false,
-			oit: true,
-			ssao: false,
-			taa: false,
-			ssr: false,
-			volumetric: false,
-			fog: false,
-			motionBlur: false,
-			dof: false,
-			bloom: false,
-			clusteredLighting: true,
-		},
-		"webgpu"
-	);
-	resources.beginFrameResourceLifecycle();
-	const frameResources = resources.prepareFrame(
-		createFrameContext(frame, features),
-		createMainFrameOptions()
-	);
-
-	const texture = new Texture({
-		data: new Uint8Array([255, 255, 255, 255]),
-		width: 1,
-		height: 1,
-		colorSpace: "sRGB",
-	});
-	const context = {
-		camera: frame.camera,
-		attachments: { width: 16, height: 16 },
-		features,
-		postProcess: createResolvedPostProcess(),
-		shadowMaps: frame.shadowMaps,
-		scene: { ...frame, particleSystems: [] },
-		shCoeffs: SH.empty(),
-		shAmbientCoeffs: SH.empty(),
-		worldMatrix: Matrix4.identity(),
-		transient: new Map([
-			[
-				PARTICLE_TRANSIENT_BATCHES_KEY,
-				[
-					{
-						systemId: "particleSystem-oit-alpha",
-						blendMode: ParticleBlendMode.Alpha,
-						texture,
-						particles: [
-							{
-								position: { x: 0, y: 0, z: 0 },
-								size: 1,
-								color: { r: 255, g: 255, b: 255, a: 1 },
-								rotation: 0,
-								depth: 1,
-								uvRect: { u0: 0, v0: 0, u1: 1, v1: 1 },
-							},
-						],
-					},
-					{
-						systemId: "particleSystem-oit-add",
-						blendMode: ParticleBlendMode.Additive,
-						texture,
-						particles: [
-							{
-								position: { x: 0, y: 0, z: 0 },
-								size: 1,
-								color: { r: 255, g: 255, b: 255, a: 1 },
-								rotation: 0,
-								depth: 1,
-								uvRect: { u0: 0, v0: 0, u1: 1, v1: 1 },
-							},
-						],
-					},
-				],
-			],
-		]),
-	};
-	const encoder = new FakeRenderEncoder();
-	const renderTarget = { width: 16, height: 16, destroy() {} };
-	const alphaCount = await resources.getParticleBillboardRenderer().renderParticles(
-		encoder,
-		context,
-		{
-			label: "WebGPUParticlesOIT_Test",
-			sampleCount: 1,
-			colorAttachments: [
-				{
-					view: renderTarget,
-					loadOp: "load",
-					storeOp: "store",
-				},
-				{
-					view: renderTarget,
-					loadOp: "load",
-					storeOp: "store",
-				},
-			],
-			depth: renderTarget,
-		},
-		frameResources,
-		"single",
-		{
-			includeBlendModes: [ParticleBlendMode.Alpha],
-			pipelineMode: "oit",
-		}
-	);
-	assert.equal(alphaCount, 1);
-
-	const additiveCount = await resources.getParticleBillboardRenderer().renderParticles(
-		encoder,
-		context,
-		{
-			label: "WebGPUParticlesAdd_Test",
-			sampleCount: 1,
-			colorAttachments: [
-				{
-					view: renderTarget,
-					loadOp: "load",
-					storeOp: "store",
-				},
-			],
-			depth: renderTarget,
-		},
-		frameResources,
-		"single",
-		{
-			includeBlendModes: [ParticleBlendMode.Additive],
-			pipelineMode: "legacy",
-		}
-	);
-	assert.equal(additiveCount, 1);
-
-	const oitPipeline = backend.pipelines.find(
-		(pipeline) => pipeline.label === "WebGPUParticlePipeline_oit-alpha_single"
-	);
-	assert.ok(oitPipeline);
-	assert.equal(oitPipeline.desc.fragment.entryPoint, "fsMainOIT");
-	assert.equal(oitPipeline.desc.fragment.targets.length, 2);
-	assert.equal(oitPipeline.desc.fragment.targets[1].format, "r8unorm");
-
-	const additivePipeline = backend.pipelines.find(
-		(pipeline) => pipeline.label === "WebGPUParticlePipeline_additive_single"
-	);
-	assert.ok(additivePipeline);
-	assert.equal(additivePipeline.desc.fragment.entryPoint, "fsMain");
-	assert.equal(additivePipeline.desc.fragment.targets.length, 1);
-	assert.equal(
-		additivePipeline.desc.fragment.targets[0].blend?.color?.dstFactor,
-		"one"
-	);
-}
-
 async function testPlanarCompositeUsesReflectionOwnedPipelineAndSharedSnapshot() {
 	const backend = new FakeBackend();
 	const material = new PBRMaterial();
@@ -1399,7 +1216,6 @@ async function run() {
 		await testWebGPUShaderMaterialCustomUniformBufferBinding();
 		await testWebGPUOITTransparentPipelineUsesDualTargets();
 		await testWebGPUOITTransmissionMaterialsStayLegacyPipeline();
-		await testWebGPUOITParticlePipelinesSplitAlphaAndAdditive();
 		await testPlanarCompositeUsesReflectionOwnedPipelineAndSharedSnapshot();
 		await testFeatureOwnedWarmupCompilesDeferredSceneVariants();
 		await testFeatureResourceWarmupReportsCompilationFailures();

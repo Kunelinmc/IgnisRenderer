@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 
 import { Texture } from "../../../src/core/Texture.ts";
 import { ParticleBlendMode } from "../../../src/particles/types.ts";
@@ -9,7 +8,6 @@ import {
 import { createTransientStore } from "../../../src/foundation/TransientStore.ts";
 import { createWebGPUComputeFacade } from "../../../src/backends/webgpu/ComputeFacade.ts";
 import { WebGPUFrameServiceOwner } from "../../../src/backends/webgpu/WebGPUFrameServiceOwner.ts";
-import { WebGPUParticleRenderResources } from "../../../src/backends/webgpu/WebGPUParticleRenderResources.ts";
 import { WEBGPU_PARTICLE_DRAW_BATCHES_KEY } from "../../../src/backends/webgpu/types.ts";
 import {
 	FakeCommandEncoder,
@@ -21,21 +19,6 @@ globalThis.GPUShaderStage ??= {
 	FRAGMENT: 2,
 	COMPUTE: 4,
 };
-
-function testOwnerExposesStableNarrowParticleRenderer() {
-	const backend = new FakeWebGPUBackend();
-	const owner = new WebGPUFrameServiceOwner(
-		backend,
-		backend,
-		createWebGPUComputeFacade(backend),
-	);
-	const first = owner.getParticleBillboardRenderer();
-	const second = owner.getParticleBillboardRenderer();
-	assert.ok(first instanceof WebGPUParticleRenderResources);
-	assert.equal(first, second);
-	owner.destroy();
-	owner.destroy();
-}
 
 function createBillboardBatch(systemId, blendMode, texture) {
 	return {
@@ -136,11 +119,13 @@ async function testBillboardPipelinesBindingsScissorAndLifecycle() {
 			(pipeline) => pipeline.label === "WebGPUParticlePipeline_alpha_single",
 		),
 	);
-	assert.ok(
-		backend.pipelines.some(
-			(pipeline) => pipeline.label === "WebGPUParticlePipeline_additive_single",
-		),
+	const additivePipeline = backend.pipelines.find(
+		(pipeline) => pipeline.label === "WebGPUParticlePipeline_additive_single",
 	);
+	assert.ok(additivePipeline);
+	assert.equal(additivePipeline.desc.fragment.entryPoint, "fsMain");
+	assert.equal(additivePipeline.desc.fragment.targets.length, 1);
+	assert.equal(additivePipeline.desc.fragment.targets[0].blend.color.dstFactor, "one");
 	assert.deepEqual(
 		encoder.calls.filter((call) => call[0] === "setScissorRect"),
 		[
@@ -161,7 +146,7 @@ async function testBillboardPipelinesBindingsScissorAndLifecycle() {
 	assert.deepEqual(uvTransform.slice(6), [0, 0]);
 
 	const oitEncoder = new FakeCommandEncoder(backend);
-	await particles.renderParticles(
+	const oitCount = await particles.renderParticles(
 		oitEncoder,
 		context,
 		{
@@ -175,12 +160,23 @@ async function testBillboardPipelinesBindingsScissorAndLifecycle() {
 			pipelineMode: "oit",
 		},
 	);
+	assert.equal(oitCount, 1);
 	const oitPipeline = backend.pipelines.find(
 		(pipeline) => pipeline.label === "WebGPUParticlePipeline_oit-alpha_single",
 	);
 	assert.ok(oitPipeline);
 	assert.equal(oitPipeline.desc.fragment.entryPoint, "fsMainOIT");
 	assert.equal(oitPipeline.desc.fragment.targets.length, 2);
+	assert.equal(oitPipeline.desc.fragment.targets[1].format, "r8unorm");
+	const additiveCount = await particles.renderParticles(
+		new FakeCommandEncoder(backend),
+		context,
+		targets,
+		frameResources,
+		"single",
+		{ includeBlendModes: [ParticleBlendMode.Additive], pipelineMode: "legacy" },
+	);
+	assert.equal(additiveCount, 1);
 
 	particles.onShaderRuntimeChanged();
 	assert.equal(alphaBinding.destroyed, true);
@@ -363,55 +359,8 @@ async function testParticleBindingCacheEviction() {
 	owner.destroy();
 }
 
-function testParticleOwnershipAndExecutionBoundaries() {
-	const ownerSource = readFileSync(
-		new URL(
-			"../../../src/backends/webgpu/WebGPUFrameServiceOwner.ts",
-			import.meta.url,
-		),
-		"utf8",
-	);
-	const particleResourceSource = readFileSync(
-		new URL(
-			"../../../src/backends/webgpu/WebGPUParticleRenderResources.ts",
-			import.meta.url,
-		),
-		"utf8",
-	);
-	const orchestratorSource = readFileSync(
-		new URL(
-			"../../../src/backends/webgpu/rendergraph/WebGPUFrameOrchestrator.ts",
-			import.meta.url,
-		),
-		"utf8",
-	);
-	const packetConsumerSources = [
-		"../../../src/backends/webgpu/rendergraph/WebGPUScenePassRecorder.ts",
-		"../../../src/backends/webgpu/WebGPUFrameServiceOwner.ts",
-		"../../../src/backends/webgpu/WebGPURenderTargetViewExecutor.ts",
-	].map((path) => readFileSync(new URL(path, import.meta.url), "utf8"));
-	assert.doesNotMatch(ownerSource, /_particlePipelineAlpha/);
-	assert.doesNotMatch(ownerSource, /public async renderParticles/);
-	assert.doesNotMatch(ownerSource, /ShaderSource\.load\("webgpu\.particle"\)/);
-	assert.match(ownerSource, /private _particleRenderResources:/);
-	assert.doesNotMatch(particleResourceSource, /ParticleMeshFramePackets/);
-	assert.doesNotMatch(
-		particleResourceSource,
-		/WebGPUMSAAController|WebGPUMSAAContext|\b_msaa\b/,
-	);
-	assert.doesNotMatch(orchestratorSource, /_particle(Resources|Renderer)/);
-	assert.doesNotMatch(orchestratorSource, /ParticleMesh/);
-	assert.match(orchestratorSource, /prepareFramePackets\(context, "main"\)/);
-	for (const source of packetConsumerSources) {
-		assert.doesNotMatch(source, /ParticleMesh/);
-		assert.doesNotMatch(source, /particleMeshFramePackets/);
-	}
-}
-
-testOwnerExposesStableNarrowParticleRenderer();
 await testBillboardPipelinesBindingsScissorAndLifecycle();
 await testParticlePipelinesUsePassTargetSampleCount();
 await testGPUIndirectDrawAndFallback();
 await testParticleBindingCacheEviction();
-testParticleOwnershipAndExecutionBoundaries();
 console.log("WebGPU particle render resources tests passed");

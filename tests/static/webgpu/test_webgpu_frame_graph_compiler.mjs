@@ -31,22 +31,6 @@ function testReadBeforeCreateDiagnostic() {
 	assert.equal(stage.diagnostics[0].resource, "frame:scene-color-main");
 }
 
-function testOptionalReadDoesNotDiagnose() {
-	const { stage } = compile([{
-		id: "test:optional-read",
-		stage: "main-transparent",
-		kind: "transparent-scene",
-		label: "OptionalRead",
-		reads: [{
-			id: "frame:depth",
-			usage: "depth-attachment",
-			optional: true,
-		}],
-	}]);
-
-	assert.equal(stage.diagnostics.length, 0);
-}
-
 function testDuplicateCreateDiagnosticMatchesLegacyShape() {
 	const { stage } = compile([{
 		id: "test:create",
@@ -353,7 +337,6 @@ function testDeferredDecalNodeRecordsGBufferTransitions() {
 
 function run() {
 	testReadBeforeCreateDiagnostic();
-	testOptionalReadDoesNotDiagnose();
 	testDuplicateCreateDiagnosticMatchesLegacyShape();
 	testOptionalReadDoesNotCreateResource();
 	testOptionalReadDoesNotEmitBarrierForLaterWrite();

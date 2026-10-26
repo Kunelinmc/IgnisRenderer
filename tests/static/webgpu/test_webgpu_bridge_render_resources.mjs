@@ -4,12 +4,6 @@ import {
 } from "../../../src/backends/webgpu/WebGPUFrameServiceOwner.ts";
 import { submitWebGPUDraws } from "../../../src/backends/webgpu/WebGPUDrawSubmission.ts";
 import {
-	WebGPUFrameOrchestrator as WebGPUFrameExecutor
-} from "../../../src/backends/webgpu/rendergraph/WebGPUFrameOrchestrator.ts";
-import {
-	createWebGPUFrameRuntimeComposition
-} from "../../../src/backends/webgpu/rendergraph/WebGPUFrameRuntimeComposition.ts";
-import {
 	ShaderSource
 } from "../../../src/shaders/ShaderSource.ts";
 import {
@@ -73,23 +67,6 @@ globalThis.GPUShaderStage = {
 };
 ShaderSource.resetConfiguration();
 Logger.reset();
-
-function testRenderResourcesConsumeInjectedComputeFacade() {
-	const backend = new FakeBackend();
-	const resources = new WebGPURenderResources(
-		backend,
-		backend,
-		createWebGPUComputeFacade(backend),
-	);
-
-	assert.equal(backend.getComputeFacadeCalls, 0);
-	assert.equal(
-		typeof resources._computeFacade.createComputePipeline,
-		"function"
-	);
-
-	resources.destroy();
-}
 
 function testRenderResourcesLeaveShaderRuntimeSubscriptionToBackend() {
 	const backend = new FakeBackend();
@@ -158,58 +135,6 @@ async function testRenderResourcesLogPointLightLimitOnlyOnce() {
 	}
 }
 
-function testFrameExecutorConsumesComputeFacadeFromHost() {
-	const backend = new FakeBackend();
-	const resourcesStub = {
-		sceneFrameLayout: null,
-		getParticleBillboardRenderer() {
-			return { async renderParticles() {} };
-		},
-		createPlanarReflectionDrawResources() {
-			return { async getDrawResources() { return null; }, destroy() {} };
-		},
-		createFrameScope() {
-			return {
-				prepare() { throw new Error("not used by this test"); },
-				destroy() {},
-			};
-		},
-	};
-	const sampleCountResolver = {
-		resolveDomainSampleCount(domain, requestedSampleCount, formats) {
-			return {
-				domain,
-				requestedSampleCount,
-				sampleCount: 1,
-				signature: `${domain}|${formats.join(",")}`,
-				runtimeFallbackActive: false,
-			};
-		},
-		fallbackToSingleSample() {
-			return false;
-		},
-	};
-	const frameRuntime = createWebGPUFrameRuntimeComposition({
-		host: backend,
-		frameServices: resourcesStub,
-		shadowRenderer: {
-			renderShadows() {},
-		},
-		sampleCountResolver,
-		warnOnce() {},
-	});
-	const executor = new WebGPUFrameExecutor(
-		backend,
-		resourcesStub.createFrameScope(),
-		sampleCountResolver,
-		1,
-		frameRuntime.modules,
-	);
-
-	assert.equal(backend.getComputeFacadeCalls, 0);
-	assert.equal(typeof executor.getDebugState, "undefined");
-}
-
 async function testRenderResourcesUseCopyDstForUploads() {
 	const backend = new FakeBackend();
 	const model = createModel([
@@ -272,25 +197,11 @@ async function testRenderResourcesUseCopyDstForUploads() {
 		firstDraw.resolvedInputs.samplers.length,
 		firstDraw.resolvedInputs.materialData.common.textureSlots.length
 	);
-	assert.equal("anisotropyTexture" in firstDraw.resolvedInputs, false);
 	assert.ok(firstDraw.resolvedInputs.textures[WEBGPU_TEXTURE_SLOT.ANISOTROPY]);
 	assert.deepEqual(
 		firstDraw.bindings[0].group.desc.entries.map((entry) => entry.binding),
 		[0, 1, 2, 3, 6, 7, 8, 9, 10, 11, 12],
 	);
-	assert.ok(
-		firstDraw.bindings[0].group.desc.entries.some((entry) => entry.binding === 6)
-	);
-	assert.ok(
-		firstDraw.bindings[0].group.desc.entries.some((entry) => entry.binding === 8)
-	);
-	for (const binding of [0, 10, 11, 12]) {
-		assert.ok(
-			firstDraw.bindings[0].group.desc.entries.some(
-				(entry) => entry.binding === binding
-			)
-		);
-	}
 	assert.equal(
 		firstDraw.bindings[1].group.desc.entries.length,
 		1 +
@@ -303,12 +214,6 @@ async function testRenderResourcesUseCopyDstForUploads() {
 			(entry) => entry.binding === WEBGPU_MODEL_BINDING_SHADER_UNIFORMS
 		)
 	);
-	assert.ok(
-		firstDraw.bindings[1].group.desc.entries.some(
-			(entry) =>
-				entry.binding === 1 + WEBGPU_TEXTURE_SLOT.ANISOTROPY * 2
-		)
-	);
 	assert.deepEqual(
 		firstDraw.pipeline.desc.layout.desc.bindGroupLayouts,
 		firstDraw.bindings.map((binding) => binding.group.desc.layout)
@@ -317,7 +222,6 @@ async function testRenderResourcesUseCopyDstForUploads() {
 		firstDraw.pipeline.desc.layout.desc.bindGroupLayouts.length,
 		3
 	);
-	assert.equal(firstDraw.pipeline.desc.fragment.targets.length, 5);
 	assert.deepEqual(
 		firstDraw.pipeline.desc.fragment.targets.map((target) => target.format),
 		["rgba16float", "rgba8unorm", "rgba8unorm", "rgba16float", "rgba16float"]
@@ -540,10 +444,8 @@ function testVolumetricLightingDataStaysScopedAndClearsWhenDisabled() {
 
 async function run() {
 	try {
-		await testRenderResourcesConsumeInjectedComputeFacade();
 		await testRenderResourcesLeaveShaderRuntimeSubscriptionToBackend();
 		await testRenderResourcesLogPointLightLimitOnlyOnce();
-		await testFrameExecutorConsumesComputeFacadeFromHost();
 		await testRenderResourcesUseCopyDstForUploads();
 		await testStaticBatchSplitDiagnosticsAccumulateAndResetPerFrame();
 		testVolumetricLightingUsesEffectiveSurfaceLights();

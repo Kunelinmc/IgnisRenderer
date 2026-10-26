@@ -29,7 +29,6 @@ assert.equal(first, second);
 assert.equal(counters.textures, WEBGPU_TEXTURE_SLOT_COUNT);
 assert.equal(counters.samplers, WEBGPU_TEXTURE_SLOT_COUNT);
 assert.equal(first.textures[WEBGPU_TEXTURE_SLOT.ANISOTROPY].id, "texture:16");
-assert.equal("anisotropyTexture" in first, false);
 
 material.roughness = 0.2;
 cache.beginFrame();

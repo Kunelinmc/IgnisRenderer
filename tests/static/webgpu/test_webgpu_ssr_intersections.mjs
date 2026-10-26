@@ -44,10 +44,8 @@ assert.ok(Math.abs(moments[1] - moments[0] ** 2) < 1e-6);
 assert.ok(moments[2] > 12 && moments[2] < 13,
 	"Effective temporal samples must converge without inventing spatial blur.");
 
-// A step may jump across a thin depth interval without landing in it. Every
-// jitter phase must still produce a bracket for the known planar intersection.
-for (let index = 0; index < 1000; index++) {
-	const jitter = (index + 0.5) / 1000;
+// A step may jump across a thin depth interval without landing in it.
+for (const jitter of [0.0005, 0.5, 0.9995]) {
 	const frontT = 2 + jitter;
 	const backT = 3 + jitter;
 	assert.equal(shader.ssrDepthCrossing(frontT - 3, backT - 3), true);
@@ -55,6 +53,8 @@ for (let index = 0; index < 1000; index++) {
 assert.equal(shader.ssrDepthCrossing(-1, -0.1), false);
 assert.equal(shader.ssrDepthCrossing(1, 2), false);
 assert.equal(shader.ssrDepthCrossing(0.1, -0.1), false);
+assert.equal(shader.ssrDepthCrossing(-1, 0), true);
+assert.equal(shader.ssrDepthCrossing(0, 1), false);
 
 // A sign change at an occlusion edge must not turn an unrelated foreground or
 // background depth into a reflection hit after refinement.

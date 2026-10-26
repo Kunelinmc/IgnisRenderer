@@ -259,7 +259,6 @@ async function testConcurrentResolutionAndAsyncDestruction() {
 	assert.equal(backend.writes[0].data[0], 1, "pending projection stays immutable during authored edits");
 	assert.equal(backend.writes[1].data[0], Math.fround(0.4));
 	assert.equal(backend.buffers.length, 2);
-	assert.equal(typeof cache.isCurrent, "function", "assembler needs alpha-only snapshot validation");
 	assert.equal(cache.isCurrent(material, firstSnapshot), false, "pending opacity edit is stale");
 	assert.equal(cache.isCurrent(material, changedSnapshot), true);
 	material.roughness = 0.8;

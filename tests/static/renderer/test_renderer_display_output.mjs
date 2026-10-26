@@ -4,6 +4,8 @@ import { Camera } from "../../../src/cameras/Camera.ts";
 import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";
 import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 import { Renderer } from "../../../src/rendering/Renderer.ts";
+import { DEFAULT_DISPLAY_OUTPUT_OPTIONS, resolveDisplayOutputOptions } from
+	"../../../src/rendering/DisplayOutput.ts";
 import { TestRenderBackend } from "../../helpers/TestRenderBackend.mjs";
 
 const originalWindow = globalThis.window;
@@ -18,7 +20,27 @@ function createCanvas() {
 	};
 }
 
+function testOptionValidation() {
+	assert.deepEqual(
+		resolveDisplayOutputOptions(),
+		DEFAULT_DISPLAY_OUTPUT_OPTIONS,
+	);
+	assert.throws(
+		() => resolveDisplayOutputOptions({ exposure: -1 }),
+		RangeError,
+	);
+	assert.throws(
+		() => resolveDisplayOutputOptions({ hdrHeadroom: 17 }),
+		RangeError,
+	);
+	assert.throws(
+		() => resolveDisplayOutputOptions({ exposure: Number.NaN }),
+		RangeError,
+	);
+}
+
 async function run() {
+	testOptionValidation();
 	globalThis.window = { devicePixelRatio: 1 };
 	const backend = new TestRenderBackend();
 	const renderer = new Renderer(createCanvas(), backend, new Camera(), {

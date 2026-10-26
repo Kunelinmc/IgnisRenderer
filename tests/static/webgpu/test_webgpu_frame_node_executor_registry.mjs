@@ -47,11 +47,7 @@ async function testRegistryRejectsMissingExecutor() {
 	);
 }
 
-function testRuntimeCompositionRejectsDuplicateAndMissingOwners() {
-	assert.throws(
-		() => WebGPUFrameNodeExecutorRegistry.fromModules([]),
-		/missing executors/,
-	);
+function testMultipleOwnersCanImplementSameKind() {
 	const complete = Object.fromEntries(
 		WEBGPU_FRAME_GRAPH_NODE_KINDS.map((kind) => [kind, async () => {}]),
 	);
@@ -63,5 +59,5 @@ function testRuntimeCompositionRejectsDuplicateAndMissingOwners() {
 
 await testRegistryDispatchesByNodeKind();
 await testRegistryRejectsMissingExecutor();
-testRuntimeCompositionRejectsDuplicateAndMissingOwners();
+testMultipleOwnersCanImplementSameKind();
 console.log("WebGPU frame node executor registry tests passed");

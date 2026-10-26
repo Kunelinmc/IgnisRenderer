@@ -260,7 +260,7 @@ async function executeColorFilterPass(
 	return { request, result };
 }
 
-async function testFXAAPassImplementationUsesDedicatedPipeline() {
+async function testFXAAPipelineExecutionAndResourceReuse() {
 	const backend = new FakeBackend();
 	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
 	const encoder = new FakeEncoder();
@@ -319,6 +319,35 @@ async function testFXAAPassImplementationUsesDedicatedPipeline() {
 		["endComputePass"],
 	]);
 	assert.equal(targets.sceneColor, postPong);
+
+	const secondEncoder = new FakeEncoder();
+	await executeFXAAPass(runtime, secondEncoder, targets, frameContext, pass);
+	assert.equal(backend.shaderModules.length, 1);
+	assert.equal(backend.computePipelines.length, 1);
+	assert.equal(backend.buffers.length, 1);
+	assert.equal(backend.bindingGroups.length, 2);
+	assert.equal(backend.bindingGroups[1].desc.entries[0].resource, postPong);
+	assert.equal(backend.bindingGroups[1].desc.entries[3].resource, postPing);
+	assert.equal(targets.sceneColor, postPing);
+	assert.deepEqual(secondEncoder.calls, [
+		["beginComputePass", "WebGPUFXAA"],
+		["setComputePipeline", "WebGPUFXAAPipeline"],
+		["setBindingGroup", 0, "WebGPUFXAA_Binding"],
+		["dispatchWorkgroups", 3, 2, 1],
+		["endComputePass"],
+	]);
+
+	const resizedEncoder = new FakeEncoder();
+	const resizedTargets = {
+		sceneColor: createTexture(32, 16, "resized-scene"),
+		postPing: createTexture(32, 16, "resized-ping"),
+		postPong: createTexture(32, 16, "resized-pong"),
+	};
+	await executeFXAAPass(runtime, resizedEncoder, resizedTargets, frameContext, pass);
+	assert.deepEqual(
+		resizedEncoder.calls.find((call) => call[0] === "dispatchWorkgroups"),
+		["dispatchWorkgroups", 4, 2, 1],
+	);
 
 	pass.destroy();
 	destroySnapshotPasses(frameContext.postProcess);
@@ -878,45 +907,6 @@ async function testMotionBlurSkipsRedundantParamUploads() {
 	runtime.destroy();
 }
 
-async function testFXAAPassImplementationPingPongsAndCachesResources() {
-	const backend = new FakeBackend();
-	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
-	const firstEncoder = new FakeEncoder();
-	const secondEncoder = new FakeEncoder();
-	const sceneColorMain = createTexture(32, 16, "scene");
-	const postPing = createTexture(32, 16, "ping");
-	const postPong = createTexture(32, 16, "pong");
-	const targets = {
-		sceneColor: sceneColorMain,
-		postPing,
-		postPong,
-	};
-	const frameContext = createFrameContext();
-	const pass = new FastApproximateAntiAliasingPass({ enabled: true });
-
-	await executeFXAAPass(runtime, firstEncoder, targets, frameContext, pass);
-	await executeFXAAPass(runtime, secondEncoder, targets, frameContext, pass);
-
-	assert.equal(backend.shaderModules.length, 1);
-	assert.equal(backend.computePipelines.length, 1);
-	assert.equal(backend.buffers.length, 1);
-	assert.equal(backend.bindingGroups.length, 2);
-	assert.equal(backend.bindingGroups[1].desc.entries[0].resource, postPong);
-	assert.equal(backend.bindingGroups[1].desc.entries[3].resource, postPing);
-	assert.equal(targets.sceneColor, postPing);
-	assert.deepEqual(secondEncoder.calls, [
-		["beginComputePass", "WebGPUFXAA"],
-		["setComputePipeline", "WebGPUFXAAPipeline"],
-		["setBindingGroup", 0, "WebGPUFXAA_Binding"],
-		["dispatchWorkgroups", 4, 2, 1],
-		["endComputePass"],
-	]);
-
-	pass.destroy();
-	destroySnapshotPasses(frameContext.postProcess);
-	runtime.destroy();
-}
-
 async function testInvalidateBindingsDestroysCachedBindingGroups() {
 	const backend = new FakeBackend();
 	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
@@ -1073,7 +1063,7 @@ async function testBloomImplementationLifecycleReleasesOwnedResources() {
 }
 
 export async function run() {
-	await testFXAAPassImplementationUsesDedicatedPipeline();
+	await testFXAAPipelineExecutionAndResourceReuse();
 	await testToneMappingPassImplementationUsesDedicatedPipeline();
 	await testBloomPassImplementationUsesDedicatedPipeline();
 	await testFogPassImplementationUsesDedicatedPipeline();
@@ -1081,7 +1071,6 @@ export async function run() {
 	await testMotionBlurSkipsRedundantParamUploads();
 	await testDOFPassImplementationUsesDedicatedPipeline();
 	await testColorFilterPassImplementationUsesDedicatedPipeline();
-	await testFXAAPassImplementationPingPongsAndCachesResources();
 	await testInvalidateBindingsDestroysCachedBindingGroups();
 	await testBindingReplacementDestroysStaleBindingGroup();
 	await testDestroyReleasesToneMappingImplementationResources();

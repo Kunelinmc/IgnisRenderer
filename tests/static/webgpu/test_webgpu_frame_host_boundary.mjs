@@ -22,4 +22,25 @@ function visit(directory) {
 
 visit(root);
 assert.deepEqual(violations, []);
+
+const orchestrator = readFileSync(join(root, "WebGPUFrameOrchestrator.ts"), "utf8");
+for (const dependency of [
+	"WebGPUDeferredLightingPass",
+	"WebGPUDeferredDecalPass",
+	"WebGPUPlanarReflectionPass",
+	"WebGPUHiZBuilder",
+	"WebGPUOcclusionCullingRuntime",
+	"WebGPUTransparencyRuntime",
+	"WebGPUScenePassRecorder",
+	"WebGPUPostProcessBridge",
+	"WebGPUPresentationRuntime",
+	"WebGPUCustomRenderTargetRuntime",
+]) {
+	assert.equal(
+		orchestrator.includes(dependency),
+		false,
+		`Frame orchestration must not depend directly on ${dependency}`,
+	);
+}
+
 console.log("WebGPU frame host boundary tests passed");

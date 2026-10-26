@@ -1148,7 +1148,7 @@ const backend = new WebGPUBackend({
 bun tests/static/webgpu/test_webgpu_frame_graph_compiler.mjs
 bun tests/static/webgpu/test_webgpu_frame_graph_planner.mjs
 bun tests/static/webgpu/test_webgpu_frame_node_executor_registry.mjs
-bun tests/static/webgpu/test_webgpu_frame_executor_whole_frame_planning.mjs
+bun tests/static/webgpu/test_webgpu_frame_executor_lifecycle_invalidation.mjs
 ```
 
 ### Deferred lighting

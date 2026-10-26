@@ -122,9 +122,6 @@ function testMeshParticleFramePreparation() {
 	assert.equal(packets.shadowTransmitterSubmissions.length, 0);
 	assert.strictEqual(packets.all[0], packets.opaque[0]);
 	assert.strictEqual(packets.all[1], packets.transparent[0]);
-	assert.equal("meshInstance" in packets.opaque[0], false);
-	assert.equal("mesh" in packets.opaque[0], false);
-	assert.equal("primitive" in packets.opaque[0], false);
 	assert.equal(packets.opaque[0].submission.source.kind, "particle-mesh");
 	assert.equal(packets.opaque[0].submission.material.effective, opaqueMaterial);
 	assert.equal(

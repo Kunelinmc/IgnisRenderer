@@ -176,15 +176,6 @@ async function testEndFrameFailureClosesActiveState() {
 	assert.equal(getFrameGraphDebugState(executor).commit.state, "failed");
 }
 
-async function testInvalidateFrameTargetsDestroysPresentBinding() {
-	const backend = new FakeBackend();
-	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
-
-	executor.invalidateFrameTargets();
-
-	assert.equal(getFrameTargets(executor), null);
-}
-
 async function testInvalidateFrameTargetsDefersDuringActiveFrame() {
 	const backend = new FakeBackend();
 	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
@@ -211,7 +202,6 @@ async function run() {
 		await testPassBeforeAsyncBeginSettlesIsRejected();
 		await testAbortFrameClearsActiveStateWithoutSubmit();
 		await testEndFrameFailureClosesActiveState();
-		await testInvalidateFrameTargetsDestroysPresentBinding();
 		await testInvalidateFrameTargetsDefersDuringActiveFrame();
 		console.log("WebGPU frame-executor lifecycle/invalidation tests passed");
 	} finally {

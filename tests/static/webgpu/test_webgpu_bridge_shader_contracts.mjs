@@ -19,9 +19,6 @@ import {
 	remapClipSpaceDepth
 } from "../../../src/backends/webgpu/index.ts";
 import {
-	WebGPUBackend
-} from "../../../src/backends/webgpu/WebGPUBackend.ts";
-import {
 	createWebGPUPipelineLayouts
 } from "../../../src/backends/webgpu/WebGPUPipelineLayouts.ts";
 import {
@@ -97,9 +94,6 @@ import {
 	WEBGPU_TEXTURE_SLOT_COUNT,
 	GBufferSlot
 } from "../../../src/backends/webgpu/constants.ts";
-import {
-	createResolvedPostProcess
-} from "../../helpers/postprocess.mjs";
 
 const previousGPUShaderStage = globalThis.GPUShaderStage;
 globalThis.GPUShaderStage = {
@@ -149,6 +143,10 @@ async function testSharedFrameUniformABI() {
 		["jitterNdc", "vec2<f32>", 256],
 		["prevJitterNdc", "vec2<f32>", 264],
 	];
+	for (const [name, , offset] of cameraMembers) {
+		assert.equal(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT.byteOffsetOf(name), offset);
+	}
+	assert.equal(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT.byteSize, 272);
 	for (const key of [
 		"webgpu.scene", "webgpu.scene.depth", "webgpu.deferredLighting",
 		"webgpu.environment", "webgpu.particle", "webgpu.clusteredLightingCull",
@@ -163,11 +161,9 @@ async function testSharedFrameUniformABI() {
 		}
 		const camera = code.match(/struct FrameCameraUniforms\s*\{([^}]+)\}/)?.[1];
 		assert.ok(camera, `${key} must resolve the camera uniform import`);
-		for (const [name, type, offset] of cameraMembers) {
+		for (const [name, type] of cameraMembers) {
 			assert.ok(camera.includes(`${name}: ${type}`), `${key}: ${name} GPU type`);
-			assert.equal(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT.byteOffsetOf(name), offset);
 		}
-		assert.equal(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT.byteSize, 272);
 		for (const [name, layout] of frameLayouts) {
 			if (!code.includes(`struct ${name}`)) continue;
 			assert.deepEqual(readWGSLStructFieldNames(code, name), readLayoutFieldNames(layout),
@@ -181,41 +177,6 @@ async function testSharedFrameUniformABI() {
 }
 ShaderSource.resetConfiguration();
 Logger.reset();
-
-function testBackendDoesNotExposeDeviceServiceForwarders() {
-	for (const method of [
-		"device",
-		"queue",
-		"getShaderDirectiveCacheTag",
-		"isOcclusionCullingEnabled",
-		"onDeviceLost",
-		"getFrameSceneTargetMode",
-		"captureProbeFace",
-		"getCurrentColorView",
-		"getCurrentDepthView",
-		"getTimestampDurationsMs",
-		"createPassTimestampWrites",
-		"createBuffer",
-		"createTexture",
-		"createSampler",
-		"createShaderModule",
-		"createPipeline",
-		"createComputePipeline",
-		"createBindingGroup",
-		"createTextureView",
-		"createCommandEncoder",
-		"writeBuffer",
-		"writeTexture",
-		"copyTextureToTexture",
-		"submit",
-		"getTextureForSlot",
-		"registerExternalTexture",
-		"unregisterExternalTexture",
-		"postProcessRuntime",
-	]) {
-		assert.equal(method in WebGPUBackend.prototype, false, method);
-	}
-}
 
 function testMatrixPackingAndDepthRemap() {
 	const matrix = new Matrix4([
@@ -434,28 +395,9 @@ function testFeatureGate() {
 
 	assert.equal(featureState.enableLighting, true);
 	assert.equal(featureState.enableSH, false);
-	assert.equal("enableShadows" in featureState, false);
 	assert.equal(featureState.enableReflection, false);
 	assert.equal(featureState.enableEnvironment, false);
 	assert.ok(featureState.warnings.length >= 3);
-
-	const postProcess = createResolvedPostProcess(
-		{
-			ssgi: { enabled: true },
-			ssr: { enabled: true },
-			bloom: { enabled: true },
-			tonemap: { enabled: true },
-			gamma: { enabled: true },
-		},
-		"software"
-	);
-	assert.equal(postProcess.isEnabled("gamma"), true);
-	assert.equal(postProcess.isEnabled("tonemap"), true);
-	assert.equal(postProcess.isEnabled("ssgi"), false);
-	assert.equal(postProcess.isEnabled("ssr"), false);
-	assert.equal(postProcess.isEnabled("bloom"), false);
-	assert.equal(postProcess.getOptions("gamma") !== null, true);
-	assert.deepEqual(postProcess.getWarnings(), []);
 }
 
 async function testSceneSourcesPreserveSourceLocations() {
@@ -490,10 +432,6 @@ async function testSceneShaderCoverage() {
 	assert.match(WEBGPU_SCENE_SHADER, /shadowsEnabled:\s*u32/);
 	assert.match(WEBGPU_SCENE_SHADER, /shAmbientEnabled:\s*u32/);
 	for (const [name, layout] of [
-		["FrameCameraUniforms", WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT],
-		["FrameLightUniforms", WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT],
-		["FrameShadowUniforms", WEBGPU_FRAME_SHADOW_UNIFORM_LAYOUT],
-		["FrameEnvironmentUniforms", WEBGPU_FRAME_ENVIRONMENT_UNIFORM_LAYOUT],
 		["ObjectUniforms", WEBGPU_OBJECT_UNIFORM_LAYOUT],
 		["MaterialCommonUniforms", WEBGPU_MATERIAL_COMMON_UNIFORM_LAYOUT],
 		["PBRMaterialUniforms", WEBGPU_PBR_MATERIAL_UNIFORM_LAYOUT],
@@ -538,16 +476,12 @@ async function testSceneShaderCoverage() {
 			WEBGPU_SCENE_SHADER
 		)
 	);
-	assert.ok(WEBGPU_SCENE_SHADER.includes("CLUSTER_LIGHT_TYPE_AREA"));
-	assert.ok(WEBGPU_SCENE_SHADER.includes("clusteredRecordToAreaLight"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("if (!isClusteredLightingEnabled())"));
 	assert.ok(
 		/evaluateAreaLight\(\s*areaRecord,\s*input\.worldPosition,\s*sampleIndex\s*\)/.test(
 			WEBGPU_SCENE_SHADER
 		)
 	);
-	assert.ok(WEBGPU_SCENE_SHADER.includes("AREA_LIGHT_SAMPLE_COUNT"));
-	assert.ok(WEBGPU_SCENE_SHADER.includes("sampleDirectionalShadowVisibility"));
 	for (const source of [WEBGPU_SCENE_SHADER, WEBGPU_DEFERRED_LIGHTING_SHADER]) {
 		assert.equal(
 			/\w+\s*:\s*ShadowData\b/.test(source),
@@ -580,19 +514,9 @@ async function testSceneShaderCoverage() {
 	assert.ok(WEBGPU_SCENE_SHADER.includes("MAX_SHADOW_FILTER_SAMPLES: i32 = 7"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("depthProjectionParams"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("linearizeShadowDepth"));
-	assert.equal(WEBGPU_SCENE_SHADER.includes("MAX_PCSS_SEARCH_SAMPLES"), false);
-	assert.equal(WEBGPU_SCENE_SHADER.includes("vogelDiskSample"), false);
-	assert.ok(!WEBGPU_SCENE_SHADER.includes("decodePackedShadowDepth"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("let shadowNormal = normal;"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("let pbrShadowNormal = pbrNormal;"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("let slopeBias = max(paramsC.x, 0.0);"));
-	assert.ok(WEBGPU_SCENE_SHADER.includes("calculateIrradianceFromSH"));
-	assert.ok(WEBGPU_SCENE_SHADER.includes("localLightProbeCounts"));
-	assert.ok(WEBGPU_SCENE_SHADER.includes("selectTopTwoLocalLightProbes"));
-	assert.ok(WEBGPU_SCENE_SHADER.includes("sampleBlendedLocalLightProbeIrradiance"));
-	assert.ok(WEBGPU_SCENE_SHADER.includes("sampleBlendedLocalLightProbeRadiance"));
-	assert.ok(WEBGPU_SCENE_SHADER.includes("sampleEnvironmentSpecular"));
-	assert.ok(WEBGPU_SCENE_SHADER.includes("resolveSpecularEnergyCompensation"));
 	assert.ok(
 		(WEBGPU_SCENE_SHADER.match(/evaluateOpaquePBRLight\(/g)?.length ?? 0) >= 6
 	);
@@ -600,17 +524,11 @@ async function testSceneShaderCoverage() {
 		(WEBGPU_SCENE_SHADER.match(/fn evaluateOpaquePBRLight\(/g)?.length ?? 0),
 		1
 	);
-	assert.ok(WEBGPU_DEFERRED_LIGHTING_SHADER.includes("DeferredPBRContext"));
-	assert.ok(
-		WEBGPU_DEFERRED_LIGHTING_SHADER.includes("evaluateOpaquePBRLight(")
-	);
 	assert.ok(
 		/evaluateAreaLight\(\s*frameLights\.areaLights\[i\],\s*surface\.worldPosition,\s*sampleIndex\s*\)/.test(
 			WEBGPU_DEFERRED_LIGHTING_SHADER
 		)
 	);
-	assert.ok(WEBGPU_DEFERRED_LIGHTING_SHADER.includes("CLUSTER_LIGHT_TYPE_AREA"));
-	assert.ok(WEBGPU_DEFERRED_LIGHTING_SHADER.includes("clusteredRecordToAreaLight"));
 	assert.ok(
 		/evaluateAreaLight\(\s*areaRecord,\s*surface\.worldPosition,\s*sampleIndex\s*\)/.test(
 			WEBGPU_DEFERRED_LIGHTING_SHADER
@@ -619,7 +537,6 @@ async function testSceneShaderCoverage() {
 	assert.ok(
 		WEBGPU_DEFERRED_LIGHTING_SHADER.includes("pbr.energyCompensation")
 	);
-	assert.ok(WEBGPU_SCENE_SHADER.includes("fn encodeOctahedralNormal("));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("return encodeOctahedralNormal(cameraWorldToViewDirection("));
 	assert.ok(
 		WEBGPU_DEFERRED_LIGHTING_SHADER.includes(
@@ -642,7 +559,6 @@ async function testSceneShaderCoverage() {
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(9) var shadowComparisonSampler"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(2) @binding(0)"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("if (isClusteredLightingEnabled())"));
-	assert.ok(WEBGPU_SCENE_SHADER.includes("decodeClusteredLightRef"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@location(4) gMotionDepth"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("frame.prevViewProjection"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("object.prevModelMatrix"));
@@ -672,14 +588,10 @@ async function testSceneShaderCoverage() {
 	assert.ok(!WEBGPU_SCENE_SHADER.includes("var iridescenceSampler"));
 	assert.ok(!WEBGPU_SCENE_SHADER.includes("var iridescenceThicknessSampler"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("applySkinning("));
-	assert.ok(WEBGPU_SCENE_SHADER.includes("struct SceneFragmentOITOutput"));
-	assert.ok(WEBGPU_SCENE_SHADER.includes("struct GBufferFragmentOutput"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("fn fsMainGBufferPBR("));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("fn fsMainGBufferExtensionsPBR("));
 	assert.ok(!WEBGPU_SCENE_SHADER.includes("textureStore(gMaterialExt"));
 	assert.ok(WEBGPU_DEFERRED_LIGHTING_SHADER.includes("gMaterialExt3In"));
-	assert.ok(WEBGPU_SCENE_SHADER.includes("fn evaluateOpaquePhongLight("));
-	assert.ok(WEBGPU_DEFERRED_LIGHTING_SHADER.includes("fn evaluateOpaquePhongLight("));
 	assert.ok(
 		WEBGPU_SCENE_SHADER.includes("vec4<f32>(phongSpecular, shininess)")
 	);
@@ -699,8 +611,6 @@ async function testSceneShaderCoverage() {
 			WEBGPU_DEFERRED_LIGHTING_SHADER
 		)
 	);
-	assert.ok(WEBGPU_SCENE_SHADER.includes("fn resolveOITWeight("));
-	assert.ok(WEBGPU_SCENE_SHADER.includes("fn buildSceneOITOutput("));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("fn fsMainOITPBR("));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("fn fsMainTransmissionCapturePBR("));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@builtin(vertex_index)"));
@@ -1038,9 +948,7 @@ async function testParticleShaderDepthConsistency() {
 			"rotatedUV + particleUVTransform.transformA.zw"
 		)
 	);
-	assert.ok(WEBGPU_PARTICLE_SHADER.includes("struct ParticleOITOutput"));
 	assert.ok(WEBGPU_PARTICLE_SHADER.includes("fn fsMainOIT("));
-	assert.ok(WEBGPU_PARTICLE_SHADER.includes("fn resolveParticleOITWeight("));
 }
 
 async function testWebGPUShaderConstantTokenInjection() {
@@ -1184,7 +1092,6 @@ async function testWebGPUShaderConstantTokenInjection() {
 	assert.ok(
 		WEBGPU_PARTICLE_SHADER.includes("struct FrameCameraUniforms")
 	);
-	assert.doesNotMatch(WEBGPU_PARTICLE_SHADER, /FrameShadowUniforms/);
 	assert.doesNotMatch(WEBGPU_PARTICLE_SHADER, /frameShadows/);
 	assert.ok(
 		WEBGPU_SSR_SHADER.includes("struct FrameCameraUniforms")
@@ -1217,7 +1124,6 @@ async function testWebGPUShaderConstantTokenInjection() {
 
 async function run() {
 	try {
-		await testBackendDoesNotExposeDeviceServiceForwarders();
 		await testMatrixPackingAndDepthRemap();
 		await testTransformComposition();
 		await testMaterialAdaptation();

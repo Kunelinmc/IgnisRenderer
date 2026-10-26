@@ -830,12 +830,9 @@ async function testSampleCountClampsAndDomainFallbackPreservesPipelineCache() {
 	);
 }
 
-async function testMSAAPublicControlIsRemovedAndLegacyOptionFails() {
+async function testInvalidAndLegacySampleCountOptionsFail() {
 	const { backend } = createBackend();
 	assert.equal(backend._requestedSampleCount, 1);
-	assert.equal(typeof backend.getMSAASampleCount, "undefined");
-	assert.equal(typeof backend.setMSAAEnabled, "undefined");
-	assert.equal(typeof backend.setMSAASampleCount, "undefined");
 	assert.throws(
 		() => new WebGPUBackend({ enableMSAA: false }),
 		/sampleCount: 1/
@@ -1540,7 +1537,7 @@ async function run() {
 	await testBindingGroupCacheUsesHashedKey();
 	await testBindingGroupHashCollisionBucketSafety();
 	await testSampleCountClampsAndDomainFallbackPreservesPipelineCache();
-	await testMSAAPublicControlIsRemovedAndLegacyOptionFails();
+	await testInvalidAndLegacySampleCountOptionsFail();
 	await testCreateBufferMappedAtCreationExposesUnmap();
 	await testResizeUsesProvidedDimensions();
 	await testResizeDuringActiveFrameDefersResourceInvalidation();

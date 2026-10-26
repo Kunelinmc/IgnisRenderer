@@ -445,8 +445,6 @@ async function testCustomImplementationUsesFixedContext() {
 	assert.ok(context.shared);
 	assert.deepEqual(context.frameBinding, { id: "frame-binding" });
 	assert.equal(context.resources.getHistory("taa").write.id, "taa-write");
-	assert.equal("customHistoryWrite" in context, false);
-	assert.equal("publishColorTarget" in context, false);
 	const targets = getFrameGraphDebugState(executor).frameTargets;
 	assert.equal(targets.sceneColor, targets.sceneColorMain);
 	executor.frameRuntime.postProcess.completePass(passRequest, { ran: true });
@@ -671,10 +669,6 @@ async function testBackendPostProcessSurfaceKeepsOnlyExecutorBridge() {
 			.some((extension) => extension.id === "renderer.postprocess"),
 		false
 	);
-	assert.equal("postProcessAdapter" in backend, false);
-	assert.equal("postProcessExecutor" in backend, false);
-	assert.equal("createPostProcessGBufferBridge" in backend, false);
-	assert.equal("postProcess" in backend, false);
 }
 
 async function testWebGPUOcclusionExtensionDescriptor() {
@@ -705,7 +699,6 @@ async function testProbeCaptureExtensionIsRemoved() {
 		id: "renderer.probe-capture",
 	});
 	assert.equal(extension, null);
-	assert.equal("captureProbeFace" in backend, false);
 }
 
 async function testSSRRequirementsExposeMaterialChannels() {

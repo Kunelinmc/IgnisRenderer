@@ -415,6 +415,9 @@ async function testOrthographicTemporalPassesSkipAndReturnFalse() {
 		backend,
 		(key, message) => warnings.push(`[${key}] ${message}`)
 	);
+	assert.equal(backend.shaderModules.length, 0);
+	assert.equal(backend.computePipelines.length, 0);
+	assert.equal(backend.buffers.length, 0);
 	const frameContext = {
 		viewCamera: {
 			type: "orthographic",

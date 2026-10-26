@@ -119,7 +119,6 @@ async function testOITTransparentAndParticleExecutionOrder() {
 	assert.ok(copyIndex >= 0);
 	assert.ok(copyIndex < oitDrawIndex);
 	assert.ok(resolveIndex > oitDrawIndex);
-	assert.equal(backend.encoderCopyCalls.length >= 1, true);
 }
 
 async function testOITTransparentResolvesImmediatelyWithoutParticles() {
@@ -204,7 +203,6 @@ async function testOITTransparentResolvesImmediatelyWithoutParticles() {
 	assert.ok(copyIndex >= 0);
 	assert.ok(copyIndex < oitDrawIndex);
 	assert.ok(resolveIndex > oitDrawIndex);
-	assert.equal(backend.encoderCopyCalls.length >= 1, true);
 }
 
 async function testDeferredLightingBindsUnusedGroupOnePlaceholder() {

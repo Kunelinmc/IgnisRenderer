@@ -151,7 +151,6 @@ function testWebGPUParticleSimulatorPublishesDrawBatches() {
 	assert.ok(cpuBatches.length > 0);
 	assert.equal(gpuBatches.length, cpuBatches.length);
 	assert.ok(gpuBatches[0].instanceCount > 0);
-	assert.equal("receiveShadows" in gpuBatches[0], false);
 	const uploadedInstances = backend.buffers.find(
 		(buffer) => buffer.label === `WebGPUParticleInstances_${system.id}`,
 	);
@@ -206,7 +205,6 @@ async function testWebGPUParticleSimulatorDispatchesComputeSimulation() {
 	assert.ok(instanceBuffer.usage & BufferUsage.Storage);
 	assert.ok(instanceBuffer.usage & BufferUsage.Vertex);
 	assert.equal(instanceBuffer.lastWrite, null);
-	assert.equal("receiveShadows" in gpuBatches[0], false);
 	const paramsBuffer = backend.buffers.find(
 		(buffer) => String(buffer.label).startsWith("WebGPUParticleParams_"),
 	);

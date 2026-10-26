@@ -131,7 +131,28 @@ class NoAdapterBackend extends TestRenderBackend {
 	endFrame() {}
 }
 
+function testSoftwarePassAvailability() {
+	const postProcess = createResolvedPostProcess(
+		{
+			ssgi: { enabled: true },
+			ssr: { enabled: true },
+			bloom: { enabled: true },
+			tonemap: { enabled: true },
+			gamma: { enabled: true },
+		},
+		"software"
+	);
+	assert.equal(postProcess.isEnabled("gamma"), true);
+	assert.equal(postProcess.isEnabled("tonemap"), true);
+	assert.equal(postProcess.isEnabled("ssgi"), false);
+	assert.equal(postProcess.isEnabled("ssr"), false);
+	assert.equal(postProcess.isEnabled("bloom"), false);
+	assert.equal(postProcess.getOptions("gamma") !== null, true);
+	assert.deepEqual(postProcess.getWarnings(), []);
+}
+
 async function run() {
+	testSoftwarePassAvailability();
 	const originalWindow = globalThis.window;
 	const originalRAF = globalThis.requestAnimationFrame;
 

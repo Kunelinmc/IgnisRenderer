@@ -5,6 +5,11 @@ import {
 } from "../../../src/postprocess/index.ts";
 import { BackendPostProcessRuntime } from "../../../src/postprocess/BackendPostProcessRuntime.ts";
 import {
+	clampHistoryToNeighborhoodYCoCg,
+	reprojectHistoryUv,
+	rgbToYCoCg,
+} from "../../../src/maths/Misc.ts";
+import {
 	createResolvedPostProcess,
 } from "../../helpers/postprocess.mjs";
 
@@ -181,5 +186,49 @@ async function testTAADescriptorAndImplementationRoute() {
 	);
 }
 
+function testTAAReprojection() {
+	const uv = reprojectHistoryUv([0.4, 0.6], [0.2, -0.4]);
+	assert.ok(Math.abs(uv[0] - 0.3) < 1e-6);
+	assert.ok(Math.abs(uv[1] - 0.4) < 1e-6);
+}
+
+function testTAANeighborhoodClamp() {
+	const neighborhood = [
+		[0.2, 0.2, 0.2],
+		[0.3, 0.3, 0.3],
+		[0.4, 0.4, 0.4],
+		[0.5, 0.5, 0.5],
+	];
+	const clamped = clampHistoryToNeighborhoodYCoCg([2, 0, 0], neighborhood, 0);
+	const clampedYCoCg = rgbToYCoCg(clamped);
+	const neighborhoodYCoCg = neighborhood.map((rgb) => rgbToYCoCg(rgb));
+
+	const minY = Math.min(...neighborhoodYCoCg.map((v) => v[0]));
+	const maxY = Math.max(...neighborhoodYCoCg.map((v) => v[0]));
+	const minCo = Math.min(...neighborhoodYCoCg.map((v) => v[1]));
+	const maxCo = Math.max(...neighborhoodYCoCg.map((v) => v[1]));
+	const minCg = Math.min(...neighborhoodYCoCg.map((v) => v[2]));
+	const maxCg = Math.max(...neighborhoodYCoCg.map((v) => v[2]));
+
+	assert.ok(clampedYCoCg[0] >= minY && clampedYCoCg[0] <= maxY);
+	assert.ok(clampedYCoCg[1] >= minCo && clampedYCoCg[1] <= maxCo);
+	assert.ok(clampedYCoCg[2] >= minCg && clampedYCoCg[2] <= maxCg);
+
+	const meanNeighborhood = [
+		[0.2, 0.2, 0.2],
+		[0.8, 0.8, 0.8],
+	];
+	const toMean = clampHistoryToNeighborhoodYCoCg(
+		[5, 5, 5],
+		meanNeighborhood,
+		0
+	);
+	assert.ok(Math.abs(toMean[0] - 0.5) < 1e-6);
+	assert.ok(Math.abs(toMean[1] - 0.5) < 1e-6);
+	assert.ok(Math.abs(toMean[2] - 0.5) < 1e-6);
+}
+
+testTAAReprojection();
+testTAANeighborhoodClamp();
 await testTAADescriptorAndImplementationRoute();
 console.log("TemporalAntiAliasingPass tests passed");
