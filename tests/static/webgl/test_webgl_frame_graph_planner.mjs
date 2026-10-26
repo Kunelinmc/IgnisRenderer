@@ -176,14 +176,21 @@ function testTransparentOITResolvesWithoutParticles() {
 	]);
 
 	const compiler = new WebGLFrameGraphCompiler();
-	compiler.beginFrame([
+	const ids = [
 		"frame:scene-color",
 		"frame:depth",
 		"post:color",
 		"oit:accum",
 		"oit:reveal",
-	]);
-	compiler.compileStage(plan);
+	];
+	compiler.compileFrame({
+		resources: ids.map((id) => ({
+			id, origin: "imported", kind: "external", residency: "frame",
+			initialContent: "unknown",
+		})),
+		bindings: ids.map((id) => ({ resourceId: id, physicalId: `webgl:${id}`, kind: "external" })),
+		stages: [plan],
+	});
 	const transitions = compiler.getCompiledFrame().graph.transitions;
 	assert.ok(transitions.some((transition) =>
 		transition.nodeId === copyNode.id &&

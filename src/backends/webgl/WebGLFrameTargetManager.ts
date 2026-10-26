@@ -92,27 +92,6 @@ export class WebGLFrameTargetManager implements WebGLFrameTargetLifecycleHost {
 		destroyWebGLFrameTargets(this);
 	}
 
-	public collectGraphResources(): readonly string[] {
-		const resources = new Set<string>();
-		if (this._sceneColorTexture) {
-			resources.add("frame:scene-color");
-			resources.add("frame:present-source");
-		}
-		if (this._sceneMotionTexture) resources.add("frame:motion-depth");
-		if (this._sceneNormalTexture) resources.add("frame:normal");
-		if (this._sceneDepthBuffer) resources.add("frame:depth");
-		if (this._postColorTexture) resources.add("post:color");
-		if (this._transmissionBackgroundTexture) {
-			resources.add("frame:transmission-background");
-		}
-		if (this._transmissionDepthTexture) {
-			resources.add("frame:transmission-linear-depth");
-		}
-		if (this._oitAccumTexture) resources.add("oit:accum");
-		if (this._oitRevealTexture) resources.add("oit:reveal");
-		return Array.from(resources);
-	}
-
 	/**
 	 * @internal Returns descriptor and stable physical identity metadata only.
 	 * Shadow resources are described separately by `WebGLShadowRuntime`.

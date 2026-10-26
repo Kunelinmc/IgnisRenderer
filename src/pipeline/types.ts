@@ -239,8 +239,8 @@ export interface FrameContext {
 	readonly transient: TransientStore;
 	/**
 	 * Renderer-owned pass plan for this frame. Renderer-driven frames must
-	 * provide it; direct backend tests or tools may omit it, in which case
-	 * backends must skip global pass-order validation.
+	 * provide it. Direct backend tests or tools may omit it only if the backend
+	 * supports unplanned frames; WebGL requires a plan.
 	 */
 	readonly framePlan?: RendererFramePlan;
 }

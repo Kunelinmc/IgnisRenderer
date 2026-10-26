@@ -357,10 +357,13 @@ export class WebGLBackend implements IRenderBackend {
 	}
 
 	public beginFrame(context: FrameContext): Promise<void> {
-		this._completedFrameCoverage = "full-frame";
 		if (!this._frameServices || !this._frameGraphRuntime) {
 			return Promise.reject(new Error("WebGL backend has not been initialized."));
 		}
+		if (!context.framePlan) {
+			return Promise.reject(new Error("WebGL beginFrame requires a framePlan."));
+		}
+		this._completedFrameCoverage = "full-frame";
 		return this._contextWorkQueue.beginFrame("frame-begin", async (scope) => {
 			this._executedPasses.clear();
 			this._activeContext = context;
@@ -379,10 +382,6 @@ export class WebGLBackend implements IRenderBackend {
 		return this._contextWorkQueue.runFramePass(`frame-pass:${pass.stage}`, async () => {
 			this._validatePassDependencies(pass);
 			if (pass.stage === "particle-sim") {
-				this._frameGraphRuntime!.recordOpaqueGraphStage?.(
-					pass.stage,
-					"Particle simulation executes outside the logical frame graph.",
-				);
 				this._particleSimulator?.simulate(
 					context,
 					this._resolveParticleDeltaTime(context),

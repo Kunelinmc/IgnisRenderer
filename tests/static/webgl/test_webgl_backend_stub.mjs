@@ -361,26 +361,38 @@ async function testInitAndPassRouting() {
 	};
 
 	backend.resize({ width: 800, height: 600 });
-	await backend.beginFrame({ frameId: 1 });
-	await backend.executePass({ stage: "main-opaque" }, { frameId: 1 });
-	await backend.executePass(
-		{ stage: "particle-sim" },
-		{ transient: new Map([["pipeline:particle-delta-time-seconds", 0.016]]) }
+	await assert.rejects(
+		backend.beginFrame({ frameId: 1 }),
+		/WebGL.*framePlan/,
 	);
-	await backend.executePass({ stage: "particles" }, { frameId: 1 });
-	await backend.executePass({ stage: "shadow" }, { frameId: 1 });
-	await backend.executePass({ stage: "shadow" }, { frameId: 1 });
+	assert.equal(backend._activeContext, null);
+	assert.equal(calls.some(([kind]) => kind === "begin"), false);
+	const frameContext = {
+		frameId: 1,
+		transient: new Map([["pipeline:particle-delta-time-seconds", 0.016]]),
+		framePlan: {
+			stageOrder: [],
+			backendPasses: ["main-opaque", "particle-sim", "particles", "shadow"]
+				.map((stage) => ({ stage, executor: "backend", enabled: true, dependsOn: [] })),
+		},
+	};
+	await backend.beginFrame(frameContext);
+	await backend.executePass({ stage: "main-opaque" }, frameContext);
+	await backend.executePass({ stage: "particle-sim" }, frameContext);
+	await backend.executePass({ stage: "particles" }, frameContext);
+	await backend.executePass({ stage: "shadow" }, frameContext);
+	await backend.executePass({ stage: "shadow" }, frameContext);
 	await backend.endFrame();
 	backend.destroy();
 
 	assert.deepEqual(calls, [
 		["resize", 800, 600],
-		["begin", { frameId: 1 }],
-		["pass", "main-opaque", { frameId: 1 }],
-		["pass", "particles", { frameId: 1 }],
-		["pass", "shadow", { frameId: 1 }],
-		["pass", "shadow", { frameId: 1 }],
-		["end", { frameId: 1 }],
+		["begin", frameContext],
+		["pass", "main-opaque", frameContext],
+		["pass", "particles", frameContext],
+		["pass", "shadow", frameContext],
+		["pass", "shadow", frameContext],
+		["end", frameContext],
 		["destroy"],
 	]);
 	assert.equal(

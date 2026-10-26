@@ -133,6 +133,9 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
 - `FrameContext.framePlan` must remain the authoritative source of enabled
   backend passes. A backend must not add renderer-level passes after
   `beginFrame()` to compensate for missing requirements.
+- Direct backend tests or tools may omit `framePlan` only when the selected
+  backend permits it. WebGL requires the complete plan at `beginFrame()`; see
+  the [WebGL contract](webgl.md).
 
 - `FrameContext.viewCamera`
   - Output contract: must provide the active view/projection camera for the

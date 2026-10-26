@@ -111,14 +111,6 @@ export class WebGLFrameNodeAdapter {
 		this._postProcess.setInitialColorDomain(domain);
 	}
 
-	public collectFrameGraphResources(): readonly string[] {
-		const resources = new Set(this._targets.collectGraphResources());
-		for (const descriptor of this._shadow.describeGraphResources().resources) {
-			resources.add(descriptor.id);
-		}
-		return Array.from(resources);
-	}
-
 	public collectFrameGraphResourceCatalog(includeShadowResources = true) {
 		const frameCatalog = this._targets.collectGraphResourceCatalog();
 		if (!includeShadowResources) return frameCatalog;

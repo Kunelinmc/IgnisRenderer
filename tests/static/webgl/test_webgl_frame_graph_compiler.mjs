@@ -12,11 +12,27 @@ function createPass(stage = "main-opaque") {
 
 function compile(nodes, initialResources = []) {
 	const compiler = new WebGLFrameGraphCompiler();
-	compiler.beginFrame(initialResources);
-	const compiled = compiler.compileStage({
-		pass: createPass(),
-		nodes,
-	});
+	const resourceIds = new Set(initialResources);
+	for (const node of nodes) {
+		for (const ref of [
+			...(node.creates ?? []), ...(node.requires ?? []),
+			...(node.reads ?? []), ...(node.writes ?? []), ...(node.destroys ?? []),
+		]) resourceIds.add(ref.id);
+	}
+	const resources = [...resourceIds].map((id) => ({
+		id,
+		origin: initialResources.includes(id) ? "imported" : "graph",
+		kind: "external",
+		residency: "frame",
+		initialContent: initialResources.includes(id) ? "unknown" : "undefined",
+	}));
+	const compiled = compiler.compileFrame({
+		resources,
+		bindings: resources.map(({ id, kind }) => ({
+			resourceId: id, physicalId: `webgl:${id}`, kind,
+		})),
+		stages: [{ pass: createPass(), nodes }],
+	}).stages[0];
 	return {
 		compiler,
 		compiled,

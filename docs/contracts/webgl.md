@@ -469,6 +469,10 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
 
 ### Internal frame graph
 
+- `WebGLBackend.beginFrame()` must require `FrameContext.framePlan`, including
+  when called directly by a tool or test. If it is absent, the call must reject
+  before reserving frame ownership or preparing frame resources. Direct callers
+  must supply the complete enabled backend pass plan before beginning a frame.
 - `WebGLFrameGraphPlanner` must create WebGL internal nodes for every enabled
   renderer-level `FramePass` during `beginFrame()`.
 - `WebGLFrameGraphRuntime` must execute synthetic `scene-clear` and optional

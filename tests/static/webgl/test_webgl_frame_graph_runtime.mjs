@@ -23,6 +23,7 @@ import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
 function createContext(overrides = {}) {
 	return {
+		framePlan: { stageOrder: [], backendPasses: [] },
 		features: {
 			enableEnvironment: false,
 		},
@@ -89,6 +90,12 @@ function createExecutor(events, options = {}) {
 			if (options.beginError) throw options.beginError;
 		},
 		beginTemporalFrame() {},
+		hasCustomRenderPass(pass) {
+			return pass.stage === options.customStage;
+		},
+		async executeCustomRenderPass(pass) {
+			events.push(`custom:${pass.stage}`);
+		},
 		clearFrameTargets() {
 			events.push("clear");
 		},
@@ -100,22 +107,6 @@ function createExecutor(events, options = {}) {
 		},
 		hasPresentedInFrame() {
 			return events.includes("present");
-		},
-		collectFrameGraphResources() {
-			const resources = [
-				"frame:scene-color",
-				"frame:motion-depth",
-				"frame:normal",
-				"frame:depth",
-				"frame:present-source",
-				"post:color",
-				"frame:transmission-background",
-				"frame:transmission-linear-depth",
-			];
-			if (options.oitActive) {
-				resources.push("oit:accum", "oit:reveal");
-			}
-			return resources;
 		},
 		collectFrameGraphResourceCatalog(includeShadowResources = true) {
 			const ids = [
@@ -359,7 +350,9 @@ function createRuntime(events, options = {}) {
 function testRuntimeExecutesOpaqueNodesInOrder() {
 	const events = [];
 	const runtime = createRuntime(events);
-	const context = createContext();
+	const context = createContext({
+		framePlan: { stageOrder: [], backendPasses: [createPass("main-opaque")] },
+	});
 
 	runtime.beginFrame(context);
 	runtime.executePass(createPass("main-opaque"), context);
@@ -461,6 +454,10 @@ function testRuntimePlansOITParticleFlow() {
 	const events = [];
 	const runtime = createRuntime(events, { oitActive: true });
 	const context = createContext({
+		framePlan: {
+			stageOrder: [],
+			backendPasses: [createPass("main-transparent"), createPass("particles")],
+		},
 		scene: {
 			particleSystems: [{}],
 			environment: {
@@ -492,6 +489,7 @@ function testRuntimeExecutesTransmissionPacketsInSortedOrder() {
 	const events = [];
 	const runtime = createRuntime(events);
 	const context = createContext({
+		framePlan: { stageOrder: [], backendPasses: [createPass("main-transparent")] },
 		scene: {
 			transparentPackets: [
 				createTestDrawPacket({ material: {} }),
@@ -587,7 +585,9 @@ function testWholeFrameCacheTracksTransmissionOrderAndPlannerState() {
 function testRuntimeDebugCapturesUnsupportedStage() {
 	const events = [];
 	const runtime = createRuntime(events);
-	const context = createContext();
+	const context = createContext({
+		framePlan: { stageOrder: [], backendPasses: [createPass("unsupported-stage")] },
+	});
 
 	runtime.beginFrame(context);
 	runtime.executePass(createPass("unsupported-stage"), context);
@@ -669,6 +669,35 @@ async function testWholeFrameCompilesOnceAndUsesPhysicalAlias() {
 	assert.ok(debug.compiledGraph.dependencies.some((edge) =>
 		edge.fromNodeId === "postprocess:pass:test-pass" &&
 		edge.toNodeId === presentNodeId));
+}
+
+async function testOpaqueStagesRemainPlannedAndCommitted() {
+	const events = [];
+	const runtime = createRuntime(events, { customStage: "custom-view" });
+	const customPass = createPass("custom-view");
+	const context = createContext({
+		framePlan: {
+			stageOrder: [],
+			backendPasses: [createPass("particle-sim"), customPass],
+		},
+	});
+	runtime.beginFrame(context);
+	const compiled = runtime.getDebugState().compiledGraph;
+	assert.equal(compiled.completeness, "opaque");
+	assert.deepEqual(
+		compiled.shadowDiagnostics.filter((d) => d.code === "opaque-stage-effects")
+			.map((d) => d.stage),
+		["particle-sim", "custom-view"],
+	);
+	await runtime.executePass(customPass, context);
+	assert.ok(events.includes("custom:custom-view"));
+	assert.ok(runtime.getDebugState().lastExecutedNodeIds.includes(
+		"custom-view:opaque-external:frame",
+	));
+	assert.strictEqual(runtime.getDebugState().compiledGraph, compiled);
+	runtime.endFrame(context);
+	runtime.commitGraphAnalysis();
+	assert.equal(runtime.getDebugState().graphAnalysis.lastSuccessful.state, "committed");
 }
 
 function testWholeFrameShadowCatalogFollowsFramePlan() {
@@ -849,6 +878,7 @@ async function run() {
 	testRuntimeDebugCapturesUnsupportedStage();
 	testFailedPresentPreservesLastSuccessfulAnalysis();
 	await testWholeFrameCompilesOnceAndUsesPhysicalAlias();
+	await testOpaqueStagesRemainPlannedAndCommitted();
 	testWholeFrameShadowCatalogFollowsFramePlan();
 	testEmptyPostProcessChainPresentsSceneColorDirectly();
 	testNodeRegistryRejectsMissingAndDuplicateOwners();

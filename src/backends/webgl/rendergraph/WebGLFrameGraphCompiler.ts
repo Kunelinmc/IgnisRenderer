@@ -3,7 +3,6 @@ import { RenderGraphBuilder } from "../../../rendergraph/RenderGraphBuilder";
 import { RenderGraphCompiler } from "../../../rendergraph/RenderGraphCompiler";
 import {
 	renderGraphNodeId,
-	renderGraphPhysicalResourceId,
 	renderGraphResourceId,
 } from "../../../rendergraph/types";
 import type {
@@ -52,11 +51,8 @@ export class WebGLFrameGraphCompiler {
 	private readonly _compiler = new RenderGraphCompiler();
 	private readonly _attempts = new RenderGraphAttemptTracker();
 	private _compiled: WebGLCompiledFrameGraph | null = null;
-	private _lastFramePlan: WebGLFrameGraphFramePlan | null = null;
 	private _cachedPlanKey: string | null = null;
 	private _cachedFrame: WebGLCompiledFrameGraph | null = null;
-	private _legacyResources: RenderGraphResourceDescriptor[] = [];
-	private _legacyStages: WebGLFrameGraphStagePlan[] = [];
 
 	public compileFrame(plan: WebGLFrameGraphFramePlan): WebGLCompiledFrameGraph {
 		// Plans contain logical metadata only, not frame contexts or native handles.
@@ -64,7 +60,6 @@ export class WebGLFrameGraphCompiler {
 		const key = JSON.stringify(plan);
 		if (this._cachedFrame && this._cachedPlanKey === key) {
 			this._compiled = this._cachedFrame;
-			this._lastFramePlan = plan;
 			this._attempts.begin(this._compiled.graph);
 			return this._compiled;
 		}
@@ -73,64 +68,10 @@ export class WebGLFrameGraphCompiler {
 		const stages = plan.stages.map((stage) =>
 			projectStage(stage, built.stageNodeIds.get(stage) ?? [], graph));
 		this._compiled = Object.freeze({ graph, stages: Object.freeze(stages) });
-		this._lastFramePlan = plan;
 		this._cachedPlanKey = key;
 		this._cachedFrame = this._compiled;
 		this._attempts.begin(graph);
 		return this._compiled;
-	}
-
-	/** @internal Legacy test adapter; production backends must use `compileFrame`. */
-	public beginFrame(initialResources: readonly WebGLFrameGraphResourceId[]): void {
-		this._legacyResources = initialResources.map(toImportedDescriptor);
-		this._legacyStages = [];
-		this.compileFrame({
-			resources: this._legacyResources,
-			bindings: this._legacyResources.map((resource) => ({
-				resourceId: resource.id,
-				physicalId: renderGraphPhysicalResourceId(`webgl:${resource.id}`),
-				kind: resource.kind,
-			})),
-			stages: [],
-		});
-	}
-
-	/** @internal Legacy test adapter; production backends must use `compileFrame`. */
-	public compileStage(plan: WebGLFrameGraphStagePlan): WebGLCompiledFrameGraphStage {
-		this._legacyStages.push(plan);
-		const knownResources = new Set<string>(
-			this._legacyResources.map((resource) => resource.id),
-		);
-		for (const node of plan.nodes) {
-			const referenced = [
-				...(node.creates ?? []).map((mutation) => mutation.id),
-				...(node.requires ?? []).map((requirement) => requirement.id),
-				...(node.reads ?? []).map((reference) => reference.id),
-				...(node.writes ?? []).map((reference) => reference.id),
-				...(node.destroys ?? []).map((mutation) => mutation.id),
-			];
-			for (const id of referenced) {
-				if (knownResources.has(id)) continue;
-				knownResources.add(id);
-				this._legacyResources.push({
-					id: renderGraphResourceId(id),
-					origin: "graph",
-					kind: "external",
-					residency: "frame",
-					initialContent: "undefined",
-				});
-			}
-		}
-		const compiled = this.compileFrame({
-			resources: this._legacyResources,
-			bindings: this._legacyResources.map((resource) => ({
-				resourceId: resource.id,
-				physicalId: renderGraphPhysicalResourceId(`webgl:${resource.id}`),
-				kind: resource.kind,
-			})),
-			stages: this._legacyStages,
-		});
-		return compiled.stages[compiled.stages.length - 1];
 	}
 
 	public seal(): void {
@@ -157,25 +98,6 @@ export class WebGLFrameGraphCompiler {
 				resolvedResourceId: renderGraphResourceId(resolvedResourceId),
 			}] : [],
 		);
-	}
-
-	public recordOpaqueStage(stage: string, message: string): void {
-		if (!this._lastFramePlan) return;
-		this.compileFrame({
-			...this._lastFramePlan,
-			completeness: "opaque",
-			shadowDiagnostics: [
-				...(this._lastFramePlan.shadowDiagnostics ?? []),
-				{
-					phase: "compile",
-					enforcement: "shadow",
-					severity: "warning",
-					code: "opaque-stage-effects",
-					stage,
-					message,
-				},
-			],
-		});
 	}
 
 	public getCompiledFrame(): WebGLCompiledFrameGraph | null {
@@ -389,16 +311,6 @@ function appendUnsupportedUsageDiagnostics(
 				`"${String(ref.usage)}" for resource "${ref.id}".`,
 		});
 	}
-}
-
-function toImportedDescriptor(id: string): RenderGraphResourceDescriptor {
-	return {
-		id: renderGraphResourceId(id),
-		origin: "imported",
-		kind: "external",
-		residency: "frame",
-		initialContent: "unknown",
-	};
 }
 
 function toSharedNode(
