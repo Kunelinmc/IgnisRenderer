@@ -11,7 +11,6 @@ import { sRGBToLinear } from "../maths/Common";
 import { Scene } from "../core/Scene";
 import { Logger } from "../foundation/Logger";
 import type { TransientStore } from "../foundation/TransientStore";
-import { CSGMeshInstance } from "../meshes/CSGMeshInstance";
 import { LODMeshInstance } from "../meshes/LODMeshInstance";
 import { ShaderMaterial } from "../materials/ShaderMaterial";
 import { resolveFeatureState } from "../pipeline/FeatureResolver";
@@ -422,7 +421,6 @@ export class FrameCoordinator {
 			[stageIds.deformationUpdate]: (delegate, state) =>
 				this._executeDeformationStage(delegate, state),
 			[stageIds.lodResolve]: (delegate) => this._resolveLODMeshes(delegate),
-			[stageIds.csgResolve]: (delegate) => this._resolveCSGMeshes(delegate),
 			[stageIds.preparedSceneBuild]: (delegate, state) =>
 				this._executePreparedSceneBuildStage(delegate, state),
 			[stageIds.probeCapture]: (delegate, state) =>
@@ -490,29 +488,6 @@ export class FrameCoordinator {
 			meshInstance.updateLODForCamera(cameraWorldPosition, {
 				notifyScene: false,
 			});
-		}
-	}
-
-	private async _resolveCSGMeshes(delegate: FrameCoordinatorDelegate): Promise<void> {
-		const meshInstances = delegate.scene.getMeshInstances();
-		for (const meshInstance of meshInstances) {
-			if (!(meshInstance instanceof CSGMeshInstance)) continue;
-			if (!meshInstance.isCSGDirty) continue;
-			if (meshInstance.physicsSync === "auto" && !meshInstance.physicsSystem) {
-				meshInstance.physicsSystem = delegate.physicsSystem;
-			}
-
-			const flushResult = meshInstance.flushCSG();
-			const result = flushResult instanceof Promise ? await flushResult : flushResult;
-			for (const diagnostic of result.diagnostics) {
-				if (diagnostic.severity === "info") continue;
-				const key =
-					`csg-diagnostic-${meshInstance.id}-` +
-					`${diagnostic.code}-${diagnostic.message}`;
-				Logger.warn(`[${key}] [CSG:${diagnostic.code}] ${diagnostic.message}`, {
-					scope: "Renderer",
-				});
-			}
 		}
 	}
 

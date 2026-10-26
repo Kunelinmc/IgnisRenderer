@@ -362,7 +362,7 @@ function run() {
 		.map((stage) => stage.id);
 	assert.ok(
 		defaultStageOrder.indexOf("deformation-update") >
-			defaultStageOrder.indexOf("csg-resolve"),
+			defaultStageOrder.indexOf("lod-resolve"),
 	);
 	assert.ok(
 		defaultStageOrder.indexOf("prepared-scene-build") >

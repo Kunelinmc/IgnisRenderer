@@ -19,7 +19,6 @@ export { Environment } from "./core/Environment";
 export { TextureFormat } from "./core/TextureFormat";
 export { MeshAsset, MeshInstance, LODMeshInstance, MeshFactory } from "./meshes";
 export * from "./decals";
-export * from "./csg";
 export * from "./spatial";
 export type {
 	IVertex,

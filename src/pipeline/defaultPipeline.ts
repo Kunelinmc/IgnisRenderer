@@ -8,7 +8,6 @@ export const DEFAULT_RENDERER_STAGE_IDS = {
 	physicsSim: "physics-sim",
 	transformUpdate: "transform-update",
 	lodResolve: "lod-resolve",
-	csgResolve: "csg-resolve",
 	deformationUpdate: "deformation-update",
 	preparedSceneBuild: "prepared-scene-build",
 	probeCapture: "probe-capture",
@@ -51,14 +50,9 @@ export const DEFAULT_PIPELINE_STAGES = [
 		dependsOn: [rendererStageIds.transformUpdate],
 	},
 	{
-		id: rendererStageIds.csgResolve,
-		kind: "renderer",
-		dependsOn: [rendererStageIds.lodResolve],
-	},
-	{
 		id: rendererStageIds.deformationUpdate,
 		kind: "renderer",
-		dependsOn: [rendererStageIds.csgResolve],
+		dependsOn: [rendererStageIds.lodResolve],
 	},
 	{
 		id: rendererStageIds.preparedSceneBuild,

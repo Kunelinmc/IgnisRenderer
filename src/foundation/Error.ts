@@ -1,4 +1,3 @@
-import type { CSGDiagnostic } from "../csg/types";
 import { mapShaderGeneratedLocation } from "../shaders/runtime/sourceMap";
 import type {
 	ShaderLanguage,
@@ -100,16 +99,6 @@ export class ConditionParseError extends Error {
 		super(message);
 		this.name = "ConditionParseError";
 		this.column = Math.max(1, Math.floor(column));
-	}
-}
-
-/** @internal Used by the CSG solver to preserve structured diagnostics. */
-export class CSGBuildError extends Error {
-	public readonly diagnostic: CSGDiagnostic;
-
-	public constructor(diagnostic: CSGDiagnostic) {
-		super(diagnostic.message);
-		this.diagnostic = diagnostic;
 	}
 }
 

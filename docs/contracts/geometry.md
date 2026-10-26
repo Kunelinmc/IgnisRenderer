@@ -1,7 +1,7 @@
 # Geometry Contract
 
 This document defines mesh state, spatial indexing, level-of-detail mesh
-selection, and constructive solid geometry behavior.
+selection behavior.
 
 ## Contract
 
@@ -181,58 +181,6 @@ distance boundaries.
 - Renderer default stage graph must execute `lod-resolve` after
 `transform-update` and before `prepared-scene-build`.
 
-### Constructive solid geometry
-
-The public surface must provide:
-
-- `CSG.from(input): CSGBuilder`
-- `new CSGSolver(wasmSolvers?): CSGSolver`
-- `builder.union(input): CSGBuilder`
-- `builder.subtract(input): CSGBuilder`
-- `builder.intersect(input): CSGBuilder`
-- `builder.xor(input): CSGBuilder`
-- `builder.toMeshAsset(options?): MeshAsset`
-- `builder.solve(options?): CSGRebuildResult`
-- `solver.buildMeshAsset(graph, options?): CSGRebuildResult`
-- `solver.registerWasmSolver(adapter): void`
-- `solver.unregisterWasmSolver(id): void`
-- `solver.listWasmSolvers(): string[]`
-- `solver.createEmptyResult(solverId?): CSGRebuildResult`
-- `defaultCSGSolver: CSGSolver`
-- `buildCSGMeshAsset(graph, options?): CSGRebuildResult`
-- `registerWasmCSGSolver(adapter): void`
-- `unregisterWasmCSGSolver(id): void`
-- `listWasmCSGSolvers(): string[]`
-- `CSGMeshInstance.markCSGDirty(): void`
-- `CSGMeshInstance.flushCSG(options?): CSGRebuildResult | Promise<CSGRebuildResult>`
-- `CSGMeshInstance.setGraph(input): this`
-- `CSGMeshInstance.setSolverPreference(value): this`
-- `CSGMeshInstance.setExecutionMode(value): this`
-- `CSGMeshInstance.setExecutor(value): this`
-- `CSGExecutor.execute(graph, options): Promise<CSGRebuildResult>`
-
-Behavioral requirements:
-
-- CSG inputs must use triangle topology (`triangle-list`); non-triangle inputs
-must fail with diagnostics.
-- CSG inputs must be closed manifold meshes; non-closed inputs must fail with
-diagnostics.
-- CSG must preserve `position`, `normal`, and `uv0`.
-- CSG may drop `uv1`, `uv2`, `uv3`, skinning, and morph data;
-  when dropped, the implementation should emit diagnostics.
-- Output triangles must be capped by `maxOutputTriangles` (default `200000`).
-- Solver preference `auto` must prefer registered wasm solver and must fall back
-to builtin solver when wasm solve fails.
-- Each `CSGSolver` instance must maintain an isolated wasm solver registry.
-- Module-level helper functions must delegate to `defaultCSGSolver` for backward
-compatible behavior.
-- `CSGMeshInstance` updates must mark scene transform dirty and must mark spatial
-BVH bounds dirty for the instance.
-- `IPrimitive.geometryVersion` must be incremented when CSG-generated geometry is
-replaced, and render backends must re-upload geometry when version changes.
-- `CSGMeshInstance.physicsSync="auto"` should call
-`PhysicsSystem.rebuildColliders(target)` after successful CSG rebuild.
-
 ## Usage
 
 ### Spatial indexing
@@ -310,75 +258,6 @@ const lodMesh = new LODMeshInstance({
 lodMesh.updateLODForCamera({ x: 0, y: 0, z: 10 });
 ```
 
-### Constructive solid geometry
-
-```ts
-import {
-	CSG,
-	CSGSolver,
-	buildCSGMeshAsset,
-	defaultCSGSolver,
-	CSGMeshInstance,
-	MeshFactory,
-	Material,
-	Renderer,
-} from "../src";
-
-const left = MeshFactory.createBox(
-	{ x: -0.2, y: 0, z: 0 },
-	2,
-	2,
-	2,
-	new Material({ name: "Left" })
-);
-const right = MeshFactory.createBox(
-	{ x: 0.3, y: 0, z: 0 },
-	2,
-	2,
-	2,
-	new Material({ name: "Right" })
-);
-
-const csgMesh = new CSGMeshInstance({
-	graph: CSG.from(left).subtract(right),
-	physicsSync: "off",
-});
-
-const executor = {
-	execute(graph, options) {
-		return Promise.resolve(buildCSGMeshAsset(graph, options));
-	},
-};
-
-csgMesh.setExecutionMode("worker").setExecutor(executor);
-
-// Optional manual rebuild (sync by default)
-const result = csgMesh.flushCSG({ maxOutputTriangles: 100000 });
-if (result.ok) {
-	// csgMesh.mesh is now replaced and geometryVersion is bumped.
-}
-
-// Builder one-shot bake
-const bakedAsset = CSG.from(left).union(right).toMeshAsset();
-
-// Isolated solver instance with its own wasm registry
-const isolatedSolver = new CSGSolver();
-const graph = CSG.from(left).intersect(right).getGraph();
-const isolatedResult = isolatedSolver.buildMeshAsset(graph);
-
-// Legacy helper delegates to the shared default solver
-defaultCSGSolver.registerWasmSolver({
-	id: "example-wasm",
-	solve(request) {
-		return buildCSGMeshAsset(request.graph, {
-			...request.options,
-			solverPreference: "builtin",
-		});
-	},
-});
-defaultCSGSolver.unregisterWasmSolver("example-wasm");
-```
-
 ## Diagnostics
 
 ### Spatial indexing
@@ -407,32 +286,12 @@ defaultCSGSolver.unregisterWasmSolver("example-wasm");
 - `LODMeshInstance level <index> must provide a MeshAsset`:
 `levels[index].mesh` is not a `MeshAsset` instance.
 
-### Constructive solid geometry
-
-- `csg-input-non-triangle-topology`:
-Input primitive topology is not `triangle-list`.
-- `csg-input-non-manifold`:
-Input mesh is not closed manifold.
-- `csg-input-invalid-indices`:
-Primitive index count is not divisible by 3.
-- `csg-input-index-out-of-range`:
-Primitive index references a missing vertex.
-- `csg-output-triangle-limit`:
-Output exceeds `maxOutputTriangles`.
-- `csg-solver-missing`:
-`solverPreference="wasm"` but no wasm solver is registered.
-- `csg-solver-auto-fallback`:
-`solverPreference="auto"` wasm solve failed and builtin fallback was used.
-- `csg-worker-fallback-sync`:
-`executionMode="worker"` was requested but worker runtime is unavailable.
-
 ## Verification
 
 ```bash
 bun run test:winding
 bun tests/static/animation/test_animation_core.mjs
 bun tests/static/loaders/test_gltf_prefab_contract.mjs
-bun tests/static/csg/test_csg_core.mjs
 bunx tsc --noEmit
 ```
 
