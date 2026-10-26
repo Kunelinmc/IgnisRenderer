@@ -52,11 +52,6 @@ function createColorTexture(
 	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
-	let format = gl.RGBA;
-	if (internalFormat === gl.RGBA16F || internalFormat === gl.RGBA32F) {
-		format = gl.RGBA;
-	}
-
 	gl.texImage2D(
 		gl.TEXTURE_2D,
 		0,
@@ -64,7 +59,7 @@ function createColorTexture(
 		width,
 		height,
 		0,
-		format,
+		gl.RGBA,
 		type,
 		null
 	);

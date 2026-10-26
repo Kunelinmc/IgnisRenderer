@@ -1,5 +1,4 @@
 import type { FrameContext } from "../../../pipeline/types";
-import type { BackendPostProcessRuntime } from "../../../postprocess/BackendPostProcessRuntime";
 
 import {
 	WEBGL_FRAME_GRAPH_NODE_KINDS,
@@ -78,7 +77,6 @@ export class WebGLFrameNodeExecutorRegistry {
 
 	public static fromServices(
 		services: WebGLFrameNodeServices,
-		_postProcessRuntime: BackendPostProcessRuntime,
 		state: WebGLFrameNodeExecutionState,
 	): WebGLFrameNodeExecutorRegistry {
 		return new WebGLFrameNodeExecutorRegistry([

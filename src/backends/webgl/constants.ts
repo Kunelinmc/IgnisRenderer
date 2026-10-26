@@ -1,12 +1,6 @@
 export const WEBGL_SHADOW_ATLAS_COLUMNS = 4;
 export const WEBGL_SHADOW_ATLAS_ROWS = 3;
 
-export const TAA_HISTORY_WEIGHT_RANGE: [number, number] = [0, 0.99];
-export const TAA_DEPTH_THRESHOLD_RANGE: [number, number] = [1e-4, 1];
-export const TAA_MOTION_FACTOR_RANGE: [number, number] = [0, 512];
-export const TAA_VARIANCE_GAMMA_RANGE: [number, number] = [0, 8];
-export const TAA_SHARPEN_RANGE: [number, number] = [0, 2];
-
 export const MOTION_BLUR_SHUTTER_SCALE_RANGE: [number, number] = [0, 2];
 export const MOTION_BLUR_MAX_SAMPLES_RANGE: [number, number] = [4, 64];
 export const MOTION_BLUR_VELOCITY_CLAMP_RANGE: [number, number] = [

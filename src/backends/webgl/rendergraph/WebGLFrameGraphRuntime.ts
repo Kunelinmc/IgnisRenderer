@@ -89,7 +89,6 @@ export class WebGLFrameGraphRuntime {
 		this._postProcessRuntime = postProcessRuntime;
 		this._nodeExecutors = WebGLFrameNodeExecutorRegistry.fromServices(
 			executor,
-			postProcessRuntime,
 			this._nodeState,
 		);
 	}

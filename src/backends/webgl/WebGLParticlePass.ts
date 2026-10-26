@@ -10,7 +10,6 @@ import {
 } from "../../pipeline/types";
 import { PARTICLE_QUAD_VERTICES } from "../constants";
 import { resolveTextureUVTransform } from "./WebGLMaterialUniformResolver";
-import type { WebGLRenderPass } from "./WebGLPassLifecycle";
 import { Logger } from "../../foundation/Logger";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import type {
@@ -83,11 +82,7 @@ export interface WebGLParticleRenderOptions {
 	oitPassMode?: 0 | 1 | 2;
 }
 
-export class WebGLParticlePass
-	implements
-		WebGLRenderPass<WebGLParticleRenderOptions>,
-		WebGLProgramWarmupContributor
-{
+export class WebGLParticlePass implements WebGLProgramWarmupContributor {
 	private readonly _host: WebGLParticlePassHost;
 	private readonly _program: WebGLProgramSlot<WebGLParticleProgramLike>;
 	private _particleVao: WebGLVertexArrayObject | null = null;
@@ -342,10 +337,6 @@ export class WebGLParticlePass
 			gl.bindBuffer(gl.ARRAY_BUFFER, null);
 			gl.bindVertexArray(null);
 		}
-	}
-
-	public invalidate(): void {
-		this.destroy();
 	}
 
 	public destroy(): void {
