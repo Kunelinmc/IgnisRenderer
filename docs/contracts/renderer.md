@@ -124,6 +124,9 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
 
 #### 3. Frame Execution Lifecycle (`IRenderBackend`)
 
+- `RenderPipelineRegistry.getExecutionOrder()` must return stage definitions
+  whose dependency arrays can be modified without changing later frame ordering
+  or registered pass dependencies.
 - Before creating `FrameContext.framePlan`, `FrameCoordinator` must resolve one
   backend-neutral `FramePassRequirements` snapshot from prepared scene work,
   subsystem render intent, post-process execution intent, and resolved backend

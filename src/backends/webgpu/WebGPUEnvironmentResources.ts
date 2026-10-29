@@ -13,7 +13,6 @@ import {
 	toShaderCompileError,
 	type WarmupPhaseCounters,
 } from "../../pipeline/WarmupPlanner";
-import type { WebGPUFeatureWarmupContributor } from "./WebGPUFeatureWarmup";
 
 export interface WebGPUEnvironmentWarmupRequest {
 	readonly modes: readonly WebGPUSceneTargetMode[];
@@ -22,8 +21,7 @@ export interface WebGPUEnvironmentWarmupRequest {
 }
 
 /** @internal Shared environment pipeline resources used by scene capture paths. */
-export class WebGPUEnvironmentResources
-	implements WebGPUFeatureWarmupContributor<WebGPUEnvironmentWarmupRequest> {
+export class WebGPUEnvironmentResources {
 	private _shaderModule: IShaderModule | null = null;
 	private _shaderDirectiveTag = "";
 	private _pipelines = new Map<string, IRenderPipeline>();

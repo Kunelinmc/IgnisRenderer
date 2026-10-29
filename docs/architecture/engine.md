@@ -15,7 +15,7 @@ flowchart TD
 	S --> I["Scene-native indexes"]
 	I --> F["FrameCoordinator"]
 	S <-. "optional projection" .-> E["User-owned ECS world"]
-	F --> P["RendererStageGraph"]
+	F --> P["RenderPipelineRegistry stage ordering"]
 	P --> B["Attached backend runtime"]
 	B --> R["Backend resources and native API"]
 

@@ -9,7 +9,8 @@ contracts.
 
 IgnisRenderer has three related scheduling layers:
 
-1. `RendererStageGraph` orders portable renderer-level stages.
+1. `RenderPipelineRegistry` owns portable stage registrations; its stage-order
+   calculation resolves their dependencies without a second registry.
 2. WebGPU and WebGL planners expand enabled stages into backend-private nodes.
 3. `PostProcessPlanner` resolves pass declarations and contributes a composed
    subgraph to the complete GPU frame.

@@ -16,7 +16,6 @@ import {
 	toShaderCompileError,
 	type WarmupPhaseCounters,
 } from "../../pipeline/WarmupPlanner";
-import type { WebGPUFeatureWarmupContributor } from "./WebGPUFeatureWarmup";
 
 export interface WebGPUDeferredWarmupRequest {
 	readonly active: boolean;
@@ -29,9 +28,7 @@ export interface WebGPUDeferredWarmupRequest {
  *
  * @internal Owned by the WebGPU frame service owner.
  */
-export class WebGPUDeferredResources
-	implements WebGPUDeferredResourceProvider,
-		WebGPUFeatureWarmupContributor<WebGPUDeferredWarmupRequest> {
+export class WebGPUDeferredResources implements WebGPUDeferredResourceProvider {
 	private _deferredLightingShaderModule: IShaderModule | null = null;
 	private _deferredLightingPipeline: IRenderPipeline | null = null;
 	private _deferredLightingInFlight: Promise<IRenderPipeline> | null = null;

@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
-import { RendererStageGraph } from "../../../src/pipeline/RendererStageGraph.ts";
+import { RenderPipelineRegistry } from "../../../src/pipeline/RenderPipelineRegistry.ts";
 
 function testStageOrder() {
-	const graph = new RendererStageGraph([
-		{ id: "a", dependsOn: [] },
-		{ id: "b", dependsOn: ["a"] },
-		{ id: "c", dependsOn: ["b"] },
-	]);
+	const graph = new RenderPipelineRegistry({
+		stages: [
+			{ id: "a", kind: "renderer", dependsOn: [] },
+			{ id: "b", kind: "renderer", dependsOn: ["a"] },
+			{ id: "c", kind: "renderer", dependsOn: ["b"] },
+		],
+	});
 	const order = graph.getExecutionOrder(
 		{
 			hasActiveAnimations: true,
@@ -22,11 +24,13 @@ function testStageOrder() {
 
 function testStageCycleAndMissingDependency() {
 	const warnings = [];
-	const graph = new RendererStageGraph([
-		{ id: "a", dependsOn: ["b"] },
-		{ id: "b", dependsOn: ["a"] },
-		{ id: "c", dependsOn: ["missing"] },
-	]);
+	const graph = new RenderPipelineRegistry({
+		stages: [
+			{ id: "a", kind: "renderer", dependsOn: ["b"] },
+			{ id: "b", kind: "renderer", dependsOn: ["a"] },
+			{ id: "c", kind: "renderer", dependsOn: ["missing"] },
+		],
+	});
 	const order = graph.getExecutionOrder(
 		{
 			hasActiveAnimations: true,

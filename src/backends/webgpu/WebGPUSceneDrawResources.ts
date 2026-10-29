@@ -9,7 +9,6 @@ import type {
 } from "./WebGPUResourceContracts";
 import type { WebGPUScenePipelineResources } from "./WebGPUScenePipelineResources";
 import type { WebGPUSceneTargetMode } from "./WebGPUScenePassDescriptors";
-import type { WebGPUFeatureWarmupContributor } from "./WebGPUFeatureWarmup";
 import { materialSupportsWebGPUDeferredEarlyZPrepass } from "./material";
 import { WebGPUDeferredShaderError } from "../../foundation/Error";
 
@@ -25,8 +24,7 @@ export interface WebGPUSceneWarmupRequest {
 }
 
 /** @internal Scene draw preparation paired with scene-owned pipelines. */
-export class WebGPUSceneDrawResources
-	implements WebGPUFeatureWarmupContributor<WebGPUSceneWarmupRequest> {
+export class WebGPUSceneDrawResources {
 	public constructor(
 		private readonly _assembler: WebGPUDrawResourceAssembler,
 		private readonly _pipelines: WebGPUScenePipelineResources,

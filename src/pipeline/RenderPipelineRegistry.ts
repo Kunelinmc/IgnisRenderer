@@ -8,7 +8,7 @@ import {
 } from "./types";
 import type { TransientStore } from "../foundation/TransientStore";
 import {
-	RendererStageGraph,
+	resolveRendererStageOrder,
 	type RendererStageDefinition,
 	type RendererStageEnableContext,
 } from "./RendererStageGraph";
@@ -89,7 +89,7 @@ export interface RenderPipelineFramePlanOptions {
 }
 
 interface RegisteredPipelineStage extends RenderPipelineStageRegistration {
-	dependsOn: readonly FramePassStage[];
+	dependsOn: FramePassStage[];
 	builtIn: boolean;
 }
 
@@ -98,14 +98,12 @@ function isFramePassKind(kind: RenderPipelineStageKind): boolean {
 }
 
 export class RenderPipelineRegistry {
-	private _stageGraph: RendererStageGraph;
 	private _stages = new Map<FramePassStage, RegisteredPipelineStage>();
 	private _incrementalRegistry: IncrementalRegistry;
 
 	constructor(options: RenderPipelineRegistryOptions = {}) {
 		this._incrementalRegistry =
 			options.incrementalRegistry ?? getDefaultIncrementalRegistry().clone();
-		this._stageGraph = new RendererStageGraph();
 		for (const stage of options.stages ?? []) {
 			this._registerPipelineStage(stage, true);
 		}
@@ -140,7 +138,7 @@ export class RenderPipelineRegistry {
 	 * @returns Nothing.
 	 * @constraints Custom `renderer` stages are planning-only unless `Renderer`
 	 * owns an internal executor for the id.
-	 * @sideEffects Mutates the stage graph and, for pass stages, incremental
+	 * @sideEffects Mutates stage registrations and, for pass stages, incremental
 	 * pass ordering metadata.
 	 */
 	public registerPipelineStage(stage: RenderPipelineStageRegistration): void {
@@ -156,17 +154,23 @@ export class RenderPipelineRegistry {
 			throw new Error(`Cannot unregister built-in pipeline stage "${id}".`);
 		}
 		this._stages.delete(id);
-		this._stageGraph.unregisterStage(id);
 		if (isFramePassKind(stage.kind)) {
 			this._incrementalRegistry.unregisterFramePass(id);
 		}
 	}
 
+	/**
+	 * Resolves enabled stages in dependency order.
+	 *
+	 * @param context Current renderer stage enablement inputs.
+	 * @param warn Receives dependency cycle and missing-dependency diagnostics.
+	 * @returns Stage definitions with independent dependency arrays.
+	 */
 	public getExecutionOrder(
 		context: RendererStageEnableContext,
 		warn: (key: string, message: string) => void
 	): RendererStageDefinition[] {
-		return this._stageGraph.getExecutionOrder(context, warn);
+		return resolveRendererStageOrder(this._stages, context, warn);
 	}
 
 	/**
@@ -310,11 +314,6 @@ export class RenderPipelineRegistry {
 			builtIn,
 		};
 		this._stages.set(stage.id, registered);
-		this._stageGraph.registerStage({
-			id: stage.id,
-			dependsOn,
-			enabled: stage.enabled,
-		});
 		if (isFramePassKind(stage.kind)) {
 			this._incrementalRegistry.registerFramePass(
 				{

@@ -88,6 +88,28 @@ function createBackendPasses(frame, features, postProcess) {
 	return Array.from(createFramePlan(frame, features, postProcess).backendPasses);
 }
 
+function testExecutionOrderIsAnIndependentSnapshot() {
+	const registry = new RenderPipelineRegistry({
+		stages: [
+			{ id: "first", kind: "backend-pass" },
+			{ id: "second", kind: "backend-pass", dependsOn: ["first"] },
+		],
+	});
+	const context = { hasActiveAnimations: false, hasParticleSystems: false };
+	const firstOrder = registry.getExecutionOrder(context, () => {});
+	firstOrder[1].dependsOn.push("missing");
+
+	const warnings = [];
+	const nextOrder = registry.getExecutionOrder(
+		context,
+		(...args) => warnings.push(args),
+	);
+	assert.deepEqual(nextOrder.map((stage) => stage.id), ["first", "second"]);
+	assert.deepEqual(nextOrder[1].dependsOn, ["first"]);
+	assert.deepEqual(registry.createFramePass("second").dependsOn, ["first"]);
+	assert.deepEqual(warnings, []);
+}
+
 function run() {
 	const baseResolved = {
 		enableLighting: true,
@@ -390,4 +412,5 @@ function run() {
 	console.log("Frame pass planning tests passed");
 }
 
+testExecutionOrderIsAnIndependentSnapshot();
 run();

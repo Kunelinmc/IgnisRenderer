@@ -33,7 +33,6 @@ import {
 	toShaderCompileError,
 	type WarmupPhaseCounters,
 } from "../../pipeline/WarmupPlanner";
-import type { WebGPUFeatureWarmupContributor } from "./WebGPUFeatureWarmup";
 
 export interface WebGPUPlanarReflectionWarmupRequest {
 	readonly context: FrameContext;
@@ -78,8 +77,7 @@ export interface WebGPUPlanarReflectionCompositeRequest {
 /**
  * Captures and composites bounded planar reflections for the WebGPU backend.
  */
-export class WebGPUPlanarReflectionPass
-	implements WebGPUFeatureWarmupContributor<WebGPUPlanarReflectionWarmupRequest> {
+export class WebGPUPlanarReflectionPass {
 	private _backend: WebGPUFrameHost;
 	private _resources: WebGPUFrameResourceProvider &
 		WebGPUSceneResourceProvider &
