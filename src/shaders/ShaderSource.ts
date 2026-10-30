@@ -5,30 +5,17 @@ import {
 	cloneShaderSourceArtifact,
 	resolveShaderManifestRequest,
 	type ShaderBackendManifest,
+	type ShaderManifestSourceParams,
+	type ShaderManifestSyncKey,
 	type ShaderModuleSourceArtifact,
-	type ShaderProgramSourceArtifact,
 	type ShaderSourceArtifact,
 } from "./ShaderManifest";
 import { createInlineCompositeShaderSource } from "./runtime";
-import {
-	WEBGL_SHADER_MANIFEST,
-	type WebGLShaderPart,
-} from "./webgl/sources";
-import type {
-	WebGLSceneDepthVariantDescriptor,
-	WebGLSceneVariantDescriptor,
-} from "./webgl/sceneVariants";
-import {
-	WEBGPU_SHADER_MANIFEST,
-	type WebGPUDirectiveShaderPart,
-	type WebGPUPostProcessShaderPart,
-	type WebGPUSceneShaderPart,
-	type WebGPUShadowShaderPart,
-	type WebGPUUtilityShaderPart,
-} from "./webgpu/sources";
+import { WEBGL_SHADER_MANIFEST } from "./webgl/sources";
+import { WEBGPU_SHADER_MANIFEST } from "./webgpu/sources";
 import type { ShaderSourceSegmentKind } from "./runtime/types";
 
-export type { WebGLShaderPart } from "./webgl/sources";
+export type { WebGLShaderPart, WebGLDeformationSpecialization } from "./webgl/sources";
 export type {
 	ShaderModuleSourceArtifact,
 	ShaderProgramSourceArtifact,
@@ -58,59 +45,20 @@ export interface WebGLSceneLightLimits {
 	maxSpotLights: number;
 }
 
-export interface WebGLDeformationSpecialization {
-	skinProfile: "static" | "skin4" | "skin8";
-	morphPosition: boolean;
-}
+type BuiltinShaderSources = typeof WEBGPU_SHADER_MANIFEST.sources
+	& typeof WEBGL_SHADER_MANIFEST.sources;
 
-type WebGPUFixedShaderKey =
-	| "webgpu.scene"
-	| "webgpu.scene.depth"
-	| "webgpu.environment"
-	| "webgpu.deferredLighting"
-	| "webgpu.particle"
-	| "webgpu.particleSimulation"
-	| "webgpu.clusteredLightingCull"
-	| "webgpu.iblPrefilter";
-type WebGPUScenePartKey = `webgpu.scene.part.${WebGPUSceneShaderPart}`;
-type WebGPUPostProcessKey = `webgpu.postprocess.${WebGPUPostProcessShaderPart}`;
-type WebGPUShadowKey = `webgpu.shadow.${WebGPUShadowShaderPart}`;
-type WebGPUUtilityKey = `webgpu.utility.${WebGPUUtilityShaderPart}`;
-type WebGPUDirectiveKey = `webgpu.directive.${WebGPUDirectiveShaderPart}`;
-type WebGLPartKey = `webgl.part.${WebGLShaderPart}`;
-type WebGLDirectiveKey =
-	`webgl.directive.${"animation" | "constants" | "srgb" | "fog" | "lumaWeights" | "lumaCommon"}`;
-
-export type ShaderSourceKey =
-	| WebGPUFixedShaderKey
-	| WebGPUScenePartKey
-	| WebGPUPostProcessKey
-	| WebGPUShadowKey
-	| WebGPUUtilityKey
-	| WebGPUDirectiveKey
-	| WebGLPartKey
-	| WebGLDirectiveKey
-	| "webgl.scene"
-	| "webgl.scene.depth"
-	| "webgl.shadow.depth"
-	| "webgl.shadow.transmittance";
-
-export type ShaderSourceSyncKey = "webgpu.utility.mipmapBlit";
+export type ShaderSourceKey = keyof BuiltinShaderSources;
+export type ShaderSourceSyncKey = ShaderManifestSyncKey<typeof WEBGPU_SHADER_MANIFEST>
+	| ShaderManifestSyncKey<typeof WEBGL_SHADER_MANIFEST>;
 export type ShaderSourceParams<K extends ShaderSourceKey> =
-	K extends "webgl.scene" ? { specialization?: WebGLSceneVariantDescriptor }
-	: K extends "webgl.scene.depth" ? { specialization?: WebGLSceneDepthVariantDescriptor }
-	: K extends "webgl.shadow.depth" | "webgl.shadow.transmittance" ?
-		{ specialization?: WebGLDeformationSpecialization }
-	: undefined;
+	ShaderManifestSourceParams<BuiltinShaderSources[K]>;
 export type ShaderSourceResult<K extends ShaderSourceKey> =
-	K extends "webgl.scene" | "webgl.scene.depth" | "webgl.shadow.depth" | "webgl.shadow.transmittance" ?
-		ShaderProgramSourceArtifact
-	: ShaderModuleSourceArtifact;
+	Extract<ShaderSourceArtifact, { kind: BuiltinShaderSources[K]["kind"] }>;
 
-export interface ShaderSourceRequest<K extends ShaderSourceKey = ShaderSourceKey> {
-	key: K;
-	params?: ShaderSourceParams<K>;
-}
+export type ShaderSourceRequest<K extends ShaderSourceKey = ShaderSourceKey> =
+	| { key: K; params?: undefined }
+	| (K extends ShaderSourceKey ? { key: K; params: ShaderSourceParams<K> } : never);
 export interface ShaderSourceCacheBucketStats {
 	hits: number;
 	misses: number;
@@ -213,7 +161,7 @@ export class ShaderSource {
 	}
 	/** Prepares canonical artifacts concurrently. */
 	public static async prepareMany(requests: readonly ShaderSourceRequest[]): Promise<void> {
-		await Promise.all(requests.map((request) => this.prepare(request.key, request.params as never)));
+		await Promise.all(requests.map((request) => this.prepare(request.key, request.params)));
 	}
 	/** Returns a cloned prepared artifact or throws when it was not prepared. */
 	public static get<K extends ShaderSourceKey>(key: K, params?: ShaderSourceParams<K>): ShaderSourceResult<K> {
@@ -269,7 +217,7 @@ export class ShaderSource {
 	private static _resolve<K extends ShaderSourceKey>(key: K, params: ShaderSourceParams<K> | undefined) {
 		return resolveShaderManifestRequest(this._manifestForKey(key), key, params);
 	}
-	private static _getArtifactPromise<K extends ShaderSourceKey>(key: K, resolved: ReturnType<typeof resolveShaderManifestRequest>): Promise<ShaderSourceArtifact> {
+	private static _getArtifactPromise(key: string, resolved: ReturnType<typeof resolveShaderManifestRequest>): Promise<ShaderSourceArtifact> {
 		const cached = this._resultCache.get(resolved.identity);
 		if (cached) { this._resultStats.hits++; return cached; }
 		this._resultStats.misses++;
@@ -280,7 +228,7 @@ export class ShaderSource {
 			loadAsset: (owner, assetId) => this._loadManifestAsset(owner, assetId),
 			loadSource: (owner, sourceKey) => {
 				const nested = resolveShaderManifestRequest(owner, sourceKey, undefined);
-				return this._getArtifactPromise(sourceKey as ShaderSourceKey, nested);
+				return this._getArtifactPromise(sourceKey, nested);
 			},
 		}).catch((error) => {
 			if (this._resultCache.get(resolved.identity) === result) this._resultCache.delete(resolved.identity);

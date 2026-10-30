@@ -29,7 +29,7 @@ export function setup() {
 			WEBGPU_SHADER_MANIFEST,
 			await prepareShaderDirectiveProfileBase(
 				WEBGPU_SHADER_MANIFEST,
-				(key) => ShaderSource.load(key as never),
+				(key) => ShaderSource.load(key),
 			),
 			{
 				maxDirectionalLights: backendConstants.MAX_DIRECTIONAL_LIGHTS,

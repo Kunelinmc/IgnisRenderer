@@ -24,7 +24,7 @@ export function setup() {
 			WEBGL_SHADER_MANIFEST,
 			await prepareShaderDirectiveProfileBase(
 				WEBGL_SHADER_MANIFEST,
-				(key) => ShaderSource.load(key as never),
+				(key) => ShaderSource.load(key),
 			),
 			{
 				maxDirectionalLights: backendConstants.MAX_DIRECTIONAL_LIGHTS,

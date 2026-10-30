@@ -2,6 +2,9 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { WEBGL_SHADER_MANIFEST } from "../src/shaders/webgl/sources.ts";
+import { WEBGPU_SHADER_MANIFEST } from "../src/shaders/webgpu/sources.ts";
+
 const repoRoot = path.resolve(
 	path.dirname(fileURLToPath(import.meta.url)),
 	".."
@@ -17,10 +20,13 @@ const syncOutputPath = path.join(
 	"generated",
 	"embeddedSyncShaderSources.ts"
 );
-const syncShaderPaths = new Set([
-	"./webgl/common/animation.glsl",
-	"./webgpu/utility/mipmapBlit.wgsl",
-]);
+const syncShaderPaths = new Set(
+	[WEBGL_SHADER_MANIFEST, WEBGPU_SHADER_MANIFEST].flatMap((manifest) =>
+		Object.values(manifest.assets)
+			.filter((asset) => asset.sync)
+			.map((asset) => asset.path),
+	),
+);
 
 async function collectShaderFiles(relativeRoot, extension) {
 	const root = path.join(shaderRoot, relativeRoot);

@@ -65,6 +65,18 @@ export type ShaderParameterSchema =
 			readonly default?: Readonly<Record<string, unknown>>;
 	  };
 
+/** @internal Shader manifest value shape inferred from a parameter schema. */
+export type ShaderParameterValue<S extends ShaderParameterSchema> =
+	S extends { readonly type: "boolean" } ? boolean
+	: S extends { readonly type: "integer" } ? number
+	: S extends { readonly type: "enum"; readonly values: infer V extends readonly string[] } ?
+		V[number]
+	: S extends {
+		readonly type: "record";
+		readonly fields: infer F extends Readonly<Record<string, ShaderParameterSchema>>;
+	} ? { -readonly [K in keyof F]: ShaderParameterValue<F[K]> }
+	: never;
+
 export interface ShaderManifestAsset {
 	readonly path: string;
 	readonly sync?: boolean;
@@ -130,12 +142,18 @@ export type ShaderManifestSource =
 	| ShaderManifestModuleSource
 	| ShaderManifestProgramSource;
 
-export interface ShaderManifestProfile {
+type ShaderManifestModuleKey<
+	Sources extends Readonly<Record<string, ShaderManifestSource>>,
+> = {
+	[K in keyof Sources & string]: "module" extends Sources[K]["kind"] ? K : never;
+}[keyof Sources & string];
+
+export interface ShaderManifestProfile<SourceKey extends string = string> {
 	readonly baseId: string;
 	readonly revision: number;
 	readonly includes: readonly {
 		readonly id: string;
-		readonly source: string;
+		readonly source: SourceKey;
 	}[];
 	readonly overlay: {
 		readonly id: string;
@@ -149,13 +167,99 @@ export interface ShaderManifestProfile {
 	};
 }
 
-export interface ShaderBackendManifest {
+export interface ShaderBackendManifest<
+	Sources extends Readonly<Record<string, ShaderManifestSource>> =
+		Readonly<Record<string, ShaderManifestSource>>,
+> {
 	readonly backend: ShaderBackendId;
 	readonly language: ShaderLanguage;
 	readonly assets: Readonly<Record<string, ShaderManifestAsset>>;
-	readonly sources: Readonly<Record<string, ShaderManifestSource>>;
-	readonly preloadGroups?: Readonly<Record<string, readonly string[]>>;
-	readonly profile: ShaderManifestProfile;
+	readonly sources: Sources;
+	readonly preloadGroups?: Readonly<Record<string, readonly (keyof Sources & string)[]>>;
+	readonly profile: ShaderManifestProfile<ShaderManifestModuleKey<Sources>>;
+}
+
+/**
+ * @internal Shader manifest source enumeration for backend preload groups.
+ * Retains the declared source keys; source consumers should use `ShaderSource`.
+ */
+export function getShaderManifestSourceKeys<
+	const Sources extends Readonly<Record<string, ShaderManifestSource>>,
+>(sources: Sources): (keyof Sources & string)[] {
+	return Object.keys(sources) as (keyof Sources & string)[];
+}
+
+/** @internal Shader source request inputs; omitted root fields use schema defaults. */
+export type ShaderManifestSourceParams<S extends ShaderManifestSource> =
+	S extends { readonly parameters: infer P extends ShaderParameterSchema } ?
+		Partial<ShaderParameterValue<P>>
+	: undefined;
+
+/** @internal Shader sources backed directly by an asset approved for sync loading. */
+export type ShaderManifestSyncKey<M extends ShaderBackendManifest> = {
+	[K in keyof M["sources"]]: M["sources"][K] extends {
+		readonly kind: "module";
+		readonly source: { readonly asset: infer A extends keyof M["assets"] };
+	} ? M["assets"][A] extends { readonly sync: true } ? K : never : never;
+}[keyof M["sources"]];
+
+/**
+ * @internal Shader manifest construction helper that retains literal entry keys.
+ * Backend manifests own the inputs; source consumers should use `ShaderSource`.
+ */
+export function mapShaderManifestEntries<
+	const T extends object,
+	const P extends string,
+	V,
+>(
+	entries: T,
+	prefix: P,
+	map: (value: T[keyof T], key: keyof T & string) => V,
+): { [K in keyof T & string as `${P}${K}`]: V } {
+	return Object.fromEntries(
+		Object.entries(entries).map(([key, value]) => [
+			`${prefix}${key}`, map(value as T[keyof T], key as keyof T & string),
+		]),
+	) as { [K in keyof T & string as `${P}${K}`]: V };
+}
+
+type ShaderManifestFile = string | ShaderManifestAsset;
+type ShaderManifestFileAsset<F extends ShaderManifestFile> =
+	F extends string ? { readonly path: F } : F;
+
+/**
+ * @internal Shader manifest construction helper for direct module assets.
+ * Retains each source-to-asset relationship and asset metadata for type inference.
+ * Backend manifests may replace individual module compositions in their sources.
+ */
+export function createShaderModuleGroup<
+	const F extends Readonly<Record<string, ShaderManifestFile>>,
+	const A extends string,
+	const S extends string,
+	const K extends ShaderSourceKind,
+>(files: F, assetPrefix: A, sourcePrefix: S, sourceKind: K) {
+	const assets: Record<string, ShaderManifestAsset> = {};
+	const sources: Record<string, ShaderManifestModuleSource> = {};
+	for (const [part, file] of Object.entries(files)) {
+		const id = `${assetPrefix}${part}`;
+		assets[id] = typeof file === "string" ? { path: file } : file;
+		sources[`${sourcePrefix}${part}`] = {
+			kind: "module", sourceKind, source: { asset: id },
+		};
+	}
+	// The loop creates exactly one asset and one direct module for each file key.
+	return { assets, sources } as {
+		assets: {
+			readonly [P in keyof F & string as `${A}${P}`]: ShaderManifestFileAsset<F[P]>;
+		};
+		sources: {
+			readonly [P in keyof F & string as `${S}${P}`]: {
+				readonly kind: "module";
+				readonly sourceKind: K;
+				readonly source: { readonly asset: `${A}${P}` };
+			};
+		};
+	};
 }
 
 interface ShaderSourceArtifactBase {
@@ -458,9 +562,14 @@ export function cloneShaderSourceArtifact<T extends ShaderSourceArtifact>(
 	return { ...artifact, stages } as T;
 }
 
-export async function prepareShaderDirectiveProfileBase(
-	manifest: ShaderBackendManifest,
-	load: (key: string) => Promise<ShaderSourceArtifact>,
+/**
+ * @internal Shader manifest profile preparation owned by backend lifecycles.
+ * Loads the declared module includes; source consumers should use `ShaderSource`.
+ */
+export async function prepareShaderDirectiveProfileBase<const M extends ShaderBackendManifest>(
+	manifest: M & ShaderBackendManifest<NoInfer<M["sources"]>>,
+	load: (key: NoInfer<M["profile"]["includes"][number]["source"]>) =>
+		Promise<ShaderModuleSourceArtifact>,
 ): Promise<ShaderDirectiveProfileBase> {
 	validateShaderBackendManifest(manifest);
 	const modules = await Promise.all(

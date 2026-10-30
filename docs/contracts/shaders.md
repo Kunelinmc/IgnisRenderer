@@ -8,6 +8,11 @@ This document defines shader source ownership, composition, diagnostics, and cus
 
 - `ShaderSource.load(key, params)` must return the source artifact identified by
   the canonical, suffix-free `key`.
+- Built-in source keys and module or program result types must be inferred from
+  the backend manifests. Parameter types must be inferred from each source's
+  parameter schema. Shader keys must not have a separately maintained type list.
+- Manifest `preloadGroups` entries must reference sources declared by that
+  manifest and retain their inferred keys through backend preparation.
 - A module artifact must expose one `CompositeShaderSource` as `source`. A
   program artifact must expose its composite sources through `stages`.
 - Every artifact must expose `kind`, `key`, stable `identity`, `language`, and
@@ -18,9 +23,10 @@ This document defines shader source ownership, composition, diagnostics, and cus
   may run requests concurrently.
 - `ShaderSource.get(key, params)` must synchronously return a prepared source and
   must throw when the source is not prepared.
-- `ShaderSource.getSync(key)` must synchronously load only keys listed by the
-  `ShaderSourceSyncKey` contract. It must populate the same prepared cache used
-  by `ShaderSource.get()`.
+- `ShaderSourceSyncKey` must be inferred from module sources that directly
+  reference a manifest asset marked `sync: true`. `ShaderSource.getSync(key)`
+  must accept only these keys and populate the same prepared cache used by
+  `ShaderSource.get()`.
 - Browser bundles must include every approved synchronous source without
   requiring prior asynchronous preparation.
 - The generated synchronous source table must contain every backend manifest
@@ -103,6 +109,10 @@ This document defines shader source ownership, composition, diagnostics, and cus
 
 ### Directive profiles
 
+- Manifest profile includes must reference module sources declared by the same
+  manifest. Profile preparation callbacks must receive the declared include keys
+  and return module artifacts. Built-in profile and preload consumers must not
+  use `ShaderSourceKey` assertions to bypass reference type checking.
 - Each GPU backend instance must own one composed `ShaderDirectiveProfile`.
   Shader runtime code must not construct a cross-backend default profile or
   import backend constants and built-in shader assets.

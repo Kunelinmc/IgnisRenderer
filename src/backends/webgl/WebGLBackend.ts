@@ -46,10 +46,7 @@ import type {
 	ShaderDirectiveProfileBase,
 	ShaderRuntimeMode,
 } from "../../shaders/runtime";
-import {
-	ShaderSource,
-	type ShaderSourceKey,
-} from "../../shaders/ShaderSource";
+import { ShaderSource } from "../../shaders/ShaderSource";
 import {
 	createShaderDirectiveProfileFromManifest,
 	prepareShaderDirectiveProfileBase,
@@ -263,11 +260,11 @@ export class WebGLBackend implements IRenderBackend {
 		const [profileBase] = await Promise.all([
 			prepareShaderDirectiveProfileBase(
 				WEBGL_SHADER_MANIFEST,
-				(key) => ShaderSource.load(key as ShaderSourceKey),
+				(key) => ShaderSource.load(key),
 			),
 			ShaderSource.prepareMany([
-				...(WEBGL_SHADER_MANIFEST.preloadGroups?.backendInit ?? []).map(
-					(key) => ({ key: key as ShaderSourceKey }),
+				...WEBGL_SHADER_MANIFEST.preloadGroups.backendInit.map(
+					(key) => ({ key }),
 				),
 				{ key: "webgl.scene" as const },
 				...(["static", "skin4", "skin8"] as const).flatMap(

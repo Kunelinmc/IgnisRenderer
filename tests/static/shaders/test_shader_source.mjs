@@ -843,6 +843,7 @@ function testBrowserSyncSourcesWithoutPreparation() {
 	try {
 		for (const key of [
 			"webgpu.utility.mipmapBlit",
+			"webgl.directive.animation",
 		]) {
 			const manifest = key.startsWith("webgpu.") ?
 				WEBGPU_SHADER_MANIFEST : WEBGL_SHADER_MANIFEST;
@@ -1128,6 +1129,14 @@ async function testEmbeddedManifestMatchesShaderFiles() {
 	const manifestPaths = Object.keys(embeddedShaderSources).sort();
 
 	assert.deepEqual(manifestPaths, shaderPaths);
+	const syncPaths = new Set(
+		[WEBGPU_SHADER_MANIFEST, WEBGL_SHADER_MANIFEST].flatMap((manifest) =>
+			Object.values(manifest.assets)
+				.filter((asset) => asset.sync)
+				.map((asset) => asset.path),
+		),
+	);
+	assert.deepEqual(Object.keys(embeddedSyncShaderSources).sort(), [...syncPaths].sort());
 	for (const shaderPath of shaderPaths) {
 		const content = await readFile(
 			path.join(SHADER_ROOT, shaderPath.slice(2)),

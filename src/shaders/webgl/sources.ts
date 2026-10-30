@@ -1,120 +1,24 @@
-import type {
-	ShaderBackendManifest,
-	ShaderManifestExpression,
-	ShaderParameterSchema,
-	ShaderSourceNode,
+import {
+	createShaderModuleGroup,
+	getShaderManifestSourceKeys,
+	mapShaderManifestEntries,
+	type ShaderBackendManifest,
+	type ShaderManifestExpression,
+	type ShaderParameterSchema,
+	type ShaderParameterValue,
+	type ShaderSourceNode,
 } from "../ShaderManifest";
 import {
 	WEBGL_ALPHA_MAP_DEPTH_VARIANT,
 	WEBGL_FULL_SCENE_VARIANT,
 } from "./sceneVariants";
 
-type ImportMetaGlobLoaderMap = Record<string, () => Promise<string>>;
+export type WebGLShaderPart = keyof typeof WEBGL_SHADER_FILES;
+export type WebGLSceneFragmentPart = keyof typeof WEBGL_SCENE_FRAGMENT_SHADER_FILES;
+export type WebGLDirectiveShaderPart = keyof typeof WEBGL_DIRECTIVE_SHADER_FILES;
+export type WebGLDeformationSpecialization = ShaderParameterValue<typeof deformationSchema>;
 
-export type WebGLShaderPart =
-	| "sceneVertex"
-	| "sceneDepthPrepassVertex"
-	| "sceneDepthPrepassFragment"
-	| "environmentVertex"
-	| "environmentFragment"
-	| "iblPrefilterFragment"
-	| "presentVertex"
-	| "presentFragment"
-	| "particleVertex"
-	| "particleFragment"
-	| "shadowDepthVertex"
-	| "shadowDepthFragment"
-	| "shadowTransmittanceFragment"
-	| "copyFragment"
-	| "oitResolveFragment"
-	| "gammaFragment"
-	| "toneMappingFragment"
-	| "colorFilterFragment"
-	| "fxaaFragment"
-	| "bloomFragment"
-	| "motionBlurFragment"
-	| "fogFragment"
-	| "dofFragment"
-	| "taaFragment"
-	| "ssaoRawFragment"
-	| "ssaoBlurFragment"
-	| "ssaoCombineFragment";
-
-export type WebGLSceneFragmentPart =
-	| "fragmentPrelude"
-	| "fragmentUniforms"
-	| "fragmentMaterialBlocks"
-	| "fragmentUvTextureNormal"
-	| "fragmentSh"
-	| "fragmentLocalProbes"
-	| "fragmentClusteredLighting"
-	| "fragmentReflectionEnvironment"
-	| "fragmentEnvironmentSpecular"
-	| "fragmentReflectionProbes"
-	| "fragmentLightAttenuation"
-	| "fragmentShadows"
-	| "fragmentBrdfPbr"
-	| "fragmentPhong"
-	| "fragmentPbrLighting"
-	| "fragmentMainOutput";
-
-export type WebGLDirectiveShaderPart =
-	| "animation"
-	| "constants"
-	| "srgb"
-	| "lumaWeights"
-	| "lumaCommon";
-
-const WEBGL_SHADER_PARTS: readonly WebGLShaderPart[] = [
-	"sceneVertex",
-	"sceneDepthPrepassVertex",
-	"sceneDepthPrepassFragment",
-	"environmentVertex",
-	"environmentFragment",
-	"iblPrefilterFragment",
-	"presentVertex",
-	"presentFragment",
-	"particleVertex",
-	"particleFragment",
-	"shadowDepthVertex",
-	"shadowDepthFragment",
-	"shadowTransmittanceFragment",
-	"copyFragment",
-	"oitResolveFragment",
-	"gammaFragment",
-	"toneMappingFragment",
-	"colorFilterFragment",
-	"fxaaFragment",
-	"bloomFragment",
-	"motionBlurFragment",
-	"fogFragment",
-	"dofFragment",
-	"taaFragment",
-	"ssaoRawFragment",
-	"ssaoBlurFragment",
-	"ssaoCombineFragment",
-];
-
-export const WEBGL_SCENE_FRAGMENT_PARTS: readonly WebGLSceneFragmentPart[] = [
-	"fragmentPrelude",
-	"fragmentUniforms",
-	"fragmentMaterialBlocks",
-	"fragmentUvTextureNormal",
-	"fragmentSh",
-	"fragmentLocalProbes",
-	"fragmentClusteredLighting",
-	"fragmentReflectionEnvironment",
-	"fragmentEnvironmentSpecular",
-	"fragmentReflectionProbes",
-	"fragmentLightAttenuation",
-	"fragmentShadows",
-	"fragmentBrdfPbr",
-	"fragmentPhong",
-	"fragmentPbrLighting",
-	"fragmentMainOutput",
-];
-
-const WEBGL_SHADER_FILES: Record<WebGLShaderPart, string> = {
+const WEBGL_SHADER_FILES = {
 	sceneVertex: "./webgl/scene/sceneVertex.glsl",
 	sceneDepthPrepassVertex: "./webgl/scene/sceneDepthPrepassVertex.glsl",
 	sceneDepthPrepassFragment: "./webgl/scene/sceneDepthPrepassFragment.glsl",
@@ -142,12 +46,9 @@ const WEBGL_SHADER_FILES: Record<WebGLShaderPart, string> = {
 	ssaoRawFragment: "./webgl/postprocess/ssaoRawFragment.glsl",
 	ssaoBlurFragment: "./webgl/postprocess/ssaoBlurFragment.glsl",
 	ssaoCombineFragment: "./webgl/postprocess/ssaoCombineFragment.glsl",
-};
+} as const satisfies Record<string, string>;
 
-const WEBGL_SCENE_FRAGMENT_SHADER_FILES: Record<
-	WebGLSceneFragmentPart,
-	string
-> = {
+const WEBGL_SCENE_FRAGMENT_SHADER_FILES = {
 	fragmentPrelude: "./webgl/scene/fragmentPrelude.glsl",
 	fragmentUniforms: "./webgl/scene/fragmentUniforms.glsl",
 	fragmentMaterialBlocks: "./webgl/scene/fragmentMaterialBlocks.glsl",
@@ -167,23 +68,23 @@ const WEBGL_SCENE_FRAGMENT_SHADER_FILES: Record<
 	fragmentPhong: "./webgl/scene/fragmentPhong.glsl",
 	fragmentPbrLighting: "./webgl/scene/fragmentPbrLighting.glsl",
 	fragmentMainOutput: "./webgl/scene/fragmentMainOutput.glsl",
-};
+} as const satisfies Record<string, string>;
+
+export const WEBGL_SCENE_FRAGMENT_PARTS: readonly WebGLSceneFragmentPart[] =
+	Object.keys(WEBGL_SCENE_FRAGMENT_SHADER_FILES) as WebGLSceneFragmentPart[];
 
 const WEBGL_INTERNAL_SHADER_FILES = {
 	diffuseProbeFallbackFragment: "./webgl/environment/diffuseProbeFallbackFragment.glsl",
 	irradianceProbeGridFragment: "./webgl/environment/irradianceProbeGridFragment.glsl",
 } as const;
 
-const WEBGL_DIRECTIVE_SHADER_FILES: Record<
-	WebGLDirectiveShaderPart,
-	string
-> = {
-	animation: "./webgl/common/animation.glsl",
+const WEBGL_DIRECTIVE_SHADER_FILES = {
+	animation: { path: "./webgl/common/animation.glsl", sync: true },
 	constants: "./webgl/directives/constants.glsl",
 	srgb: "./webgl/directives/srgb.glsl",
 	lumaWeights: "./webgl/directives/lumaWeights.glsl",
 	lumaCommon: "./webgl/directives/lumaCommon.glsl",
-};
+} as const;
 
 const literal = (value: string | number | boolean): ShaderManifestExpression => ({ literal: value });
 const parameter = (path: string): ShaderManifestExpression => ({ parameter: path });
@@ -193,7 +94,7 @@ const equals = (path: string, value: string): ShaderManifestExpression => ({
 const all = (...values: ShaderManifestExpression[]): ShaderManifestExpression => ({ all: values });
 const any = (...values: ShaderManifestExpression[]): ShaderManifestExpression => ({ any: values });
 const not = (value: ShaderManifestExpression): ShaderManifestExpression => ({ not: value });
-const asset = (id: string): ShaderSourceNode => ({ asset: id });
+const asset = <const T extends string>(id: T) => ({ asset: id });
 const when = (
 	condition: ShaderManifestExpression,
 	then: ShaderSourceNode,
@@ -219,13 +120,11 @@ const irradianceGrid = all(
 	scene("irradianceProbeGrid"),
 );
 
-const materialFields = Object.fromEntries(
-	Object.keys(WEBGL_FULL_SCENE_VARIANT.material)
-		.filter((name) => name !== "model")
-		.map((name) => [name, { type: "boolean", default: false }]),
-) as Record<string, ShaderParameterSchema>;
+const { model: _materialModel, ...materialFeatures } = WEBGL_FULL_SCENE_VARIANT.material;
+const materialFields = mapShaderManifestEntries(materialFeatures, "",
+	() => ({ type: "boolean", default: false } as const));
 
-const sceneSpecializationSchema: ShaderParameterSchema = {
+const sceneSpecializationSchema = {
 	type: "record",
 	default: WEBGL_FULL_SCENE_VARIANT as unknown as Record<string, unknown>,
 	fields: {
@@ -234,12 +133,8 @@ const sceneSpecializationSchema: ShaderParameterSchema = {
 		oit: { type: "boolean", default: false },
 		scene: {
 			type: "record",
-			fields: Object.fromEntries(
-				Object.keys(WEBGL_FULL_SCENE_VARIANT.scene).map((name) => [
-					name,
-					{ type: "boolean", default: false },
-				]),
-			),
+			fields: mapShaderManifestEntries(WEBGL_FULL_SCENE_VARIANT.scene, "",
+				() => ({ type: "boolean", default: false } as const)),
 		},
 		material: {
 			type: "record",
@@ -259,14 +154,14 @@ const sceneSpecializationSchema: ShaderParameterSchema = {
 		},
 		morphSemanticMask: { type: "integer", default: 0, min: 0, bitMask: 3 },
 	},
-};
+} as const satisfies ShaderParameterSchema;
 
-const sceneParams: ShaderParameterSchema = {
+const sceneParams = {
 	type: "record",
 	fields: { specialization: sceneSpecializationSchema },
-};
+} as const satisfies ShaderParameterSchema;
 
-const deformationSchema: ShaderParameterSchema = {
+const deformationSchema = {
 	type: "record",
 	fields: {
 		skinProfile: {
@@ -276,9 +171,9 @@ const deformationSchema: ShaderParameterSchema = {
 		},
 		morphPosition: { type: "boolean", default: false },
 	},
-};
+} as const satisfies ShaderParameterSchema;
 
-const depthParams: ShaderParameterSchema = {
+const depthParams = {
 	type: "record",
 	fields: {
 		specialization: {
@@ -291,12 +186,12 @@ const depthParams: ShaderParameterSchema = {
 			},
 		},
 	},
-};
+} as const satisfies ShaderParameterSchema;
 
-const shadowParams: ShaderParameterSchema = {
+const shadowParams = {
 	type: "record",
 	fields: { specialization: deformationSchema },
-};
+} as const satisfies ShaderParameterSchema;
 
 const skinInfluences = (prefix: string): ShaderManifestExpression => ({
 	select: {
@@ -460,7 +355,18 @@ const localProbeTemplate: ShaderSourceNode = {
 	],
 };
 
-const assets: Record<string, { path: string; sync?: boolean }> = {
+const shaderModules = createShaderModuleGroup(
+	WEBGL_SHADER_FILES, "part.", "webgl.part.", "unknown",
+);
+const directiveModules = createShaderModuleGroup(
+	WEBGL_DIRECTIVE_SHADER_FILES, "directive.", "webgl.directive.", "unknown",
+);
+
+const assets = {
+	...shaderModules.assets,
+	...directiveModules.assets,
+	...mapShaderManifestEntries(WEBGL_SCENE_FRAGMENT_SHADER_FILES, "scene.",
+		(path) => ({ path })),
 	"internal.diffuseProbeFallbackFragment": {
 		path: WEBGL_INTERNAL_SHADER_FILES.diffuseProbeFallbackFragment,
 	},
@@ -470,29 +376,7 @@ const assets: Record<string, { path: string; sync?: boolean }> = {
 	"fallback.localProbe": { path: "./webgl/scene/fragmentLocalProbeFallbacks.glsl" },
 	"fallback.shadow": { path: "./webgl/scene/fragmentShadowFallbacks.glsl" },
 	"fallback.environment": { path: "./webgl/scene/fragmentEnvironmentFallback.glsl" },
-};
-const sources: Record<string, any> = {};
-for (const [part, path] of Object.entries(WEBGL_SHADER_FILES)) {
-	const id = `part.${part}`;
-	assets[id] = { path };
-	sources[`webgl.part.${part}`] = {
-		kind: "module",
-		sourceKind: "unknown",
-		source: asset(id),
-	};
-}
-for (const [part, path] of Object.entries(WEBGL_SCENE_FRAGMENT_SHADER_FILES)) {
-	assets[`scene.${part}`] = { path };
-}
-for (const [part, path] of Object.entries(WEBGL_DIRECTIVE_SHADER_FILES)) {
-	const id = `directive.${part}`;
-	assets[id] = { path, sync: part === "animation" };
-	sources[`webgl.directive.${part}`] = {
-		kind: "module",
-		sourceKind: "unknown",
-		source: asset(id),
-	};
-}
+} as const;
 
 const sceneVertex: ShaderSourceNode = {
 	template: asset("part.sceneVertex"),
@@ -510,79 +394,81 @@ const sceneVertex: ShaderSourceNode = {
 	],
 };
 
-sources["webgl.scene"] = {
-	kind: "program",
-	sourceKind: "builtin-scene",
-	parameters: sceneParams,
-	stages: {
-		vertex: sceneVertex,
-		fragment: {
-			concat: [
-				preludeTemplate,
-				sceneDefines,
-				uniformTemplate,
-				when(not(isFull), asset("scene.fragmentMaterialBlocks")),
-				asset("scene.fragmentUvTextureNormal"),
-				when(scene("sh"), asset("scene.fragmentSh")),
-				when(all(scene("sh"), scene("localLightProbes")), localProbeTemplate),
-				when(scene("clusteredLighting"), asset("scene.fragmentClusteredLighting")),
-				when(scene("environmentSpecular"), asset("scene.fragmentEnvironmentSpecular")),
-				when(all(scene("environmentSpecular"), scene("reflectionProbes")), asset("scene.fragmentReflectionProbes")),
-				asset("scene.fragmentLightAttenuation"),
-				when(scene("shadows"), asset("scene.fragmentShadows")),
-				when(all(scene("sh"), not(scene("localLightProbes"))), asset("fallback.localProbe")),
-				when(all(isLit, not(scene("shadows"))), asset("fallback.shadow")),
-				when(all(scene("environmentSpecular"), not(scene("reflectionProbes"))), asset("fallback.environment")),
-				when(isPBR, asset("scene.fragmentBrdfPbr")),
-				when(isLegacy, asset("scene.fragmentPhong")),
-				when(isPBR, asset("scene.fragmentPbrLighting")),
-				asset("scene.fragmentMainOutput"),
-			],
-			fallbackSourcePath: "<webgl-scene-fragment-part>",
+const sources = {
+	...shaderModules.sources,
+	...directiveModules.sources,
+	"webgl.scene": {
+		kind: "program",
+		sourceKind: "builtin-scene",
+		parameters: sceneParams,
+		stages: {
+			vertex: sceneVertex,
+			fragment: {
+				concat: [
+					preludeTemplate,
+					sceneDefines,
+					uniformTemplate,
+					when(not(isFull), asset("scene.fragmentMaterialBlocks")),
+					asset("scene.fragmentUvTextureNormal"),
+					when(scene("sh"), asset("scene.fragmentSh")),
+					when(all(scene("sh"), scene("localLightProbes")), localProbeTemplate),
+					when(scene("clusteredLighting"), asset("scene.fragmentClusteredLighting")),
+					when(scene("environmentSpecular"), asset("scene.fragmentEnvironmentSpecular")),
+					when(all(scene("environmentSpecular"), scene("reflectionProbes")), asset("scene.fragmentReflectionProbes")),
+					asset("scene.fragmentLightAttenuation"),
+					when(scene("shadows"), asset("scene.fragmentShadows")),
+					when(all(scene("sh"), not(scene("localLightProbes"))), asset("fallback.localProbe")),
+					when(all(isLit, not(scene("shadows"))), asset("fallback.shadow")),
+					when(all(scene("environmentSpecular"), not(scene("reflectionProbes"))), asset("fallback.environment")),
+					when(isPBR, asset("scene.fragmentBrdfPbr")),
+					when(isLegacy, asset("scene.fragmentPhong")),
+					when(isPBR, asset("scene.fragmentPbrLighting")),
+					asset("scene.fragmentMainOutput"),
+				],
+				fallbackSourcePath: "<webgl-scene-fragment-part>",
+			},
 		},
 	},
-};
 
-sources["webgl.scene.depth"] = {
-	kind: "program",
-	sourceKind: "builtin-scene",
-	parameters: depthParams,
-	stages: {
-		vertex: {
-			template: asset("part.sceneDepthPrepassVertex"),
-			replacements: [{
-				marker: "__IGNIS_WEBGL_ANIMATION_DEFINES__",
-				value: animationDefines(
-					"specialization",
-					parameter("specialization.morphPosition"),
-					"<webgl-depth-animation-defines>",
-				),
-			}],
-		},
-		fragment: {
-			template: asset("part.sceneDepthPrepassFragment"),
-			replacements: [{
-				marker: "__IGNIS_WEBGL_DEPTH_DEFINES__",
-				value: {
-					defines: {
-						WEBGL_DEPTH_ALPHA_MASK: parameter("specialization.alphaMask"),
-						WEBGL_DEPTH_BASE_MAP: all(
-							parameter("specialization.alphaMask"),
-							parameter("specialization.baseMap"),
-						),
+	"webgl.scene.depth": {
+		kind: "program",
+		sourceKind: "builtin-scene",
+		parameters: depthParams,
+		stages: {
+			vertex: {
+				template: asset("part.sceneDepthPrepassVertex"),
+				replacements: [{
+					marker: "__IGNIS_WEBGL_ANIMATION_DEFINES__",
+					value: animationDefines(
+						"specialization",
+						parameter("specialization.morphPosition"),
+						"<webgl-depth-animation-defines>",
+					),
+				}],
+			},
+			fragment: {
+				template: asset("part.sceneDepthPrepassFragment"),
+				replacements: [{
+					marker: "__IGNIS_WEBGL_DEPTH_DEFINES__",
+					value: {
+						defines: {
+							WEBGL_DEPTH_ALPHA_MASK: parameter("specialization.alphaMask"),
+							WEBGL_DEPTH_BASE_MAP: all(
+								parameter("specialization.alphaMask"),
+								parameter("specialization.baseMap"),
+							),
+						},
+						sourcePath: "<webgl-depth-defines>",
 					},
-					sourcePath: "<webgl-depth-defines>",
-				},
-			}],
+				}],
+			},
 		},
 	},
-};
 
-for (const [key, fragment] of [
-	["webgl.shadow.depth", "part.shadowDepthFragment"],
-	["webgl.shadow.transmittance", "part.shadowTransmittanceFragment"],
-] as const) {
-	sources[key] = {
+	...mapShaderManifestEntries({
+		"webgl.shadow.depth": "part.shadowDepthFragment",
+		"webgl.shadow.transmittance": "part.shadowTransmittanceFragment",
+	}, "", (fragment) => ({
 		kind: "program",
 		sourceKind: "shadow",
 		parameters: shadowParams,
@@ -600,16 +486,16 @@ for (const [key, fragment] of [
 			},
 			fragment: asset(fragment),
 		},
-	};
-}
+	} as const)),
+} as const;
 
-export const WEBGL_SHADER_MANIFEST: ShaderBackendManifest = {
+export const WEBGL_SHADER_MANIFEST = {
 	backend: "webgl",
 	language: "glsl",
 	assets,
 	sources,
 	preloadGroups: {
-		backendInit: Object.keys(WEBGL_SHADER_FILES).map((part) => `webgl.part.${part}`),
+		backendInit: getShaderManifestSourceKeys(shaderModules.sources),
 	},
 	profile: {
 		baseId: "ignis/webgl-profile-base",
@@ -646,4 +532,4 @@ export const WEBGL_SHADER_MANIFEST: ShaderBackendManifest = {
 			},
 		},
 	},
-};
+} as const satisfies ShaderBackendManifest<typeof sources>;

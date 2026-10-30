@@ -1,100 +1,20 @@
-import type { ShaderSourceSegmentKind } from "../runtime";
-import type {
-	ShaderBackendManifest, ShaderSourceNode,
+import {
+	createShaderModuleGroup,
+	mapShaderManifestEntries,
+	type ShaderBackendManifest,
+	type ShaderSourceNode,
 } from "../ShaderManifest";
 
-type ImportMetaGlobLoaderMap = Record<string, () => Promise<string>>;
-
-export interface WebGPUShaderFileDescriptor {
-	scope: "webgpu";
-	key: string;
-	path: string;
-	segmentKind?: ShaderSourceSegmentKind;
-}
-
-export type WebGPUSceneShaderPart =
-	| "lightData"
-	| "constants"
-	| "definitions"
-	| "utils"
-	| "deferredGBufferCodec"
-	| "surfaceLighting"
-	| "vertexStage"
-	| "fragmentPrelude"
-	| "fragmentPhong"
-	| "fragmentPbrSetup"
-	| "fragmentPbrDirectional"
-	| "fragmentPbrPoint"
-	| "fragmentPbrSpot"
-	| "fragmentPbrArea"
-	| "fragmentPbrAmbient"
-	| "fragmentGBuffer"
-	| "fragmentSingleTarget";
-
-export type WebGPUPostProcessShaderPart =
-	| "ssao"
-	| "ssgi"
-	| "denoise"
-	| "taa"
-	| "hiz"
-	| "ssr"
-	| "screenSpaceRefractions"
-	| "volumetric"
-	| "fog"
-	| "motionBlur"
-	| "dof"
-	| "bloom"
-	| "gamma"
-	| "toneMapping"
-	| "colorFilter"
-	| "fxaa"
-	| "sobelNormal";
-
-export type WebGPUShadowShaderPart = "depth";
-
-export type WebGPUUtilityShaderPart =
-	| "planarReflectionComposite"
-	| "present"
-	| "colorDirtyClear"
-	| "depthDirtyClear"
-	| "decal"
-	| "oitResolve"
-	| "occlusionCulling"
-	| "mipmapBlit";
-
-export type WebGPUDirectiveShaderPart =
-	| "animation"
-	| "frameCamera"
-	| "frameUniforms"
-	| "constants"
-	| "srgb"
-	| "lumaWeights"
-	| "lumaCommon";
-
-const WEBGPU_SCENE_SHADER_PARTS: readonly WebGPUSceneShaderPart[] = [
-	"lightData",
-	"constants",
-	"definitions",
-	"utils",
-	"deferredGBufferCodec",
-	"surfaceLighting",
-	"vertexStage",
-	"fragmentPrelude",
-	"fragmentPhong",
-	"fragmentPbrSetup",
-	"fragmentPbrDirectional",
-	"fragmentPbrPoint",
-	"fragmentPbrSpot",
-	"fragmentPbrArea",
-	"fragmentPbrAmbient",
-	"fragmentGBuffer",
-	"fragmentSingleTarget",
-];
+export type WebGPUSceneShaderPart = keyof typeof WEBGPU_SCENE_SHADER_FILES;
+export type WebGPUPostProcessShaderPart = keyof typeof WEBGPU_POST_PROCESS_SHADER_FILES;
+export type WebGPUShadowShaderPart = keyof typeof WEBGPU_SHADOW_SHADER_FILES;
+export type WebGPUUtilityShaderPart = keyof typeof WEBGPU_UTILITY_SHADER_FILES;
+export type WebGPUDirectiveShaderPart = keyof typeof WEBGPU_DIRECTIVE_SHADER_FILES;
 
 const WEBGPU_POST_PROCESS_PARTS_USING_SHARED_LIGHT_DATA =
 	new Set<WebGPUPostProcessShaderPart>(["ssr", "volumetric"]);
 
-const WEBGPU_SCENE_SHADER_FILES: Record<WebGPUSceneShaderPart, string> = {
+const WEBGPU_SCENE_SHADER_FILES = {
 	lightData: "./webgpu/common/lightData.wgsl",
 	constants: "./webgpu/common/constants.wgsl",
 	definitions: "./webgpu/common/definitions.wgsl",
@@ -112,12 +32,9 @@ const WEBGPU_SCENE_SHADER_FILES: Record<WebGPUSceneShaderPart, string> = {
 	fragmentPbrAmbient: "./webgpu/scene/fragmentPbrAmbient.wgsl",
 	fragmentGBuffer: "./webgpu/scene/fragmentGBuffer.wgsl",
 	fragmentSingleTarget: "./webgpu/scene/fragmentSingleTarget.wgsl",
-};
+} as const satisfies Record<string, string>;
 
-const WEBGPU_POST_PROCESS_SHADER_FILES: Record<
-	WebGPUPostProcessShaderPart,
-	string
-> = {
+const WEBGPU_POST_PROCESS_SHADER_FILES = {
 	ssao: "./webgpu/postprocess/ssao.wgsl",
 	ssgi: "./webgpu/postprocess/ssgi.wgsl",
 	denoise: "./webgpu/postprocess/denoise.wgsl",
@@ -135,13 +52,13 @@ const WEBGPU_POST_PROCESS_SHADER_FILES: Record<
 	colorFilter: "./webgpu/postprocess/colorFilter.wgsl",
 	fxaa: "./webgpu/postprocess/fxaa.wgsl",
 	sobelNormal: "./webgpu/postprocess/sobelNormal.wgsl",
-};
+} as const satisfies Record<string, string>;
 
-const WEBGPU_SHADOW_SHADER_FILES: Record<WebGPUShadowShaderPart, string> = {
+const WEBGPU_SHADOW_SHADER_FILES = {
 	depth: "./webgpu/shadow/depth.wgsl",
-};
+} as const satisfies Record<string, string>;
 
-const WEBGPU_UTILITY_SHADER_FILES: Record<WebGPUUtilityShaderPart, string> = {
+const WEBGPU_UTILITY_SHADER_FILES = {
 	planarReflectionComposite: "./webgpu/utility/planarReflectionComposite.wgsl",
 	present: "./webgpu/utility/present.wgsl",
 	colorDirtyClear: "./webgpu/utility/colorDirtyClear.wgsl",
@@ -149,46 +66,19 @@ const WEBGPU_UTILITY_SHADER_FILES: Record<WebGPUUtilityShaderPart, string> = {
 	decal: "./webgpu/scene/decal.wgsl",
 	oitResolve: "./webgpu/utility/oitResolve.wgsl",
 	occlusionCulling: "./webgpu/utility/occlusionCulling.wgsl",
-	mipmapBlit: "./webgpu/utility/mipmapBlit.wgsl",
-};
+	mipmapBlit: { path: "./webgpu/utility/mipmapBlit.wgsl", sync: true },
+} as const;
 
 const WEBGPU_FIXED_SHADER_FILES = {
-	environment: {
-		scope: "webgpu",
-		key: "webgpu.environment",
-		path: "./webgpu/environment/background.wgsl",
-	},
-	deferredLighting: {
-		scope: "webgpu",
-		key: "webgpu.deferredLighting",
-		path: "./webgpu/lighting/deferredLighting.wgsl",
-	},
-	particle: {
-		scope: "webgpu",
-		key: "webgpu.particle",
-		path: "./webgpu/particles/render.wgsl",
-	},
-	particleSimulation: {
-		scope: "webgpu",
-		key: "webgpu.particleSimulation",
-		path: "./webgpu/particles/simulation.wgsl",
-	},
-	clusteredLightingCull: {
-		scope: "webgpu",
-		key: "webgpu.clusteredLightingCull",
-		path: "./webgpu/lighting/clusteredLightingCull.wgsl",
-	},
-	iblPrefilter: {
-		scope: "webgpu",
-		key: "webgpu.iblPrefilter",
-		path: "./webgpu/environment/iblPrefilter.wgsl",
-	},
-} as const satisfies Record<string, WebGPUShaderFileDescriptor>;
+	environment: "./webgpu/environment/background.wgsl",
+	deferredLighting: "./webgpu/lighting/deferredLighting.wgsl",
+	particle: "./webgpu/particles/render.wgsl",
+	particleSimulation: "./webgpu/particles/simulation.wgsl",
+	clusteredLightingCull: "./webgpu/lighting/clusteredLightingCull.wgsl",
+	iblPrefilter: "./webgpu/environment/iblPrefilter.wgsl",
+} as const satisfies Record<string, string>;
 
-const WEBGPU_DIRECTIVE_SHADER_FILES: Record<
-	WebGPUDirectiveShaderPart,
-	string
-> = {
+const WEBGPU_DIRECTIVE_SHADER_FILES = {
 	animation: "./webgpu/common/animation.wgsl",
 	frameCamera: "./webgpu/common/frameCamera.wgsl",
 	frameUniforms: "./webgpu/common/frameUniforms.wgsl",
@@ -196,9 +86,9 @@ const WEBGPU_DIRECTIVE_SHADER_FILES: Record<
 	srgb: "./webgpu/directives/srgb.wgsl",
 	lumaWeights: "./webgpu/directives/lumaWeights.wgsl",
 	lumaCommon: "./webgpu/directives/lumaCommon.wgsl",
-};
+} as const satisfies Record<string, string>;
 
-const asset = (id: string): ShaderSourceNode => ({ asset: id });
+const asset = <const T extends string>(id: T) => ({ asset: id });
 const concat = (
 	ids: readonly string[],
 	fallbackSourcePath: string,
@@ -207,131 +97,112 @@ const concat = (
 	fallbackSourcePath,
 });
 
-const assets: Record<string, { path: string; sync?: boolean }> = {};
-const sources: Record<string, any> = {};
+const sceneModules = createShaderModuleGroup(
+	WEBGPU_SCENE_SHADER_FILES, "scene.", "webgpu.scene.part.", "builtin-scene",
+);
+const shadowModules = createShaderModuleGroup(
+	WEBGPU_SHADOW_SHADER_FILES, "shadow.", "webgpu.shadow.", "shadow",
+);
+const utilityModules = createShaderModuleGroup(
+	WEBGPU_UTILITY_SHADER_FILES, "utility.", "webgpu.utility.", "unknown",
+);
+const directiveModules = createShaderModuleGroup(
+	WEBGPU_DIRECTIVE_SHADER_FILES, "directive.", "webgpu.directive.", "unknown",
+);
 
-assets["scene.depthPrepass"] = { path: "./webgpu/scene/depthPrepass.wgsl" };
-sources["webgpu.scene.depth"] = {
-	kind: "module",
-	sourceKind: "builtin-scene",
-	source: asset("scene.depthPrepass"),
-};
+const assets = {
+	...sceneModules.assets,
+	...mapShaderManifestEntries(WEBGPU_POST_PROCESS_SHADER_FILES, "postprocess.",
+		(path) => ({ path })),
+	...shadowModules.assets,
+	...utilityModules.assets,
+	...directiveModules.assets,
+	...mapShaderManifestEntries(WEBGPU_FIXED_SHADER_FILES, "fixed.", (path) => ({ path })),
+	"scene.depthPrepass": { path: "./webgpu/scene/depthPrepass.wgsl" },
+	"scene.shadowVisibility": { path: "./webgpu/common/shadowVisibility.wgsl" },
+} as const;
 
-for (const [part, path] of Object.entries(WEBGPU_SCENE_SHADER_FILES)) {
-	const id = `scene.${part}`;
-	assets[id] = { path };
-	sources[`webgpu.scene.part.${part}`] = {
+const sources = {
+	...sceneModules.sources,
+	...shadowModules.sources,
+	...utilityModules.sources,
+	...directiveModules.sources,
+	...mapShaderManifestEntries(WEBGPU_POST_PROCESS_SHADER_FILES, "webgpu.postprocess.",
+		(_path, part) => ({
+			kind: "module",
+			sourceKind: "postprocess",
+			source: concat(
+				WEBGPU_POST_PROCESS_PARTS_USING_SHARED_LIGHT_DATA.has(part) ?
+					["scene.lightData", `postprocess.${part}`] : [`postprocess.${part}`],
+				"<webgpu-postprocess-part>",
+			),
+		} as const)),
+	"webgpu.scene.depth": {
 		kind: "module",
 		sourceKind: "builtin-scene",
-		source: asset(id),
-	};
-}
-for (const [part, path] of Object.entries(WEBGPU_POST_PROCESS_SHADER_FILES)) {
-	const id = `postprocess.${part}`;
-	assets[id] = { path };
-	const nodes = WEBGPU_POST_PROCESS_PARTS_USING_SHARED_LIGHT_DATA.has(
-		part as WebGPUPostProcessShaderPart,
-	) ? ["scene.lightData", id] : [id];
-	sources[`webgpu.postprocess.${part}`] = {
+		source: asset("scene.depthPrepass"),
+	},
+	"webgpu.utility.decal": {
 		kind: "module",
-		sourceKind: "postprocess",
-		source: concat(nodes, "<webgpu-postprocess-part>"),
-	};
-}
-for (const [part, path] of Object.entries(WEBGPU_SHADOW_SHADER_FILES)) {
-	const id = `shadow.${part}`;
-	assets[id] = { path };
-	sources[`webgpu.shadow.${part}`] = {
+		sourceKind: "decal",
+		source: concat(["scene.deferredGBufferCodec", "utility.decal"], "<webgpu-decal-part>"),
+	},
+	"webgpu.scene": {
 		kind: "module",
-		sourceKind: "shadow",
-		source: asset(id),
-	};
-}
-for (const [part, path] of Object.entries(WEBGPU_UTILITY_SHADER_FILES)) {
-	const id = `utility.${part}`;
-	assets[id] = { path, sync: part === "mipmapBlit" };
-	sources[`webgpu.utility.${part}`] = {
+		sourceKind: "builtin-scene",
+		source: concat(
+			[...Object.keys(sceneModules.assets), "scene.shadowVisibility"],
+			"<webgpu-scene-part>",
+		),
+	},
+	"webgpu.environment": {
 		kind: "module",
-		sourceKind: part === "decal" ? "decal" : "unknown",
-		source:
-			part === "decal" ?
-				concat(["scene.deferredGBufferCodec", id], "<webgpu-decal-part>")
-			: asset(id),
-	};
-}
-for (const [part, path] of Object.entries(WEBGPU_DIRECTIVE_SHADER_FILES)) {
-	const id = `directive.${part}`;
-	assets[id] = { path };
-	sources[`webgpu.directive.${part}`] = {
+		sourceKind: "builtin-environment",
+		source: concat(["scene.lightData", "fixed.environment"], "<webgpu-shared-light-data-part>"),
+	},
+	"webgpu.deferredLighting": {
 		kind: "module",
-		sourceKind: "unknown",
-		source: asset(id),
-	};
-}
-for (const [part, descriptor] of Object.entries(WEBGPU_FIXED_SHADER_FILES)) {
-	const id = `fixed.${part}`;
-	assets[id] = { path: descriptor.path };
-}
+		sourceKind: "builtin-scene",
+		source: concat(
+			[
+				"scene.lightData",
+				"scene.constants",
+				"scene.definitions",
+				"scene.utils",
+				"scene.shadowVisibility",
+				"scene.deferredGBufferCodec",
+				"scene.surfaceLighting",
+				"fixed.deferredLighting",
+			],
+			"<webgpu-deferred-lighting-part>",
+		),
+	},
+	"webgpu.particle": {
+		kind: "module",
+		sourceKind: "particle",
+		source: asset("fixed.particle"),
+	},
+	"webgpu.particleSimulation": {
+		kind: "module",
+		sourceKind: "particle",
+		source: asset("fixed.particleSimulation"),
+	},
+	"webgpu.clusteredLightingCull": {
+		kind: "module",
+		sourceKind: "clustered",
+		source: concat(
+			["scene.lightData", "fixed.clusteredLightingCull"],
+			"<webgpu-shared-light-data-part>",
+		),
+	},
+	"webgpu.iblPrefilter": {
+		kind: "module",
+		sourceKind: "builtin-environment",
+		source: asset("fixed.iblPrefilter"),
+	},
+} as const;
 
-assets["scene.shadowVisibility"] = {
-	path: "./webgpu/common/shadowVisibility.wgsl",
-};
-
-sources["webgpu.scene"] = {
-	kind: "module",
-	sourceKind: "builtin-scene",
-	source: concat(
-		[...WEBGPU_SCENE_SHADER_PARTS.map((part) => `scene.${part}`), "scene.shadowVisibility"],
-		"<webgpu-scene-part>",
-	),
-};
-sources["webgpu.environment"] = {
-	kind: "module",
-	sourceKind: "builtin-environment",
-	source: concat(["scene.lightData", "fixed.environment"], "<webgpu-shared-light-data-part>"),
-};
-sources["webgpu.deferredLighting"] = {
-	kind: "module",
-	sourceKind: "builtin-scene",
-	source: concat(
-		[
-			"scene.lightData",
-			"scene.constants",
-			"scene.definitions",
-			"scene.utils",
-			"scene.shadowVisibility",
-			"scene.deferredGBufferCodec",
-			"scene.surfaceLighting",
-			"fixed.deferredLighting",
-		],
-		"<webgpu-deferred-lighting-part>",
-	),
-};
-sources["webgpu.particle"] = {
-	kind: "module",
-	sourceKind: "particle",
-	source: asset("fixed.particle"),
-};
-sources["webgpu.particleSimulation"] = {
-	kind: "module",
-	sourceKind: "particle",
-	source: asset("fixed.particleSimulation"),
-};
-sources["webgpu.clusteredLightingCull"] = {
-	kind: "module",
-	sourceKind: "clustered",
-	source: concat(
-		["scene.lightData", "fixed.clusteredLightingCull"],
-		"<webgpu-shared-light-data-part>",
-	),
-};
-sources["webgpu.iblPrefilter"] = {
-	kind: "module",
-	sourceKind: "builtin-environment",
-	source: asset("fixed.iblPrefilter"),
-};
-
-export const WEBGPU_SHADER_MANIFEST: ShaderBackendManifest = {
+export const WEBGPU_SHADER_MANIFEST = {
 	backend: "webgpu",
 	language: "wgsl",
 	assets,
@@ -391,4 +262,4 @@ export const WEBGPU_SHADER_MANIFEST: ShaderBackendManifest = {
 			},
 		},
 	},
-};
+} as const satisfies ShaderBackendManifest<typeof sources>;

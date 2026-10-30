@@ -77,10 +77,7 @@ import type {
 	ShaderDirectiveProfileBase,
 	ShaderRuntimeMode,
 } from "../../shaders/runtime";
-import {
-	ShaderSource,
-	type ShaderSourceKey,
-} from "../../shaders/ShaderSource";
+import { ShaderSource } from "../../shaders/ShaderSource";
 import {
 	createShaderDirectiveProfileFromManifest,
 	prepareShaderDirectiveProfileBase,
@@ -486,7 +483,7 @@ export class WebGPUBackend implements IRenderBackend {
 				Promise.resolve(this._shaderProfileBase)
 			:	prepareShaderDirectiveProfileBase(
 					WEBGPU_SHADER_MANIFEST,
-					(key) => ShaderSource.load(key as ShaderSourceKey),
+					(key) => ShaderSource.load(key),
 				),
 			ShaderSource.prepare("webgpu.utility.mipmapBlit"),
 		]);
