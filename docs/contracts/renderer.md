@@ -287,6 +287,16 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
 
 #### 6. Render Targets (`Renderer.renderTargets`)
 
+- WebGL and WebGPU custom render-target runtimes must use
+  `createCustomRenderTargetResources` for shared attachment allocation and cleanup.
+  The allocator must validate resolved dimensions and formats, allocate
+  attachments and color resolves, release partial allocation on failure, and
+  expose idempotent `destroy()`. Backend resource factories must keep native
+  state private. Native initialization must clean its partial state before
+  throwing; successful initialization must return a disposal callback that runs
+  before attachments retire. Each backend runtime must retain ownership of target
+  synchronization, frame execution, and resource lifetime.
+
 - `Renderer.renderTargets.create(descriptor)` must create one persistent render
   target and return a renderer-owned `RenderTargetHandle` with an opaque id.
 - `RenderTargetHandle.destroy()` must cancel queued work, reject pending tickets,

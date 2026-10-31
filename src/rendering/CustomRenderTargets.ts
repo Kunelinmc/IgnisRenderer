@@ -1,3 +1,4 @@
+import { TextureUsage } from "../backends/types";
 import type { TextureReadbackResult } from "../backends/IComputeRuntime";
 import {
 	getTextureFormatInfo,
@@ -187,6 +188,118 @@ export interface CustomRenderTargetExecutionTarget {
 	readonly color: readonly CustomRenderTargetAttachment[];
 	readonly depth?: CustomRenderTargetAttachment | null;
 	readonly sampleCount: number;
+}
+
+/** @internal Runtime-owned target storage; passes borrow `CustomRenderTargetExecutionTarget`. */
+export interface CustomRenderTargetResources extends CustomRenderTargetExecutionTarget {
+	/** @internal Releases native target state and attachments once through the resource owner. */
+	destroy(): void;
+}
+
+/** @internal Backend allocation operations used only by CustomRenderTarget runtimes. */
+export interface CustomRenderTargetResourceFactory {
+	/** @internal Allocates one target texture through its owning backend. */
+	createTexture(descriptor: TextureDesc): IRenderTexture;
+	/**
+	 * Initializes private native target state and returns its disposal callback.
+	 * Failed initialization must release partial native state before throwing.
+	 * @internal CustomRenderTarget allocation; applications use `Renderer.renderTargets`.
+	 */
+	initializeTarget?(target: CustomRenderTargetExecutionTarget): () => void;
+}
+
+/**
+ * Allocates attachments and native target state for CustomRenderTarget runtimes.
+ * @internal CustomRenderTarget allocation; applications use `Renderer.renderTargets`.
+ */
+export function createCustomRenderTargetResources(
+	factory: CustomRenderTargetResourceFactory,
+	descriptor: RenderTargetDescriptor,
+	width: number,
+	height: number,
+	sampleCount = 1,
+): CustomRenderTargetResources {
+	for (const [name, value] of [
+		["width", width], ["height", height], ["sampleCount", sampleCount],
+	] as const) {
+		if (!Number.isInteger(value) || value <= 0) {
+			throw new Error(`Render target "${descriptor.id}" ${name} must be a positive integer.`);
+		}
+	}
+	const color: CustomRenderTargetAttachment[] = [];
+	let releaseNative: (() => void) | null = null;
+	let destroyed = false;
+	const target: CustomRenderTargetResources = {
+		id: descriptor.id, width, height, sampleCount, color, depth: null,
+		destroy() {
+			if (destroyed) return;
+			destroyed = true;
+			try {
+				releaseNative?.();
+			} finally {
+				releaseNative = null;
+				target.depth?.texture.destroy();
+				for (const attachment of color) {
+					attachment.texture.destroy();
+					attachment.resolveTexture?.destroy();
+				}
+			}
+		},
+	};
+	try {
+		for (let index = 0; index < descriptor.color.length; index++) {
+			const attachment = descriptor.color[index];
+			const label = attachment.label ?? `RenderTarget_${descriptor.id}_Color${index}`;
+			const texture = factory.createTexture({
+				width, height, sampleCount, format: attachment.format, label,
+				usage: sampleCount > 1 ? TextureUsage.RenderAttachment :
+					TextureUsage.RenderAttachment | TextureUsage.TextureBinding |
+						TextureUsage.CopySrc | TextureUsage.CopyDst,
+			});
+			const entry: {
+				texture: IRenderTexture;
+				format: TextureFormat;
+				resolveTexture: IRenderTexture | null;
+			} = {
+				texture, format: attachment.format, resolveTexture: null,
+			};
+			color.push(entry);
+			assertExactTargetFormat(descriptor.id, texture, attachment.format);
+			if (sampleCount > 1) {
+				entry.resolveTexture = factory.createTexture({
+					width, height, sampleCount: 1, format: attachment.format, label: `${label}_Resolve`,
+					usage: TextureUsage.RenderAttachment | TextureUsage.TextureBinding |
+						TextureUsage.CopySrc | TextureUsage.CopyDst,
+				});
+				assertExactTargetFormat(descriptor.id, entry.resolveTexture, attachment.format);
+			}
+		}
+		if (descriptor.depth) {
+			const texture = factory.createTexture({
+				width, height, sampleCount, format: descriptor.depth.format,
+				label: descriptor.depth.label ?? `RenderTarget_${descriptor.id}_Depth`,
+				usage: TextureUsage.RenderAttachment | TextureUsage.TextureBinding |
+					(sampleCount === 1 ? TextureUsage.CopySrc : 0),
+			});
+			// Publish before validation so rollback also owns a format-fallback allocation.
+			Object.assign(target, {
+				depth: { texture, format: descriptor.depth.format, resolveTexture: null },
+			});
+			assertExactTargetFormat(descriptor.id, texture, descriptor.depth.format);
+		}
+		releaseNative = factory.initializeTarget?.(target) ?? null;
+		return target;
+	} catch (error) {
+		target.destroy();
+		throw error;
+	}
+}
+
+function assertExactTargetFormat(id: string, texture: IRenderTexture, requested: TextureFormat): void {
+	const actual = texture.format ?? texture.requestedFormat;
+	if (actual !== requested || texture.formatFallbackReason) {
+		throw new Error(`Render target "${id}" requested "${requested}" but received "${actual ?? "unknown"}".`);
+	}
 }
 
 export interface CustomRenderPassResourceFacade {

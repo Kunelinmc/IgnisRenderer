@@ -438,7 +438,7 @@ function testWebGLIncompleteFramebufferIsTransactional() {
 	const runtime = new WebGLCustomRenderTargetRuntime(gl);
 	assert.throws(
 		() => runtime.sync(createContext(() => {})),
-		/incomplete/
+		/WebGL custom framebuffer "inspect" is incomplete \(status=0x8cd6\)\./
 	);
 	assert.equal(
 		gl.calls.filter((call) => call[0] === "deleteTexture").length,
@@ -448,6 +448,25 @@ function testWebGLIncompleteFramebufferIsTransactional() {
 		gl.calls.filter((call) => call[0] === "deleteFramebuffer").length,
 		1
 	);
+}
+
+function testWebGLTextureStorageFailureReleasesPartialTarget() {
+	for (const failedAttachment of [1, 2, 3]) {
+		const gl = createFakeGL();
+		let allocations = 0;
+		gl.texImage2D = () => {
+			if (++allocations === failedAttachment) throw new Error("texture storage failed");
+		};
+		const runtime = new WebGLCustomRenderTargetRuntime(gl);
+		assert.throws(() => runtime.sync(createContext(() => {})), /texture storage failed/);
+		const deleted = gl.calls.filter((call) => call[0] === "deleteTexture");
+		assert.equal(deleted.length, failedAttachment, "release color and depth partial storage");
+		assert.equal(new Set(deleted.map((call) => call[1])).size, deleted.length);
+		assert.equal(gl.calls.filter((call) => call[0] === "deleteFramebuffer").length, 0,
+			"native target is not initialized while attachment allocation is incomplete");
+		runtime.destroy();
+		assert.equal(gl.calls.filter((call) => call[0] === "deleteTexture").length, deleted.length);
+	}
 }
 
 async function testWebGLPassFailureRestoresState() {
@@ -599,6 +618,7 @@ await testWebGLCustomTargetExecutionAndReadback();
 testWebGLStrictFormatValidation();
 testWebGLCoreFormatMappings();
 testWebGLIncompleteFramebufferIsTransactional();
+testWebGLTextureStorageFailureReleasesPartialTarget();
 await testWebGLPassFailureRestoresState();
 await testWebGLFloat16ReadbackLayout();
 await testWebGLSceneViewJobDelegatesToIsolatedExecutor();

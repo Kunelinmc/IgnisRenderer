@@ -7,15 +7,13 @@ import type {
 	CustomRenderPassContext,
 	CustomRenderPassResourceFacade,
 	CustomRenderTargetExecutionTarget,
+	CustomRenderTargetResources,
 	RenderTargetDescriptor,
 	RenderTargetReadbackOptions,
 	RenderTargetReadbackResult,
 } from "../../../rendering/CustomRenderTargets";
 import { TextureFormat } from "../../../core/TextureFormat";
-import {
-	TextureUsage,
-	type IRenderTexture,
-} from "../../types";
+import { createCustomRenderTargetResources } from "../../../rendering/CustomRenderTargets";
 import type { WebGPUFrameHost } from "./WebGPUFrameHost";
 import { ComputeRuntime } from "../ComputeRuntime";
 import { Logger } from "../../../foundation/Logger";
@@ -43,20 +41,10 @@ import type {
 const WEBGPU_CUSTOM_TARGET_SAMPLE_COUNT_FALLBACK_KEY =
 	"webgpu-custom-target-sample-count-runtime-fallback-1x";
 
-interface WebGPUCustomRenderTargetColor {
-	texture: IRenderTexture;
-	resolveTexture: IRenderTexture | null;
-}
-
-interface WebGPUCustomRenderTarget {
+type WebGPUCustomRenderTarget = CustomRenderTargetResources & {
 	descriptor: RenderTargetDescriptor;
-	width: number;
-	height: number;
-	sampleCount: number;
 	selectionSignature: string;
-	color: WebGPUCustomRenderTargetColor[];
-	depth: IRenderTexture | null;
-}
+};
 
 /**
  * Owns WebGPU custom render-target allocation, pass execution, and readback.
@@ -76,6 +64,7 @@ export class WebGPUCustomRenderTargetRuntime implements WebGPUFrameGraphModule {
 	private readonly _host: WebGPUFrameHost;
 	private _readbackRuntime: ComputeRuntime | null = null;
 	private readonly _targets = new Map<string, WebGPUCustomRenderTarget>();
+	private _destroyed = false;
 	private readonly _viewExecutor: WebGPURenderTargetViewExecutor | null;
 	private _lastSuccessfulFrame = false;
 
@@ -245,6 +234,8 @@ export class WebGPUCustomRenderTargetRuntime implements WebGPUFrameGraphModule {
 	}
 
 	public destroy(): void {
+		if (this._destroyed) return;
+		this._destroyed = true;
 		for (const id of Array.from(this._targets.keys())) {
 			this._destroyTarget(id);
 		}
@@ -267,103 +258,9 @@ export class WebGPUCustomRenderTargetRuntime implements WebGPUFrameGraphModule {
 		height: number,
 		selection: WebGPUSampleCountSelection,
 	): WebGPUCustomRenderTarget {
-		const color: WebGPUCustomRenderTargetColor[] = [];
-		let depth: IRenderTexture | null = null;
-		try {
-			for (let index = 0; index < descriptor.color.length; index++) {
-				const attachment = descriptor.color[index];
-				const texture = this._host.createTexture({
-					width,
-					height,
-					format: attachment.format,
-					sampleCount: selection.sampleCount,
-					usage:
-						selection.sampleCount > 1
-							? TextureUsage.RenderAttachment
-							: TextureUsage.RenderAttachment |
-								TextureUsage.TextureBinding |
-								TextureUsage.CopySrc |
-								TextureUsage.CopyDst,
-					label:
-						attachment.label ??
-						`WebGPUCustomRenderTarget_${descriptor.id}_Color${index}`,
-				});
-				const colorAttachment: WebGPUCustomRenderTargetColor = {
-					texture,
-					resolveTexture: null,
-				};
-				color.push(colorAttachment);
-				assertExactTextureFormat(
-					descriptor.id,
-					`color attachment ${index}`,
-					texture,
-					attachment.format,
-				);
-				const resolveTexture =
-					selection.sampleCount > 1
-						? this._host.createTexture({
-								width,
-								height,
-								format: attachment.format,
-								sampleCount: 1,
-								usage:
-									TextureUsage.RenderAttachment |
-									TextureUsage.TextureBinding |
-									TextureUsage.CopySrc |
-									TextureUsage.CopyDst,
-								label: `${
-									attachment.label ??
-									`WebGPUCustomRenderTarget_${descriptor.id}_Color${index}`
-								}_Resolve`,
-							})
-						: null;
-				colorAttachment.resolveTexture = resolveTexture;
-				if (resolveTexture) {
-					assertExactTextureFormat(
-						descriptor.id,
-						`color attachment ${index} resolve texture`,
-						resolveTexture,
-						attachment.format,
-					);
-				}
-			}
-			if (descriptor.depth) {
-				depth = this._host.createTexture({
-					width,
-					height,
-					format: descriptor.depth.format,
-					sampleCount: selection.sampleCount,
-					usage:
-						TextureUsage.RenderAttachment |
-						TextureUsage.TextureBinding |
-						(selection.sampleCount === 1 ? TextureUsage.CopySrc : 0),
-					label:
-						descriptor.depth.label ?? `WebGPUCustomRenderTarget_${descriptor.id}_Depth`,
-				});
-				assertExactTextureFormat(
-					descriptor.id,
-					"depth attachment",
-					depth,
-					descriptor.depth.format,
-				);
-			}
-			return {
-				descriptor,
-				width,
-				height,
-				sampleCount: selection.sampleCount,
-				selectionSignature: selection.signature,
-				color,
-				depth,
-			};
-		} catch (error) {
-			for (const attachment of color) {
-				attachment.texture.destroy();
-				attachment.resolveTexture?.destroy();
-			}
-			depth?.destroy();
-			throw error;
-		}
+		return Object.assign(createCustomRenderTargetResources(
+			this._host, descriptor, width, height, selection.sampleCount,
+		), { descriptor, selectionSignature: selection.signature });
 	}
 
 	private _destroyTarget(id: string): void {
@@ -377,11 +274,7 @@ export class WebGPUCustomRenderTargetRuntime implements WebGPUFrameGraphModule {
 	}
 
 	private _destroyTargetResources(target: WebGPUCustomRenderTarget): void {
-		for (const attachment of target.color) {
-			attachment.texture.destroy();
-			attachment.resolveTexture?.destroy();
-		}
-		target.depth?.destroy();
+		target.destroy();
 	}
 
 	private _resolveSampleCount(descriptor: RenderTargetDescriptor): WebGPUSampleCountSelection {
@@ -452,7 +345,7 @@ function toExecutionTarget(
 			resolveTexture: attachment.resolveTexture,
 		})),
 		depth: target.depth && target.descriptor.depth ? {
-			texture: target.depth,
+			texture: target.depth.texture,
 			format: target.descriptor.depth.format,
 			resolveTexture: null,
 		} : null,
@@ -492,20 +385,6 @@ function targetDescriptorsEqual(
 	return JSON.stringify(a) === JSON.stringify(b);
 }
 
-function assertExactTextureFormat(
-	id: string,
-	attachment: string,
-	texture: IRenderTexture,
-	requestedFormat: TextureFormat
-): void {
-	const actualFormat = texture.format ?? texture.requestedFormat;
-	if (actualFormat !== requestedFormat || texture.formatFallbackReason) {
-		throw new Error(
-			`WebGPU custom render target "${id}" ${attachment} requested ` +
-				`"${requestedFormat}" but received "${actualFormat ?? "unknown"}".`
-		);
-	}
-}
 
 function resolveReadbackDimension(
 	id: string,

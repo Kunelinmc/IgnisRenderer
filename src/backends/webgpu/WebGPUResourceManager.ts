@@ -93,18 +93,15 @@ export class WebGPUResourceManager {
 			gpuBuffer.unmap();
 		}
 
-		let dispose = () => {};
+		const disposal = { current: () => {} };
 		const buffer = this.registerBuffer(gpuBuffer, {
 			size: desc.size,
-		}, () => dispose());
-		// Isolate the facade capture from the manager-retained disposal closure.
+		}, createDeferredBufferDispose(disposal));
+		// Manager-retained callbacks must not share the scope holding the facade.
 		buffer.unmap = createBufferUnmap(this, buffer);
-		dispose = this._host.createManagedDestroy(buffer, {
+		disposal.current = this._host.createManagedDestroy(buffer, {
 			label: desc.label ?? "WebGPUBuffer",
-			dispose: () => {
-				tryUnmapBuffer(gpuBuffer);
-				gpuBuffer.destroy();
-			},
+			dispose: createNativeBufferDispose(gpuBuffer),
 		});
 		return buffer;
 	}
@@ -440,6 +437,17 @@ function tryUnmapBuffer(buffer: GPUBuffer | null): void {
 
 function createBufferUnmap(resources: WebGPUResourceManager, buffer: IRenderBuffer): () => void {
 	return () => tryUnmapBuffer(resources.getBuffer(buffer));
+}
+
+function createDeferredBufferDispose(disposal: { current: () => void }): () => void {
+	return () => disposal.current();
+}
+
+function createNativeBufferDispose(buffer: GPUBuffer): () => void {
+	return () => {
+		tryUnmapBuffer(buffer);
+		buffer.destroy();
+	};
 }
 
 function mapBufferUsage(usage: number): GPUBufferUsageFlags {

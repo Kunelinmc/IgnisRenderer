@@ -6,6 +6,7 @@ import type {
 	CustomRenderPassContext,
 	CustomRenderPassResourceFacade,
 	CustomRenderTargetExecutionTarget,
+	CustomRenderTargetResources,
 	RenderTargetDescriptor,
 	RenderTargetReadbackOptions,
 	RenderTargetReadbackResult,
@@ -56,19 +57,19 @@ import {
 	resolveWebGLColorRenderTargetFormat,
 	resolveWebGLDepthRenderTargetFormat,
 } from "./WebGLRenderTargetFormat";
+import {
+	createWebGLColorTexture,
+	createWebGLDepthTexture,
+	WebGLRenderTargetResources,
+} from "./WebGLRenderTargetResources";
+import { createCustomRenderTargetResources } from "../../rendering/CustomRenderTargets";
 import type { WebGLAuxiliaryUniform } from "./WebGLAuxiliaryRaster";
 import { WebGLResourceStore, type WebGLPipelineState } from "./WebGLResourceStore";
 
-interface WebGLCustomRenderTarget {
+type WebGLCustomRenderTarget = CustomRenderTargetResources & {
 	descriptor: RenderTargetDescriptor;
-	width: number;
-	height: number;
-	sampleCount: number;
 	sceneDepth: boolean;
-	framebuffer: WebGLFramebuffer;
-	color: IRenderTexture[];
-	depth: IRenderTexture | null;
-}
+};
 
 export interface WebGLCustomRenderTargetRuntimeOptions {
 	/** @internal Restores the WebGL frame executor baseline after a custom pass. */
@@ -88,10 +89,12 @@ export interface WebGLCustomRenderTargetRuntimeOptions {
 export class WebGLCustomRenderTargetRuntime {
 	private readonly _gl: WebGL2RenderingContext;
 	private readonly _resources = new WebGLResourceStore();
+	private readonly _targetResources: WebGLRenderTargetResources;
 	private readonly _restoreFrameState: (context: FrameContext) => void;
 	private readonly _executeSceneView?: WebGLCustomRenderTargetRuntimeOptions["executeSceneView"];
 	private readonly _supportsFloatColorBuffer: boolean;
 	private readonly _targets = new Map<string, WebGLCustomRenderTarget>();
+	private _destroyed = false;
 	private _lastSuccessfulFrame = false;
 
 	public constructor(
@@ -105,6 +108,9 @@ export class WebGLCustomRenderTargetRuntime {
 		this._supportsFloatColorBuffer =
 			typeof gl.getExtension === "function" &&
 			Boolean(gl.getExtension("EXT_color_buffer_float"));
+		this._targetResources = new WebGLRenderTargetResources(
+			gl, this._resources, this._supportsFloatColorBuffer,
+		);
 	}
 
 	public sync(context: FrameContext): void {
@@ -217,7 +223,10 @@ export class WebGLCustomRenderTargetRuntime {
 					if (!this._executeSceneView) {
 						throw new Error("WebGL scene-view target execution is unavailable.");
 					}
-					await this._executeSceneView(context, job, target);
+					await this._executeSceneView(context, job, {
+						framebuffer: this._targetResources.getFramebuffer(target),
+						width: target.width, height: target.height,
+					});
 					this._restoreFrameState(context);
 					continue;
 				}
@@ -263,7 +272,7 @@ export class WebGLCustomRenderTargetRuntime {
 		if (!target) {
 			throw new Error(`Render target "${id}" is unavailable.`);
 		}
-		const texture = target.color[attachmentIndex];
+		const texture = target.color[attachmentIndex]?.texture;
 		if (!texture) {
 			throw new Error(
 				`Render target "${id}" color attachment ${attachmentIndex} is unavailable.`
@@ -283,7 +292,7 @@ export class WebGLCustomRenderTargetRuntime {
 		const bytesPerPixel = resolved.bytesPerPixel;
 		const bytesPerRow = width * bytesPerPixel;
 		let bytes: Uint8Array;
-		gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
+		gl.bindFramebuffer(gl.FRAMEBUFFER, this._targetResources.getFramebuffer(target));
 		try {
 			gl.readBuffer(gl.COLOR_ATTACHMENT0 + attachmentIndex);
 			if (resolved.readType === gl.FLOAT) {
@@ -318,6 +327,8 @@ export class WebGLCustomRenderTargetRuntime {
 	}
 
 	public destroy(): void {
+		if (this._destroyed) return;
+		this._destroyed = true;
 		for (const id of Array.from(this._targets.keys())) {
 			this._destroyTarget(id);
 		}
@@ -331,87 +342,12 @@ export class WebGLCustomRenderTargetRuntime {
 		height: number,
 		sceneDepth: boolean,
 	): WebGLCustomRenderTarget {
-		const gl = this._gl;
-		const framebuffer = gl.createFramebuffer();
-		if (!framebuffer) {
-			throw new Error(`Failed to create WebGL custom framebuffer "${descriptor.id}".`);
-		}
-		const color: IRenderTexture[] = [];
-		let depth: IRenderTexture | null = null;
-		try {
-			for (let index = 0; index < descriptor.color.length; index++) {
-				const attachment = descriptor.color[index];
-				color.push(
-					createWebGLColorTexture(
-						gl,
-						this._resources,
-						width,
-						height,
-						attachment.format,
-						this._supportsFloatColorBuffer,
-						attachment.label ??
-							`WebGLCustomRenderTarget_${descriptor.id}_Color${index}`
-					)
-				);
-			}
-			if (descriptor.depth || sceneDepth) {
-				depth = createWebGLDepthTexture(
-					gl,
-					this._resources,
-					width,
-					height,
-					descriptor.depth?.format ?? TextureFormat.Depth32Float,
-					descriptor.depth?.label ??
-						`WebGLCustomRenderTarget_${descriptor.id}_Depth`
-				);
-			}
-			gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
-			for (let index = 0; index < color.length; index++) {
-				gl.framebufferTexture2D(
-					gl.FRAMEBUFFER,
-					gl.COLOR_ATTACHMENT0 + index,
-					gl.TEXTURE_2D,
-					this._resources.getTexture(color[index]).texture,
-					0
-				);
-			}
-			if (depth) {
-				gl.framebufferTexture2D(
-					gl.FRAMEBUFFER,
-					gl.DEPTH_ATTACHMENT,
-					gl.TEXTURE_2D,
-					this._resources.getTexture(depth).texture,
-					0
-				);
-			}
-			gl.drawBuffers(color.map((_texture, index) => gl.COLOR_ATTACHMENT0 + index));
-			const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
-			if (status !== gl.FRAMEBUFFER_COMPLETE) {
-				throw new Error(
-					`WebGL custom framebuffer "${descriptor.id}" is incomplete ` +
-						`(status=0x${status.toString(16)}).`
-				);
-			}
-			return {
-				descriptor,
-				width,
-				height,
-				sampleCount: 1,
-				sceneDepth,
-				framebuffer,
-				color,
-				depth,
-			};
-		} catch (error) {
-			for (const texture of color) {
-				texture.destroy();
-			}
-			depth?.destroy();
-			gl.deleteFramebuffer(framebuffer);
-			throw error;
-		} finally {
-			gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-		}
+		const allocationDescriptor = sceneDepth && !descriptor.depth ? {
+			...descriptor, depth: { format: TextureFormat.Depth32Float },
+		} : descriptor;
+		return Object.assign(createCustomRenderTargetResources(
+			this._targetResources, allocationDescriptor, width, height,
+		), { descriptor, sceneDepth });
 	}
 
 	private _destroyTarget(id: string): void {
@@ -424,11 +360,7 @@ export class WebGLCustomRenderTargetRuntime {
 	}
 
 	private _destroyTargetResources(target: WebGLCustomRenderTarget): void {
-		for (const texture of target.color) {
-			texture.destroy();
-		}
-		target.depth?.destroy();
-		this._gl.deleteFramebuffer(target.framebuffer);
+		target.destroy();
 	}
 }
 
@@ -786,52 +718,6 @@ export class WebGLScopedRasterEncoder implements ICommandEncoder {
 	}
 }
 
-function createWebGLColorTexture(
-	gl: WebGL2RenderingContext,
-	resources: WebGLResourceStore,
-	width: number,
-	height: number,
-	format: TextureFormat,
-	floatColorSupported: boolean,
-	label: string
-): IRenderTexture {
-	const texture = gl.createTexture();
-	if (!texture) {
-		throw new Error(`Failed to create ${label}.`);
-	}
-	const resolved = resolveWebGLColorRenderTargetFormat(
-		gl,
-		format,
-		floatColorSupported
-	);
-	if (!resolved) {
-		gl.deleteTexture(texture);
-		throw new Error(`Unsupported WebGL custom render target format "${format}".`);
-	}
-	gl.bindTexture(gl.TEXTURE_2D, texture);
-	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-	gl.texImage2D(
-		gl.TEXTURE_2D,
-		0,
-		resolved.internalFormat,
-		width,
-		height,
-		0,
-		resolved.format,
-		resolved.allocationType,
-		null
-	);
-	gl.bindTexture(gl.TEXTURE_2D, null);
-	return resources.createTexture({
-		width,
-		height,
-		format,
-		requestedFormat: format,
-	}, { texture, colorFormat: resolved, maxMipLevel: 0 }, () => gl.deleteTexture(texture));
-}
 
 function createWebGLTexture(
 	gl: WebGL2RenderingContext,
@@ -869,47 +755,6 @@ function createWebGLTexture(
 	);
 }
 
-function createWebGLDepthTexture(
-	gl: WebGL2RenderingContext,
-	resources: WebGLResourceStore,
-	width: number,
-	height: number,
-	format: TextureFormat,
-	label: string
-): IRenderTexture {
-	const texture = gl.createTexture();
-	if (!texture) {
-		throw new Error(`Failed to create ${label}.`);
-	}
-	const resolved = resolveWebGLDepthRenderTargetFormat(gl, format);
-	if (!resolved) {
-		gl.deleteTexture(texture);
-		throw new Error(`Unsupported WebGL custom depth format "${format}".`);
-	}
-	gl.bindTexture(gl.TEXTURE_2D, texture);
-	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-	gl.texImage2D(
-		gl.TEXTURE_2D,
-		0,
-		resolved.internalFormat,
-		width,
-		height,
-		0,
-		resolved.format,
-		resolved.type,
-		null
-	);
-	gl.bindTexture(gl.TEXTURE_2D, null);
-	return resources.createTexture({
-		width,
-		height,
-		format,
-		requestedFormat: format,
-	}, { texture, maxMipLevel: 0 }, () => gl.deleteTexture(texture));
-}
 
 function isDepthFormat(format: TextureFormat): boolean {
 	return format === TextureFormat.Depth16Unorm ||
@@ -932,13 +777,13 @@ function toExecutionTarget(
 		width: target.width,
 		height: target.height,
 		sampleCount: target.sampleCount,
-		color: target.color.map((texture, index) => ({
-			texture,
+		color: target.color.map((attachment, index) => ({
+			texture: attachment.texture,
 			format: target.descriptor.color[index].format,
 			resolveTexture: null,
 		})),
 		depth: target.depth && target.descriptor.depth ? {
-			texture: target.depth,
+			texture: target.depth.texture,
 			format: target.descriptor.depth.format,
 			resolveTexture: null,
 		} : null,
