@@ -788,8 +788,9 @@ export class WebGPUPipelineCache {
 		layout: GPUPipelineLayout | GPUAutoLayoutMode,
 	): string {
 		const parts: string[] = [];
+		const vertexModule = this._resources.getShaderModule(desc.vertex.module);
 		parts.push(`layout:${this._host.objectIdentity.getCacheToken(layout)}`);
-		parts.push(`vs.module:${this._host.objectIdentity.getCacheToken(desc.vertex.module)}`);
+		parts.push(`vs.module:${this._host.objectIdentity.getCacheToken(vertexModule)}`);
 		parts.push(`vs.entry:${desc.vertex.entryPoint}`);
 
 		const vertexBuffers = desc.vertex.buffers ?? [];
@@ -812,7 +813,8 @@ export class WebGPUPipelineCache {
 		}
 
 		if (desc.fragment) {
-			parts.push(`fs.module:${this._host.objectIdentity.getCacheToken(desc.fragment.module)}`);
+			const fragmentModule = this._resources.getShaderModule(desc.fragment.module);
+			parts.push(`fs.module:${this._host.objectIdentity.getCacheToken(fragmentModule)}`);
 			parts.push(`fs.entry:${desc.fragment.entryPoint}`);
 			parts.push(`fs.targets:${desc.fragment.targets.length}`);
 			for (let i = 0; i < desc.fragment.targets.length; i++) {
@@ -848,9 +850,10 @@ export class WebGPUPipelineCache {
 		desc: ComputePipelineDesc,
 		layout: GPUPipelineLayout | GPUAutoLayoutMode,
 	): string {
+		const module = this._resources.getShaderModule(desc.compute.module);
 		return [
 			`layout:${this._host.objectIdentity.getCacheToken(layout)}`,
-			`cs.module:${this._host.objectIdentity.getCacheToken(desc.compute.module)}`,
+			`cs.module:${this._host.objectIdentity.getCacheToken(module)}`,
 			`cs.entry:${desc.compute.entryPoint}`,
 		].join("|");
 	}

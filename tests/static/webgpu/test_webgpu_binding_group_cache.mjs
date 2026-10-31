@@ -42,6 +42,24 @@ function createArena(store) {
 	return { arena, native };
 }
 
+function testObjectIdentityTracksSuppliedObjects() {
+	const { host } = createHost();
+	const native = { destroy() {} };
+	const first = host.resourceManager.registerBuffer(native, { size: 16 });
+	const alias = host.resourceManager.registerBuffer(native, { size: 16 });
+	const identity = host.objectIdentity;
+	assert.notEqual(identity.getCacheToken(first), identity.getCacheToken(alias),
+		"object identity must distinguish supplied facades even when their native allocation matches");
+	const nativeToken = identity.getCacheToken(native);
+	assert.equal(identity.getCacheToken(host.resourceManager.getBuffer(first)), nativeToken);
+	assert.equal(identity.getCacheToken(host.resourceManager.getBuffer(alias)), nativeToken);
+	first.destroy();
+	assert.doesNotThrow(() => identity.getCacheToken(first),
+		"tracking object identity must not read a retired facade's native state");
+	assert.throws(() => host.resourceManager.getBuffer(first), /not live/);
+	alias.destroy();
+}
+
 function testRangeResourcesMapToNativeBufferRanges() {
 	const { host } = createHost();
 	const cache = new WebGPUBindingGroupCache(host);
@@ -195,6 +213,7 @@ testStoreResetCompletesManagedBindingDisposal();
 testForgedResourceHandlesAreRejected();
 testForeignDestroyedAndCopiedResourcesAreRejected();
 testNativeAliasesAndTextureViewsControlCacheIdentity();
+testObjectIdentityTracksSuppliedObjects();
 testRangeResourcesMapToNativeBufferRanges();
 testBindingSizeParticipatesInGroupCacheIdentity();
 console.log("WebGPU binding group cache tests passed");

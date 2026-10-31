@@ -51,21 +51,6 @@ interface ResourceRecord<T extends object> {
 	dispose: () => void;
 }
 
-// A facade carries only a private owner reference, never native state. Spreading
-// it cannot manufacture another valid resource or transfer ownership.
-class ResourceFacade<K extends ResourceKind> {
-	readonly #owner: WebGPUResourceManager;
-
-	public constructor(owner: WebGPUResourceManager, public readonly kind: K) {
-		this.#owner = owner;
-	}
-
-	public static ownerOf(resource: unknown): WebGPUResourceManager | null {
-		return resource !== null && typeof resource === "object" && #owner in resource ?
-			resource.#owner : null;
-	}
-}
-
 /**
  * Owns native allocations, opaque registrations, uploads, and resource lifetimes
  * for one WebGPU backend and its device generations.
@@ -245,14 +230,9 @@ export class WebGPUResourceManager {
 		return queue;
 	}
 
-	/** @internal Resolves only authentic WebGPU facades; no global registry is used. */
-	public static ownerOf(resource: unknown): WebGPUResourceManager | null {
-		return ResourceFacade.ownerOf(resource);
-	}
-
 	/** @internal Tests owner identity; getters additionally require a live record. */
 	public owns(resource: unknown): boolean {
-		return WebGPUResourceManager.ownerOf(resource) === this;
+		return resource !== null && typeof resource === "object" && this._records.has(resource);
 	}
 
 	/** @internal Registers a buffer allocated by the owning WebGPU resource factory. */
@@ -388,9 +368,10 @@ export class WebGPUResourceManager {
 	private _register<K extends ResourceKind, T extends object, M extends object>(
 		kind: K, records: WeakMap<object, ResourceRecord<T>>, native: T,
 		metadata: M, dispose: () => void,
-	): ResourceFacade<K> & M & { destroy(): void } {
+	): M & { readonly kind: K; destroy(): void } {
 		const record: ResourceRecord<T> = { native, available: true, dispose };
-		const facade = Object.assign(new ResourceFacade(this, kind), metadata, {
+		// Only this manager's private registration records establish provenance.
+		const facade = Object.assign({ kind }, metadata, {
 			destroy: () => this._dispose(record),
 		});
 		records.set(facade, record);
@@ -412,22 +393,21 @@ export class WebGPUResourceManager {
 	private _tryGet<T extends object>(
 		resource: unknown, records: WeakMap<object, ResourceRecord<T>>,
 	): T | null {
-		if (!this.owns(resource)) return null;
-		const record = records.get(resource as object);
+		if (resource === null || typeof resource !== "object") return null;
+		// A record in this manager's typed table already proves resource provenance.
+		const record = records.get(resource);
 		return record?.available ? record.native : null;
 	}
 
 	private _require<T extends object>(
 		resource: unknown, records: WeakMap<object, ResourceRecord<T>>, kind: string,
 	): T {
+		const native = this._tryGet(resource, records);
+		if (native) return native;
 		if (!this.owns(resource)) {
 			throw new Error(`WebGPU ${kind} is not owned by this backend.`);
 		}
-		const native = this._tryGet(resource, records);
-		if (!native) {
-			throw new Error(`WebGPU ${kind} is not live: wrong kind, destroyed or retired resource.`);
-		}
-		return native;
+		throw new Error(`WebGPU ${kind} is not live: wrong kind, destroyed or retired resource.`);
 	}
 }
 

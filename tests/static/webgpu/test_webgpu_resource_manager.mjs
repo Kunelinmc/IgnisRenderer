@@ -18,7 +18,7 @@ assert.throws(() => foreign.getBuffer(buffer), /owned|owner|foreign/i);
 assert.throws(() => store.getBuffer({ ...buffer }), /owned|owner|foreign/i);
 const prototypeForgery = Object.create(Object.getPrototypeOf(buffer));
 assert.equal(store.tryGetBuffer(prototypeForgery), null,
-	"copying a facade prototype cannot forge the private owner brand");
+	"copying a facade prototype cannot forge private registration records");
 assert.equal(store.tryGetBuffer(new Proxy(buffer, {})), null,
 	"unregistered proxies cannot transfer private resource ownership");
 assert.throws(() => store.getBuffer({ _gpuResource: native }), /WebGPU|owned/i);

@@ -622,6 +622,41 @@ async function testComputePipelineAutoLayoutCaching() {
 	);
 }
 
+async function testPipelineCachesUseNativeShaderIdentityAcrossFacades() {
+	const { backend, device } = createBackend();
+	const first = await backend.createShaderModule({ code: "shared shader module" });
+	const alias = await backend.createShaderModule({ code: "shared shader module" });
+	const resources = backend._resourceManager;
+	assert.notEqual(first, alias);
+	assert.equal(resources.getShaderModule(first), resources.getShaderModule(alias));
+	const compute = (module) => ({ compute: { module, entryPoint: "csMain" } });
+	const [computeA, computeB] = await Promise.all([
+		backend.createComputePipeline(compute(first)),
+		backend.createComputePipeline(compute(alias)),
+	]);
+	assert.equal(resources.getComputePipeline(computeA), resources.getComputePipeline(computeB));
+	assert.equal(device.computePipelineDescs.length, 1);
+	const render = (vertex, fragment) => ({
+		vertex: { module: vertex, entryPoint: "vsMain", buffers: [] },
+		fragment: {
+			module: fragment, entryPoint: "fsMain",
+			targets: [{ format: TextureFormat.RGBA8Unorm }],
+		},
+	});
+	const renderA = await backend.createPipeline(render(first, first));
+	const renderB = await backend.createPipeline(render(alias, first));
+	const renderC = await backend.createPipeline(render(first, alias));
+	assert.equal(resources.getRenderPipeline(renderA), resources.getRenderPipeline(renderB));
+	assert.equal(resources.getRenderPipeline(renderA), resources.getRenderPipeline(renderC));
+	assert.equal(device.renderPipelineDescs.length, 1,
+		"vertex and fragment aliases must preserve native pipeline cache identity");
+	first.destroy();
+	await assert.rejects(() => backend.createPipeline(render(first, alias)), /not live/,
+		"a retired facade must be rejected even when an equivalent native pipeline is cached");
+	for (const pipeline of [computeA, computeB, renderA, renderB, renderC]) pipeline.destroy();
+	alias.destroy();
+}
+
 async function testRenderPipelineAutoLayoutCaching() {
 	const { backend, device } = createBackend();
 	const shader = await backend.createShaderModule({
@@ -1566,6 +1601,7 @@ async function run() {
 	await testStaleShaderModulePromiseDoesNotClearRecoveredInFlight();
 	await testSamplerReferenceCounting();
 	await testComputePipelineAutoLayoutCaching();
+	await testPipelineCachesUseNativeShaderIdentityAcrossFacades();
 	await testRenderPipelineAutoLayoutCaching();
 	await testComputePipelineFailureClearsInFlight();
 	await testStaleRenderPipelineCreationRejectsAfterRollback();

@@ -36,6 +36,10 @@ lighting, presentation configuration, reflections, and structured buffer packing
 - Native identity and view identity must remain available to backend caches
   through private accessors. Sampler and pipeline cache aliases must retain
   balanced releases, and released facades must not resolve live native handles.
+- Pipeline cache keys must use shader modules resolved by the owning resource
+  manager. `WebGPUObjectIdentity` must track the values supplied to it without
+  resolving facades or discovering resource owners. Resource provenance must
+  come from the manager's private registration records.
 - Each cached bind-group acquisition must have its own independently
   destroyable facade while equivalent acquisitions share native cache identity.
 - `ComputeRuntime` readback must validate the source against its own resource
