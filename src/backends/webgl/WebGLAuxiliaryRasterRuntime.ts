@@ -13,9 +13,9 @@ import type {
 } from "../IComputeRuntime";
 import type {
 	BindingGroupDesc,
-	ISampler,
 	IRenderPipeline,
 	IRenderTexture,
+	IShaderModule,
 	PipelineDesc,
 	ShaderModuleDesc,
 	TextureDataLayout,
@@ -30,16 +30,11 @@ import type {
 	WebGLAuxiliaryRasterContext,
 	WebGLAuxiliaryRasterResourceFacade,
 } from "./WebGLAuxiliaryRaster";
+import { WebGLResourceStore } from "./WebGLResourceStore";
 
 interface WebGLScopedResource {
-	_webglScopeState?: { active: boolean };
-	destroy?: () => void;
+	destroy(): void;
 }
-
-type WebGLScopedTexture = IRenderTexture & WebGLScopedResource & {
-	_gpuResource?: WebGLTexture;
-	_webglMaxMipLevel?: number;
-};
 
 /** Owns cached raster programs and creates isolated auxiliary task scopes. */
 export class WebGLAuxiliaryRasterRuntime {
@@ -47,6 +42,7 @@ export class WebGLAuxiliaryRasterRuntime {
 	private readonly _shaderRuntime: ShaderRuntime;
 	private readonly _shaderCompileStage: ShaderBackendCompileStage;
 	private readonly _baseResources: CustomRenderPassResourceFacade;
+	private readonly _resources = new WebGLResourceStore();
 	private readonly _pipelineCache = new Map<string, IRenderPipeline>();
 	private _cacheRevision = "";
 	private _destroyed = false;
@@ -59,7 +55,7 @@ export class WebGLAuxiliaryRasterRuntime {
 		this._gl = gl;
 		this._shaderRuntime = shaderRuntime;
 		this._shaderCompileStage = shaderCompileStage;
-		this._baseResources = createWebGLRasterResourceFacade(gl);
+		this._baseResources = createWebGLRasterResourceFacade(gl, this._resources);
 	}
 
 	public hasExtension(name: string): boolean {
@@ -83,6 +79,7 @@ export class WebGLAuxiliaryRasterRuntime {
 		const encoder = new WebGLScopedRasterEncoder(
 			this._gl,
 			scopeState,
+			this._resources,
 		);
 		const resources = this._createScopeResources(
 			scopeState,
@@ -102,7 +99,7 @@ export class WebGLAuxiliaryRasterRuntime {
 			encoder.cleanup();
 			scopeState.active = false;
 			for (const resource of Array.from(ownedResources).reverse()) {
-				resource.destroy?.();
+				resource.destroy();
 			}
 		}
 	}
@@ -111,6 +108,7 @@ export class WebGLAuxiliaryRasterRuntime {
 		if (this._destroyed) return;
 		this._destroyed = true;
 		this._clearPipelineCache();
+		this._resources.destroy();
 	}
 
 	private _createScopeResources(
@@ -123,34 +121,14 @@ export class WebGLAuxiliaryRasterRuntime {
 				throw new Error("WebGL auxiliary raster scope is no longer active.");
 			}
 		};
-		const markOwned = <T extends object>(resource: T): T => {
-			const scoped = resource as T & WebGLScopedResource;
-			scoped._webglScopeState = scopeState;
-			const destroy = scoped.destroy?.bind(scoped);
-			let destroyed = false;
-			scoped.destroy = () => {
-				if (destroyed) return;
-				destroyed = true;
-				ownedResources.delete(scoped);
-				destroy?.();
-			};
-			ownedResources.add(scoped);
-			return resource;
-		};
-		const markScoped = <T extends object>(resource: T): T => {
-			(resource as T & WebGLScopedResource)._webglScopeState = scopeState;
+		const markOwned = <T extends object & WebGLScopedResource>(resource: T): T => {
+			this._resources.markScope(resource, scopeState);
+			ownedResources.add(resource);
 			return resource;
 		};
 		const assertResource = (resource: unknown): void => {
 			assertActive();
-			if (
-				(resource as WebGLScopedResource | null)?._webglScopeState !==
-				scopeState
-			) {
-				throw new Error(
-					"WebGL auxiliary raster resources must belong to the active scope.",
-				);
-			}
+			this._resources.assertScope(resource, scopeState);
 		};
 
 		return {
@@ -164,27 +142,18 @@ export class WebGLAuxiliaryRasterRuntime {
 			},
 			createSampler: (desc) => {
 				assertActive();
-				const sampler = this._baseResources.createSampler(desc) as
-					ISampler & WebGLScopedResource & {
-						_webglSampler?: WebGLSampler;
-					};
-				if (!sampler.destroy) {
-					sampler.destroy = () => {
-						if (sampler._webglSampler) {
-							this._gl.deleteSampler(sampler._webglSampler);
-						}
-					};
-				}
-				return markOwned(sampler);
+				return markOwned(this._baseResources.createSampler(desc));
 			},
 			createShaderModule: (desc) => {
 				assertActive();
-				return markScoped(this._createShaderModule(desc));
+				return markOwned(this._createShaderModule(desc));
 			},
 			createRenderPipeline: (desc) => {
 				assertActive();
+				assertResource(desc.vertex.module);
+				if (desc.fragment) assertResource(desc.fragment.module);
 				const pipeline = this._getOrCreatePipeline(desc);
-				return markScoped({ ...pipeline });
+				return markOwned(this._resources.aliasPipeline(pipeline));
 			},
 			createBindingGroup: (desc) => {
 				assertActive();
@@ -202,7 +171,7 @@ export class WebGLAuxiliaryRasterRuntime {
 		};
 	}
 
-	private _createShaderModule(desc: ShaderModuleDesc) {
+	private _createShaderModule(desc: ShaderModuleDesc): IShaderModule {
 		const compiled = this._shaderCompileStage.compile({
 			code: desc.code,
 			language: desc.language ?? "glsl",
@@ -212,12 +181,16 @@ export class WebGLAuxiliaryRasterRuntime {
 			sourceKind: desc.sourceKind ?? "unknown",
 			sourceMap: desc.sourceMap,
 		});
-		return this._baseResources.createShaderModule({
+		const module = this._baseResources.createShaderModule({
 			...desc,
 			code: compiled.code,
 			sourceMap: compiled.sourceMap,
 			directiveFingerprint: compiled.directiveFingerprint,
 		} as ShaderModuleDesc);
+		if (module instanceof Promise) {
+			throw new Error("WebGL auxiliary raster shader modules must compile synchronously.");
+		}
+		return module;
 	}
 
 	private _getOrCreatePipeline(desc: PipelineDesc): IRenderPipeline {
@@ -227,7 +200,7 @@ export class WebGLAuxiliaryRasterRuntime {
 			this._clearPipelineCache();
 			this._cacheRevision = revision;
 		}
-		const key = createPipelineFingerprint(desc, revision);
+		const key = createPipelineFingerprint(desc, revision, this._resources);
 		const cached = this._pipelineCache.get(key);
 		if (cached) return cached;
 		const pipeline = this._baseResources.createRenderPipeline(desc);
@@ -242,7 +215,9 @@ export class WebGLAuxiliaryRasterRuntime {
 		desc: BindingGroupDesc,
 		assertResource: (resource: unknown) => void,
 	): void {
-		for (const entry of desc.entries) assertResource(entry.resource);
+		for (const entry of desc.entries) {
+			assertResource("buffer" in entry.resource ? entry.resource.buffer : entry.resource);
+		}
 	}
 
 	private _writeTexture(
@@ -251,9 +226,8 @@ export class WebGLAuxiliaryRasterRuntime {
 		layout: TextureDataLayout,
 		size: WriteTextureSize,
 	): void {
-		const scoped = texture as WebGLScopedTexture;
-		const resource = scoped._gpuResource;
-		if (!resource) throw new Error("WebGL auxiliary texture is unavailable.");
+		const state = this._resources.getTexture(texture);
+		const resource = state.texture;
 		const level = Math.max(0, Math.floor(layout.mipLevel ?? 0));
 		const format = texture.requestedFormat ?? texture.format;
 		const upload = resolveTextureUpload(this._gl, format, data);
@@ -270,22 +244,18 @@ export class WebGLAuxiliaryRasterRuntime {
 			upload.type,
 			upload.data,
 		);
-		scoped._webglMaxMipLevel = Math.max(
-			scoped._webglMaxMipLevel ?? 0,
-			level,
-		);
+		state.maxMipLevel = Math.max(state.maxMipLevel, level);
 		this._gl.texParameteri(
 			this._gl.TEXTURE_2D,
 			this._gl.TEXTURE_MAX_LEVEL,
-			scoped._webglMaxMipLevel,
+			state.maxMipLevel,
 		);
 		this._gl.bindTexture(this._gl.TEXTURE_2D, null);
 	}
 
 	private _readTexture(options: ReadTextureOptions): TextureReadbackResult {
-		const texture = options.texture as WebGLScopedTexture;
-		const resource = texture._gpuResource;
-		if (!resource) throw new Error("WebGL auxiliary texture is unavailable.");
+		const texture = options.texture;
+		const resource = this._resources.getTexture(texture).texture;
 		const width = Math.max(1, Math.floor(options.width ?? texture.width));
 		const height = Math.max(1, Math.floor(options.height ?? texture.height));
 		const level = Math.max(0, Math.floor(options.mipLevel ?? 0));
@@ -331,7 +301,7 @@ export class WebGLAuxiliaryRasterRuntime {
 
 	private _clearPipelineCache(): void {
 		for (const pipeline of this._pipelineCache.values()) {
-			(pipeline as { destroy?: () => void }).destroy?.();
+			pipeline.destroy();
 		}
 		this._pipelineCache.clear();
 	}
@@ -343,20 +313,22 @@ export class WebGLAuxiliaryRasterRuntime {
 	}
 }
 
-function createPipelineFingerprint(desc: PipelineDesc, revision: string): string {
+function createPipelineFingerprint(
+	desc: PipelineDesc,
+	revision: string,
+	resources: WebGLResourceStore,
+): string {
 	return JSON.stringify({
 		revision,
-		vertex: desc.vertex,
-		fragment: desc.fragment,
+		vertex: { ...desc.vertex, module: resources.getShader(desc.vertex.module) },
+		fragment: desc.fragment ? {
+			...desc.fragment, module: resources.getShader(desc.fragment.module),
+		} : undefined,
 		primitive: desc.primitive,
 		depthStencil: desc.depthStencil,
 		sampleCount: desc.sampleCount,
 	}, (_key, value) => {
-		if (
-			_key === "label" ||
-			_key === "_gpuResource" ||
-			_key === "_webglScopeState"
-		) return undefined;
+		if (_key === "label") return undefined;
 		return value;
 	});
 }

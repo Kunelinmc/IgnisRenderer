@@ -209,8 +209,6 @@ export type VertexFormat =
 	| "unorm16x4"
 	| "unorm8x4";
 
-export type BackendResourceHandle = unknown;
-
 export interface ColorTargetState {
 	format: TextureFormat;
 	blend?: any;
@@ -219,7 +217,7 @@ export interface ColorTargetState {
 
 export interface BindingGroupDesc {
 	layout?: any;
-	pipeline?: IRenderPipeline;
+	pipeline?: IRenderPipeline | IComputePipeline;
 	layoutIndex?: number;
 	entries: BindingEntry[];
 	label?: string;
@@ -229,7 +227,7 @@ export interface BindingGroupDesc {
 
 /** A buffer sub-range used by layouts that declare dynamic or fixed offsets. */
 export interface BufferBindingRange {
-	readonly buffer: IRenderBuffer | GPUBuffer;
+	readonly buffer: IRenderBuffer;
 	readonly offset?: number;
 	readonly size?: number;
 }
@@ -238,13 +236,7 @@ export type BindingResource =
 	| IRenderBuffer
 	| IRenderTexture
 	| ISampler
-	| GPUBindingResource
-	| GPUTexture
-	| GPUBuffer
-	| BufferBindingRange
-	| {
-			_gpuResource?: BackendResourceHandle;
-	  };
+	| BufferBindingRange;
 
 export interface BindingEntry {
 	binding: number;
@@ -252,46 +244,48 @@ export interface BindingEntry {
 }
 
 export interface IShaderModule {
+	readonly kind: "shader-module";
 	readonly label?: string;
+	destroy(): void;
 }
 
 export interface IRenderBuffer {
+	readonly kind: "buffer";
 	readonly size: number;
 	destroy(): void;
 	unmap?(): void;
-	/** Internal backend resource handle */
-	_gpuResource?: BackendResourceHandle;
-	_cpuData?: ArrayBuffer;
 }
 
 export interface IRenderTexture {
+	readonly kind: "texture";
 	readonly width: number;
 	readonly height: number;
 	readonly requestedFormat?: TextureFormat;
 	readonly format?: TextureFormat;
 	readonly formatFallbackReason?: string;
 	destroy(): void;
-	/** Internal backend resource handle */
-	_gpuResource?: BackendResourceHandle;
-	_cpuPixels?: Uint8ClampedArray;
 }
 
 export interface ISampler {
+	readonly kind: "sampler";
 	readonly label?: string;
-	_gpuResource?: BackendResourceHandle;
+	destroy(): void;
 }
 
 export interface IRenderPipeline {
+	readonly kind: "render-pipeline";
 	readonly label?: string;
-	_gpuResource?: BackendResourceHandle;
+	destroy(): void;
 }
 
 export interface IBindingGroup {
+	readonly kind: "binding-group";
 	readonly label?: string;
-	_gpuResource?: BackendResourceHandle;
+	destroy(): void;
 }
 
 export interface IComputePipeline {
+	readonly kind: "compute-pipeline";
 	readonly label?: string;
-	_gpuResource?: BackendResourceHandle;
+	destroy(): void;
 }

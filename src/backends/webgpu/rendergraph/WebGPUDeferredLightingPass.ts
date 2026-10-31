@@ -38,7 +38,7 @@ export class WebGPUDeferredLightingPass {
 	}
 
 	public destroyBindings(): void {
-		this._destroyBindingGroup(this._gbufferReadBinding);
+		this._gbufferReadBinding?.destroy();
 		this._gbufferReadBinding = null;
 		this._gbufferReadBindingSources = [];
 	}
@@ -79,7 +79,7 @@ export class WebGPUDeferredLightingPass {
 		) {
 			return this._gbufferReadBinding;
 		}
-		this._destroyBindingGroup(this._gbufferReadBinding);
+		this._gbufferReadBinding?.destroy();
 		this._gbufferReadBinding = this._host.createBindingGroup({
 			layout: this._resources.getGBufferReadLayout(),
 			entries: sources.map((resource, binding) => ({
@@ -136,13 +136,6 @@ export class WebGPUDeferredLightingPass {
 			encoder.draw(3);
 		}
 		encoder.endRenderPass();
-	}
-
-	private _destroyBindingGroup(group: IBindingGroup | null): void {
-		const destroyFn = (group as { destroy?: () => void } | null)?.destroy;
-		if (typeof destroyFn === "function") {
-			destroyFn.call(group);
-		}
 	}
 
 	private _requireFrame() {

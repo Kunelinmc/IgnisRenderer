@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+
+import { createWebGPUResourceManager } from "../../helpers/fakes.mjs";
+import { createWebGPUComputeFacade } from "../../../src/backends/webgpu/ComputeFacade.ts";
 import {
 	ScreenSpaceReflectionsPass,
 	VolumetricLightingPass,
@@ -7,51 +10,56 @@ import { WebGPUPostProcessRuntime } from "../../../src/backends/webgpu/WebGPUPos
 import {
 	FakeBackend,
 	FakeEncoder,
-	createTexture,
 } from "../../helpers/webgpu_postprocess_runtime_test_helpers.mjs";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 
 const SSR_PASS = new ScreenSpaceReflectionsPass({ enabled: true });
 const VOLUMETRIC_PASS = new VolumetricLightingPass({ enabled: true });
 
-function createTemporalTargets(width = 32, height = 16) {
+function ownedTexture(backend, width, height, label) {
+	return backend.createTexture({
+		width, height, label, format: label === "hiz" ? "r32float" : "rgba16float", usage: 0,
+	});
+}
+
+function createTemporalTargets(backend, width = 32, height = 16) {
 	return {
-		sceneColor: createTexture(width, height, "scene"),
-		postPing: createTexture(width, height, "ping"),
-		postPong: createTexture(width, height, "pong"),
-		gNormalRoughMetal: createTexture(width, height, "g-normal"),
-		gMotionDepth: createTexture(width, height, "g-motion-depth"),
-		planarReflectionMask: createTexture(width, height, "planar-reflection-mask"),
+		sceneColor: ownedTexture(backend, width, height, "scene"),
+		postPing: ownedTexture(backend, width, height, "ping"),
+		postPong: ownedTexture(backend, width, height, "pong"),
+		gNormalRoughMetal: ownedTexture(backend, width, height, "g-normal"),
+		gMotionDepth: ownedTexture(backend, width, height, "g-motion-depth"),
+		planarReflectionMask: ownedTexture(backend, width, height, "planar-reflection-mask"),
 	};
 }
 
-function createTemporalTransients(width = 32, height = 16) {
+function createTemporalTransients(backend, width = 32, height = 16) {
 	return {
-		ssrRaw: createTexture(width, height, "ssr-raw"),
-		ssrDenoiseA: createTexture(width, height, "ssr-denoise-a"),
-		ssrDenoiseB: createTexture(width, height, "ssr-denoise-b"),
-		hiZ: createTexture(width, height, "hiz"),
+		ssrRaw: ownedTexture(backend, width, height, "ssr-raw"),
+		ssrDenoiseA: ownedTexture(backend, width, height, "ssr-denoise-a"),
+		ssrDenoiseB: ownedTexture(backend, width, height, "ssr-denoise-b"),
+		hiZ: ownedTexture(backend, width, height, "hiz"),
 	};
 }
 
-function createTemporalHistories(width = 32, height = 16) {
+function createTemporalHistories(backend, width = 32, height = 16) {
 	return {
-		historyRead: createTexture(width, height, "history-read"),
-		historyWrite: createTexture(width, height, "history-write"),
-		motionHistoryRead: createTexture(width, height, "motion-history-read"),
-		motionHistoryWrite: createTexture(width, height, "motion-history-write"),
-		ssrHistoryRead: createTexture(width, height, "ssr-history-read"),
-		ssrHistoryWrite: createTexture(width, height, "ssr-history-write"),
-		ssrMomentsRead: createTexture(width, height, "ssr-moments-read"),
-		ssrMomentsWrite: createTexture(width, height, "ssr-moments-write"),
-		volumetricHistoryRead: createTexture(width, height, "vol-history-read"),
-		volumetricHistoryWrite: createTexture(width, height, "vol-history-write"),
-		volumetricReservoirHistoryRead: createTexture(
+		historyRead: ownedTexture(backend, width, height, "history-read"),
+		historyWrite: ownedTexture(backend, width, height, "history-write"),
+		motionHistoryRead: ownedTexture(backend, width, height, "motion-history-read"),
+		motionHistoryWrite: ownedTexture(backend, width, height, "motion-history-write"),
+		ssrHistoryRead: ownedTexture(backend, width, height, "ssr-history-read"),
+		ssrHistoryWrite: ownedTexture(backend, width, height, "ssr-history-write"),
+		ssrMomentsRead: ownedTexture(backend, width, height, "ssr-moments-read"),
+		ssrMomentsWrite: ownedTexture(backend, width, height, "ssr-moments-write"),
+		volumetricHistoryRead: ownedTexture(backend, width, height, "vol-history-read"),
+		volumetricHistoryWrite: ownedTexture(backend, width, height, "vol-history-write"),
+		volumetricReservoirHistoryRead: ownedTexture(backend,
 			width,
 			height,
 			"vol-reservoir-read"
 		),
-		volumetricReservoirHistoryWrite: createTexture(
+		volumetricReservoirHistoryWrite: ownedTexture(backend,
 			width,
 			height,
 			"vol-reservoir-write"
@@ -128,14 +136,14 @@ async function executeSSRImplementation(
 	options = {}
 ) {
 	const {
-		targets = createTemporalTargets(),
+		targets = createTemporalTargets(backend),
 		frameContext = createPerspectiveFrameContext(),
 		historyValid = true,
-		histories = createTemporalHistories(
+		histories = createTemporalHistories(backend,
 			targets.sceneColor.width,
 			targets.sceneColor.height
 		),
-		transients = createTemporalTransients(
+		transients = createTemporalTransients(backend,
 			histories.ssrHistoryWrite.width,
 			histories.ssrHistoryWrite.height
 		),
@@ -200,14 +208,14 @@ async function executeVolumetricImplementation(
 	options = {}
 ) {
 	const {
-		targets = createTemporalTargets(),
+		targets = createTemporalTargets(backend),
 		frameContext = createPerspectiveFrameContext(),
 		historyValid = true,
-		histories = createTemporalHistories(
+		histories = createTemporalHistories(backend,
 			targets.sceneColor.width,
 			targets.sceneColor.height
 		),
-		transients = createTemporalTransients(
+		transients = createTemporalTransients(backend,
 			targets.sceneColor.width,
 			targets.sceneColor.height
 		),
@@ -292,11 +300,11 @@ function destroySnapshotPasses(snapshot) {
 
 async function testSSRAndVolumetricReportHistoryUpdates() {
 	const backend = new FakeBackend();
-	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
+	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend), () => {});
 	const frameBinding = { label: "frame-binding" };
 
-	const ssrTargets = createTemporalTargets(32, 16);
-	const ssrHistories = createTemporalHistories(16, 8);
+	const ssrTargets = createTemporalTargets(backend, 32, 16);
+	const ssrHistories = createTemporalHistories(backend, 16, 8);
 	const ssrFrameContext = createPerspectiveFrameContext({
 		ssr: {
 			enabled: true,
@@ -361,7 +369,7 @@ async function testSSRAndVolumetricReportHistoryUpdates() {
 		ssrRun.transients.ssrDenoiseB
 	);
 
-	const volumetricTargets = createTemporalTargets(32, 16);
+	const volumetricTargets = createTemporalTargets(backend, 32, 16);
 	const volumetricFrameContext = createPerspectiveFrameContext({
 		volumetric: {
 			enabled: true,
@@ -412,7 +420,7 @@ async function testOrthographicTemporalPassesSkipAndReturnFalse() {
 	const backend = new FakeBackend();
 	const warnings = [];
 	const runtime = new WebGPUPostProcessRuntime(
-		backend,
+		createWebGPUComputeFacade(backend),
 		(key, message) => warnings.push(`[${key}] ${message}`)
 	);
 	assert.equal(backend.shaderModules.length, 0);
@@ -429,7 +437,7 @@ async function testOrthographicTemporalPassesSkipAndReturnFalse() {
 	const frameBinding = { label: "frame-binding" };
 
 	const ssrRun = await executeSSRImplementation(backend, runtime, {
-		targets: createTemporalTargets(),
+		targets: createTemporalTargets(backend),
 		frameContext,
 		historyValid: true,
 		frameBinding,
@@ -438,7 +446,7 @@ async function testOrthographicTemporalPassesSkipAndReturnFalse() {
 	assert.equal(ssrRun.motionWrites, 0);
 
 	const volumetricRun = await executeVolumetricImplementation(backend, runtime, {
-		targets: createTemporalTargets(),
+		targets: createTemporalTargets(backend),
 		frameContext,
 		historyValid: true,
 		frameBinding,
@@ -467,10 +475,10 @@ async function testOrthographicTemporalPassesSkipAndReturnFalse() {
 
 async function testHiZResourcesAreSharedAcrossTemporalPasses() {
 	const backend = new FakeBackend();
-	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
+	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend), () => {});
 	const frameBinding = { label: "frame-binding" };
-	const targets = createTemporalTargets(16, 8);
-	const transients = createTemporalTransients(16, 8);
+	const targets = createTemporalTargets(backend, 16, 8);
+	const transients = createTemporalTransients(backend, 16, 8);
 	const frameContext = createPerspectiveFrameContext({
 		ssr: { enabled: true },
 		volumetric: { enabled: true },
@@ -558,7 +566,7 @@ async function testHiZResourcesAreSharedAcrossTemporalPasses() {
 
 async function testSSRDestroyReleasesCachedBindings() {
 	const backend = new FakeBackend();
-	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
+	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend), () => {});
 	const frameContext = createPerspectiveFrameContext({
 		ssr: { enabled: true },
 	});
@@ -597,8 +605,8 @@ async function testSSRDestroyReleasesCachedBindings() {
 
 async function testMissingSSRFrameBindingSkipsImplementation() {
 	const backend = new FakeBackend();
-	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
-	const targets = createTemporalTargets(32, 16);
+	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend), () => {});
+	const targets = createTemporalTargets(backend, 32, 16);
 	const frameContext = createPerspectiveFrameContext();
 	const ssrRun = await executeSSRImplementation(backend, runtime, {
 		targets,
@@ -614,7 +622,36 @@ async function testMissingSSRFrameBindingSkipsImplementation() {
 	runtime.destroy();
 }
 
+function testCleanupPreservesErrorContext() {
+	const backend = new FakeBackend();
+	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend), () => {});
+	let releasedBuffers = 0;
+	const buffer = backend.resourceManager.registerBuffer({}, { size: 16 }, () => {
+		releasedBuffers++;
+		throw new Error("buffer release failed");
+	});
+	assert.throws(() => runtime.destroyManagedResource(buffer, "SSR params"),
+		{ message: "Failed to destroy SSR params: buffer release failed" });
+	assert.equal(releasedBuffers, 1);
+	assert.doesNotThrow(() => runtime.destroyManagedResource(buffer, "SSR params"));
+
+	let releasedGroups = 0;
+	const group = backend.resourceManager.registerBindingGroup({}, "failed binding", () => {
+		releasedGroups++;
+		throw "binding release failed";
+	});
+	assert.throws(() => runtime.destroyBindingGroup(group),
+		{ message: "Failed to destroy post-process binding group: binding release failed" });
+	assert.equal(releasedGroups, 1);
+	assert.doesNotThrow(() => runtime.destroyBindingGroup(group));
+	assert.doesNotThrow(() => runtime.destroyManagedResource({}));
+	assert.doesNotThrow(() => runtime.destroyManagedResource(null));
+	assert.doesNotThrow(() => runtime.destroyBindingGroup(null));
+	runtime.destroy();
+}
+
 async function run() {
+	testCleanupPreservesErrorContext();
 	await testSSRAndVolumetricReportHistoryUpdates();
 	await testOrthographicTemporalPassesSkipAndReturnFalse();
 	await testHiZResourcesAreSharedAcrossTemporalPasses();

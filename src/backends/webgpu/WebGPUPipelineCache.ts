@@ -15,7 +15,7 @@ import {
 	WEBGPU_PIPELINE_CACHE_LIMIT,
 	WEBGPU_PIPELINE_LAYOUT_CACHE_LIMIT,
 } from "./constants";
-import { getWebGPUShaderModule } from "./WebGPUResourceAccess";
+import type { WebGPUResourceManager } from "./WebGPUResourceManager";
 import type { WebGPUShaderModuleCompiler } from "./WebGPUShaderModuleCompiler";
 import type {
 	ComputePipelineDesc,
@@ -31,26 +31,6 @@ import {
 	hashString64,
 	type WebGPUObjectIdentity,
 } from "./WebGPUObjectIdentity";
-
-interface InternalSampler extends ISampler {
-	destroy(): void;
-	_gpuResource: GPUSampler;
-}
-
-interface InternalShaderModule extends IShaderModule {
-	destroy(): void;
-	_gpuResource: GPUShaderModule;
-}
-
-interface InternalRenderPipeline extends IRenderPipeline {
-	destroy(): void;
-	_gpuResource: GPURenderPipeline;
-}
-
-interface InternalComputePipeline extends IComputePipeline {
-	destroy(): void;
-	_gpuResource: GPUComputePipeline;
-}
 
 interface CachedSamplerEntry {
 	key: string;
@@ -87,6 +67,7 @@ const SHADER_CODE_HASH_CACHE_LIMIT = 128;
 
 export interface WebGPUPipelineCacheHost {
 	readonly device: GPUDevice | null;
+	readonly resourceManager: WebGPUResourceManager;
 	readonly shaderModuleCompiler: WebGPUShaderModuleCompiler;
 	readonly warmupLogCompilationInfo: boolean;
 	readonly objectIdentity: WebGPUObjectIdentity;
@@ -124,6 +105,7 @@ export interface WebGPUPipelineCacheDebugStats {
 }
 
 export class WebGPUPipelineCache {
+	private readonly _resources: WebGPUResourceManager;
 	private _samplerCache = new Map<string, CachedSamplerEntry>();
 	private _shaderModuleCache = new Map<string, CachedShaderModuleEntry>();
 	private _shaderCodeHashCache = new Map<string, string>();
@@ -134,7 +116,9 @@ export class WebGPUPipelineCache {
 	private _renderPipelineInFlight = new Map<string, Promise<CachedRenderPipelineEntry>>();
 	private _computePipelineInFlight = new Map<string, Promise<CachedComputePipelineEntry>>();
 
-	public constructor(private readonly _host: WebGPUPipelineCacheHost) {}
+	public constructor(private readonly _host: WebGPUPipelineCacheHost) {
+		this._resources = _host.resourceManager;
+	}
 
 	public createSampler(desc: SamplerDesc): ISampler {
 		this._host.assertDeviceOperational("create samplers");
@@ -333,6 +317,8 @@ export class WebGPUPipelineCache {
 
 	public async createPipeline(desc: PipelineDesc): Promise<IRenderPipeline> {
 		this._host.assertDeviceOperational("create render pipelines");
+		this._resources.getShaderModule(desc.vertex.module);
+		if (desc.fragment) this._resources.getShaderModule(desc.fragment.module);
 		const creationDevice = this._requireDevice("create render pipelines");
 		const creationGeneration = this._shaderModuleGeneration;
 		const layout = this._resolveRenderPipelineLayout(desc);
@@ -406,6 +392,7 @@ export class WebGPUPipelineCache {
 		desc: ComputePipelineDesc
 	): Promise<IComputePipeline> {
 		this._host.assertDeviceOperational("create compute pipelines");
+		this._resources.getShaderModule(desc.compute.module);
 		const creationDevice = this._requireDevice("create compute pipelines");
 		const creationGeneration = this._shaderModuleGeneration;
 		const layout = this._resolveComputePipelineLayout(desc);
@@ -569,84 +556,77 @@ export class WebGPUPipelineCache {
 		return `directive:${directiveFingerprint}|len:${desc.code.length}|hash:${hash}`;
 	}
 
-	private _acquireSamplerHandle(entry: CachedSamplerEntry): InternalSampler {
+	private _acquireSamplerHandle(entry: CachedSamplerEntry): ISampler {
 		this._bumpRefCount(entry);
-		const sampler = {
-			label: entry.label,
-			destroy: () => {},
-			_gpuResource: entry.gpuResource,
-		} as InternalSampler;
-		sampler.destroy = this._host.createManagedDestroy(sampler, {
+		// Keep managed cleanup inside the record so manager reset follows the same path.
+		let managedDispose = () => {};
+		const sampler = this._resources.registerSampler(
+			entry.gpuResource,
+			entry.label,
+			() => managedDispose(),
+		);
+		managedDispose = this._host.createManagedDestroy(sampler, {
 			label: entry.label ?? "WebGPUSampler",
-			dispose: () => {
-				this._releaseSamplerCacheEntry(entry.key, entry.gpuResource);
-			},
+			dispose: () => this._releaseSamplerCacheEntry(entry.key, entry.gpuResource),
 		});
 		return sampler;
 	}
 
-	private _acquireShaderModuleHandle(entry: CachedShaderModuleEntry): InternalShaderModule {
+	private _acquireShaderModuleHandle(entry: CachedShaderModuleEntry): IShaderModule {
 		this._bumpRefCount(entry);
-		const module = {
-			label: entry.label,
-			destroy: () => {},
-			_gpuResource: entry.gpuResource,
-		} as InternalShaderModule;
-		module.destroy = this._host.createManagedDestroy(module, {
+		let managedDispose = () => {};
+		const module = this._resources.registerShaderModule(
+			entry.gpuResource,
+			entry.label,
+			() => managedDispose(),
+		);
+		managedDispose = this._host.createManagedDestroy(module, {
 			label: entry.label ?? "WebGPUShaderModule",
-			dispose: () => {
-				this._releaseShaderModuleCacheEntry(entry.key, entry.gpuResource);
-			},
+			dispose: () => this._releaseShaderModuleCacheEntry(entry.key, entry.gpuResource),
 		});
 		return module;
 	}
 
 	private _acquireShaderModuleHandleAndTrim(
 		entry: CachedShaderModuleEntry,
-	): InternalShaderModule {
+	): IShaderModule {
 		const module = this._acquireShaderModuleHandle(entry);
 		this._trimRefCountedCache(this._shaderModuleCache, WEBGPU_PIPELINE_CACHE_LIMIT);
 		return module;
 	}
 
-	private _acquireRenderPipelineHandle(entry: CachedRenderPipelineEntry): InternalRenderPipeline {
+	private _acquireRenderPipelineHandle(entry: CachedRenderPipelineEntry): IRenderPipeline {
 		this._bumpRefCount(entry);
-		const pipeline = {
-			label: entry.label,
-			destroy: () => {},
-			_gpuResource: entry.gpuResource,
-		} as InternalRenderPipeline;
-		pipeline.destroy = this._host.createManagedDestroy(pipeline, {
+		let managedDispose = () => {};
+		const pipeline = this._resources.registerRenderPipeline(
+			entry.gpuResource,
+			entry.label,
+			() => managedDispose(),
+		);
+		managedDispose = this._host.createManagedDestroy(pipeline, {
 			label: entry.label ?? "WebGPURenderPipeline",
-			dispose: () => {
-				this._releasePipelineCacheEntry(
-					this._renderPipelineCache,
-					entry.key,
-					entry.gpuResource,
-				);
-			},
+			dispose: () => this._releasePipelineCacheEntry(
+				this._renderPipelineCache, entry.key, entry.gpuResource,
+			),
 		});
 		return pipeline;
 	}
 
 	private _acquireComputePipelineHandle(
 		entry: CachedComputePipelineEntry,
-	): InternalComputePipeline {
+	): IComputePipeline {
 		this._bumpRefCount(entry);
-		const pipeline = {
-			label: entry.label,
-			destroy: () => {},
-			_gpuResource: entry.gpuResource,
-		} as InternalComputePipeline;
-		pipeline.destroy = this._host.createManagedDestroy(pipeline, {
+		let managedDispose = () => {};
+		const pipeline = this._resources.registerComputePipeline(
+			entry.gpuResource,
+			entry.label,
+			() => managedDispose(),
+		);
+		managedDispose = this._host.createManagedDestroy(pipeline, {
 			label: entry.label ?? "WebGPUComputePipeline",
-			dispose: () => {
-				this._releasePipelineCacheEntry(
-					this._computePipelineCache,
-					entry.key,
-					entry.gpuResource,
-				);
-			},
+			dispose: () => this._releasePipelineCacheEntry(
+				this._computePipelineCache, entry.key, entry.gpuResource,
+			),
 		});
 		return pipeline;
 	}
@@ -733,7 +713,7 @@ export class WebGPUPipelineCache {
 		return {
 			layout,
 			vertex: {
-				module: getWebGPUShaderModule(desc.vertex.module),
+				module: this._resources.getShaderModule(desc.vertex.module),
 				entryPoint: desc.vertex.entryPoint,
 				buffers:
 					desc.vertex.buffers?.map((buffer) => ({
@@ -748,7 +728,7 @@ export class WebGPUPipelineCache {
 			},
 			fragment: desc.fragment
 				? {
-						module: getWebGPUShaderModule(desc.fragment.module),
+						module: this._resources.getShaderModule(desc.fragment.module),
 						entryPoint: desc.fragment.entryPoint,
 						targets: desc.fragment.targets.map((target) => ({
 							format: target.format as GPUTextureFormat,
@@ -783,7 +763,7 @@ export class WebGPUPipelineCache {
 		return {
 			layout,
 			compute: {
-				module: getWebGPUShaderModule(desc.compute.module),
+				module: this._resources.getShaderModule(desc.compute.module),
 				entryPoint: desc.compute.entryPoint,
 			},
 			label: desc.label,
@@ -808,8 +788,9 @@ export class WebGPUPipelineCache {
 		layout: GPUPipelineLayout | GPUAutoLayoutMode,
 	): string {
 		const parts: string[] = [];
+		const vertexModule = this._resources.getShaderModule(desc.vertex.module);
 		parts.push(`layout:${this._host.objectIdentity.getCacheToken(layout)}`);
-		parts.push(`vs.module:${this._host.objectIdentity.getCacheToken(desc.vertex.module)}`);
+		parts.push(`vs.module:${this._host.objectIdentity.getCacheToken(vertexModule)}`);
 		parts.push(`vs.entry:${desc.vertex.entryPoint}`);
 
 		const vertexBuffers = desc.vertex.buffers ?? [];
@@ -832,7 +813,8 @@ export class WebGPUPipelineCache {
 		}
 
 		if (desc.fragment) {
-			parts.push(`fs.module:${this._host.objectIdentity.getCacheToken(desc.fragment.module)}`);
+			const fragmentModule = this._resources.getShaderModule(desc.fragment.module);
+			parts.push(`fs.module:${this._host.objectIdentity.getCacheToken(fragmentModule)}`);
 			parts.push(`fs.entry:${desc.fragment.entryPoint}`);
 			parts.push(`fs.targets:${desc.fragment.targets.length}`);
 			for (let i = 0; i < desc.fragment.targets.length; i++) {
@@ -868,9 +850,10 @@ export class WebGPUPipelineCache {
 		desc: ComputePipelineDesc,
 		layout: GPUPipelineLayout | GPUAutoLayoutMode,
 	): string {
+		const module = this._resources.getShaderModule(desc.compute.module);
 		return [
 			`layout:${this._host.objectIdentity.getCacheToken(layout)}`,
-			`cs.module:${this._host.objectIdentity.getCacheToken(desc.compute.module)}`,
+			`cs.module:${this._host.objectIdentity.getCacheToken(module)}`,
 			`cs.entry:${desc.compute.entryPoint}`,
 		].join("|");
 	}

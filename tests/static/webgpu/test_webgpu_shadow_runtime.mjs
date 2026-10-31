@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
+
+import { createWebGPUResourceManager } from "../../helpers/fakes.mjs";
 import { WebGPUShadowRuntime } from "../../../src/backends/webgpu/WebGPUShadowRuntime.ts";
 import { WebGPUCommandEncoder } from "../../../src/backends/webgpu/WebGPUCommandEncoder.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
 function createHarness() {
+	const resourceManager = createWebGPUResourceManager();
 	const resources = [];
 	const passes = [];
 	const submissions = [];
@@ -18,10 +21,6 @@ function createHarness() {
 		};
 		resources.push(resource);
 		return resource;
-	}
-	function createManagedResource(desc) {
-		const native = createResource(desc);
-		return { _gpuResource: native, destroy() { native.destroy(); } };
 	}
 	const nativeEncoder = {
 		beginRenderPass(desc) {
@@ -45,6 +44,7 @@ function createHarness() {
 		},
 	};
 	const backend = {
+		resourceManager,
 		device: {
 			limits: { maxTextureDimension2D: 8192 },
 			createBindGroupLayout: (desc) => desc,
@@ -61,15 +61,22 @@ function createHarness() {
 			submit(buffers) { submissions.push(buffers); },
 		},
 		createTexture(desc) {
-			const texture = createManagedResource(desc);
-			texture._webgpuTexture = { texture: texture._gpuResource, view: { desc } };
-			return texture;
+			const texture = createResource(desc);
+			return resourceManager.registerTexture({ texture, view: { desc } },
+				{ width: desc.width, height: desc.height, format: desc.format },
+				() => texture.destroy());
 		},
-		createShaderModule: async (desc) => createManagedResource(desc),
-		createPipeline: async (desc) => createManagedResource(desc),
+		async createShaderModule(desc) {
+			const native = createResource(desc);
+			return resourceManager.registerShaderModule(native, desc.label, () => native.destroy());
+		},
+		async createPipeline(desc) {
+			const native = createResource(desc);
+			return resourceManager.registerRenderPipeline(native, desc.label, () => native.destroy());
+		},
 	};
 	const borrowedBuffer = { destroyCount: 0, destroy() { this.destroyCount++; } };
-	const fallback = { _gpuResource: borrowedBuffer };
+	const fallback = resourceManager.registerBuffer(borrowedBuffer, { size: 64 });
 	const payload = {
 		generation: 0,
 		paramsBuffer: fallback,
@@ -85,7 +92,7 @@ function createHarness() {
 				shadowVertexLayouts: [],
 				shadowLayoutKey: "static",
 				skinProfile: "static",
-				indexBuffer: { _gpuResource: binding },
+				indexBuffer: resourceManager.registerBuffer(binding, { size: 12 }),
 				indexFormat: "uint32",
 				indexCount: 3,
 			};
@@ -96,6 +103,7 @@ function createHarness() {
 	});
 	return {
 		runtime, resources, passes, submissions, nativeEncoder, borrowedBuffer, geometryRequests,
+		resourceManager,
 		get encoderCount() { return encoderCount; },
 		get finishCount() { return finishCount; },
 	};
@@ -119,7 +127,7 @@ function createFrame() {
 
 async function testRecordingUsesRuntimeAtlases(useFrameEncoder) {
 	const harness = createHarness();
-	const { runtime, passes } = harness;
+	const { runtime, passes, resourceManager } = harness;
 	const caster = createTestDrawPacket({ id: "caster" }).submission;
 	const transmitter = createTestDrawPacket({ id: "transmitter" }).submission;
 	// Geometry buffers are borrowed, just like the shared animation payload.
@@ -129,7 +137,8 @@ async function testRecordingUsesRuntimeAtlases(useFrameEncoder) {
 		shadowCasterSubmissions: [caster], shadowTransmitterSubmissions: [transmitter],
 	};
 	const encoder = useFrameEncoder ?
-		new WebGPUCommandEncoder(harness.nativeEncoder, {}, {}) : undefined;
+		new WebGPUCommandEncoder(harness.nativeEncoder,
+			{ resourceManager: harness.resourceManager }, {}) : undefined;
 	const lighting = {
 		directionalShadows: [{ enabled: true, shadowMapBaseSize: 128, atlasTileSize: 0 }],
 		spotShadows: [],
@@ -140,12 +149,12 @@ async function testRecordingUsesRuntimeAtlases(useFrameEncoder) {
 	await runtime.renderShadows(createFrame(), packets, encoder);
 	assert.deepEqual(harness.geometryRequests, [caster.geometry, transmitter.geometry]);
 	assert.equal(passes.length, 2);
-	assert.strictEqual(passes[0].desc.depthStencilAttachment.view, atlas._webgpuTexture.view);
+	assert.strictEqual(passes[0].desc.depthStencilAttachment.view, resourceManager.getTexture(atlas).view);
 	assert.equal(passes[0].desc.depthStencilAttachment.depthLoadOp, "clear");
 	assert.strictEqual(
-		passes[1].desc.colorAttachments[0].view, transmittanceAtlas._webgpuTexture.view,
+		passes[1].desc.colorAttachments[0].view, resourceManager.getTexture(transmittanceAtlas).view,
 	);
-	assert.strictEqual(passes[1].desc.depthStencilAttachment.view, atlas._webgpuTexture.view);
+	assert.strictEqual(passes[1].desc.depthStencilAttachment.view, resourceManager.getTexture(atlas).view);
 	assert.equal(passes[1].desc.depthStencilAttachment.depthLoadOp, "load");
 	assert.deepEqual(passes[1].desc.colorAttachments[0].clearValue, { r: 1, g: 1, b: 1, a: 1 });
 	for (const [index, submission] of [caster, transmitter].entries()) {
@@ -178,7 +187,7 @@ async function testRecordingUsesRuntimeAtlases(useFrameEncoder) {
 }
 
 async function testInactivePlanAndAtlasReuse() {
-	const { runtime, resources, passes } = createHarness();
+	const { runtime, resources, passes, resourceManager } = createHarness();
 	const context = createFrame();
 	await runtime.renderShadows({ ...context, shadowPlan: { hasRasterWork: false } }, {});
 	assert.equal(resources.length, 0);
@@ -186,14 +195,40 @@ async function testInactivePlanAndAtlasReuse() {
 	assert.equal(runtime.atlas, null);
 	const first = runtime.ensureAtlasForTileSize(128);
 	const firstTransmission = runtime.transmittanceAtlas;
+	const firstNative = resourceManager.getTexture(first).texture;
+	const firstTransmissionNative = resourceManager.getTexture(firstTransmission).texture;
 	assert.strictEqual(runtime.ensureAtlasForTileSize(64), first);
 	assert.strictEqual(runtime.transmittanceAtlas, firstTransmission);
 	const grown = runtime.ensureAtlasForTileSize(256);
 	assert.notStrictEqual(grown, first);
-	assert.equal(first._gpuResource.destroyCount, 1);
-	assert.equal(firstTransmission._gpuResource.destroyCount, 1);
+	assert.equal(firstNative.destroyCount, 1);
+	assert.equal(firstTransmissionNative.destroyCount, 1);
 	runtime.destroy();
 	assert.ok(resources.every((resource) => resource.destroyCount === 1));
+}
+
+async function testForeignAtlasResourcesRejectBeforeEncoding() {
+	const harness = createHarness();
+	const foreignStore = createWebGPUResourceManager();
+	const foreign = foreignStore.registerTexture({ texture: {}, view: {} },
+		{ width: 128, height: 128 });
+	const owned = harness.runtime.ensureAtlasForTileSize(128);
+	const context = createFrame();
+	const caster = harness.runtime._casterRenderer;
+	await assert.rejects(() => caster.renderAtlas(context, [], [], {
+		ensureAtlasForTileSize: () => foreign,
+		transmittanceAtlas: null,
+		tileSize: 128,
+	}), /not owned/i, "foreign depth atlases cannot enter shadow encoding");
+	await assert.rejects(() => caster.renderAtlas(context, [], [], {
+		ensureAtlasForTileSize: () => owned,
+		transmittanceAtlas: foreign,
+		tileSize: 128,
+	}), /not owned/i, "foreign transmittance atlases cannot enter shadow encoding");
+	assert.equal(harness.encoderCount, 0);
+	assert.equal(harness.passes.length, 0);
+	foreign.destroy();
+	harness.runtime.destroy();
 }
 
 const previousShaderStage = globalThis.GPUShaderStage;
@@ -204,6 +239,7 @@ try {
 	await testRecordingUsesRuntimeAtlases(false);
 	await testRecordingUsesRuntimeAtlases(true);
 	await testInactivePlanAndAtlasReuse();
+	await testForeignAtlasResourcesRejectBeforeEncoding();
 	console.log("WebGPU shadow runtime behavior tests passed");
 } finally {
 	if (previousShaderStage === undefined) delete globalThis.GPUShaderStage;

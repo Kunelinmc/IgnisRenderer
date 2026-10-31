@@ -251,7 +251,7 @@ export class WebGPUClusteredLightingRuntime {
 		this._overflowPipeline = null;
 		this._computeGroupLayout0 = null;
 		this._computePipelineLayout = null;
-		this._destroyBindingGroup(this._computeBinding);
+		this._computeBinding?.destroy();
 		this._computeBinding = null;
 		this._computeBindingSources = null;
 	}
@@ -547,7 +547,7 @@ export class WebGPUClusteredLightingRuntime {
 		}
 		const sources = this._getSceneBindingSources();
 		if (!this._sameSources(this._sceneBindingSources, sources)) {
-			this._destroyBindingGroup(this._sceneBinding);
+			this._sceneBinding?.destroy();
 			this._sceneBinding = this._compute.createBindingGroup({
 				label: "WebGPUClusteredSceneBinding",
 				layout: this._sceneLayout,
@@ -559,8 +559,8 @@ export class WebGPUClusteredLightingRuntime {
 	}
 
 	public destroy(): void {
-		this._destroyBindingGroup(this._sceneBinding);
-		this._destroyBindingGroup(this._computeBinding);
+		this._sceneBinding?.destroy();
+		this._computeBinding?.destroy();
 		this._sceneBinding = null;
 		this._computeBinding = null;
 		this._sceneBindingSources = null;
@@ -965,7 +965,7 @@ export class WebGPUClusteredLightingRuntime {
 		if (!this._computeGroupLayout0) return;
 		const sources = this._getComputeBindingSources();
 		if (this._sameSources(this._computeBindingSources, sources)) return;
-		this._destroyBindingGroup(this._computeBinding);
+		this._computeBinding?.destroy();
 		this._computeBinding = this._compute.createBindingGroup({
 			label: "WebGPUClusteredLightingComputeBinding",
 			layout: this._computeGroupLayout0,
@@ -1030,12 +1030,6 @@ export class WebGPUClusteredLightingRuntime {
 			Math.max(1, params.maxLightsPerCluster) >>> 0
 		);
 		return writer.toArrayBuffer();
-	}
-
-	private _destroyBindingGroup(group: IBindingGroup | null): void {
-		const destroyFn = (group as { destroy?: () => void } | null)?.destroy;
-		if (typeof destroyFn !== "function") return;
-		destroyFn.call(group);
 	}
 
 	private _warnOnce(key: string, message: string): void {

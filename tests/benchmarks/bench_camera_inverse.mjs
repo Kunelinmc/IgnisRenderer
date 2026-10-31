@@ -77,7 +77,7 @@ function createFrameCase(moving, scopes = 1) {
 	};
 	const shadow = { atlas: null, transmittanceAtlas: null };
 	const caches = Array.from({ length: scopes }, () =>
-		new WebGPUFrameBindingCache(backend, null, null, registry, shadow));
+		new WebGPUFrameBindingCache(backend, null, registry, shadow));
 	const frame = {
 		camera,
 		environment: {

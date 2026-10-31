@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createWebGPUComputeFacade } from "../../../src/backends/webgpu/ComputeFacade.ts";
 
 import { CameraType } from "../../../src/cameras/Camera.ts";
 import {
@@ -16,7 +17,6 @@ import {
 	FakeBackend,
 	FakeEncoder,
 	assertClose,
-	createTexture,
 } from "../../helpers/webgpu_postprocess_runtime_test_helpers.mjs";
 
 function createGBuffer(width = 32, height = 16) {
@@ -61,9 +61,12 @@ function createRequest(options = {}, historyValid = false, cameraType = CameraTy
 
 function createHarness() {
 	const backend = new FakeBackend();
+	const createTexture = (width, height, label) => backend.createTexture({
+		width, height, label, format: label === "hiz" ? "r32float" : "rgba16float", usage: 0,
+	});
 	const warnings = [];
 	const runtime = new WebGPUPostProcessRuntime(
-		backend,
+		createWebGPUComputeFacade(backend),
 		(key, message) => warnings.push([key, message])
 	);
 	const encoder = new FakeEncoder();

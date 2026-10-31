@@ -44,7 +44,7 @@ import { WebGPUFrameTransaction } from "./WebGPUFrameTransaction";
 import { BackendPostProcessRuntime } from "../../postprocess/BackendPostProcessRuntime";
 import { WebGPUCommandScheduler } from "./WebGPUCommandScheduler";
 import { WebGPUCanvasTargetManager } from "./WebGPUCanvasTargetManager";
-import { WebGPUResourceManager } from "./WebGPUResourceManager";
+import { WebGPUResourceManager, type WebGPUResourceManagerHost } from "./WebGPUResourceManager";
 import { WebGPUShaderModuleCompiler } from "./WebGPUShaderModuleCompiler";
 import { WebGPUPipelineCache, type WebGPUPipelineCacheHost } from "./WebGPUPipelineCache";
 import {
@@ -211,7 +211,7 @@ export class WebGPUBackend implements IRenderBackend {
 	public canvasDepthFormat: TextureFormat = TextureFormat.Depth24Plus;
 	public readonly shaderRuntime: ShaderRuntime;
 
-	private readonly _canvasTargets = new WebGPUCanvasTargetManager();
+	private readonly _canvasTargets: WebGPUCanvasTargetManager;
 	private _errorScopes: WebGPUErrorScopeHelper | null = null;
 	private _resources: WebGPUFrameServiceOwner | null = null;
 	private _frameOrchestrator: WebGPUFrameOrchestrator | null = null;
@@ -333,10 +333,11 @@ export class WebGPUBackend implements IRenderBackend {
 			mode: shaderMode,
 		});
 		this._shaderModuleCompiler = new WebGPUShaderModuleCompiler();
+		this._resourceManager = new WebGPUResourceManager(this._createResourceManagerHost());
+		this._canvasTargets = new WebGPUCanvasTargetManager(this._resourceManager);
 		this._pipelineCache = new WebGPUPipelineCache(this._createPipelineCacheHost());
 		this._bindingGroupCache = new WebGPUBindingGroupCache(this._createBindingGroupCacheHost());
 		this._commandScheduler = new WebGPUCommandScheduler(this._createCommandSchedulerHost());
-		this._resourceManager = new WebGPUResourceManager(this._createResourceManagerHost());
 		this._computeFacade = createWebGPUComputeFacade(this._createComputeFacadeHost());
 		this.extensions = createRenderBackendExtensionRegistry([
 			{
@@ -576,7 +577,6 @@ export class WebGPUBackend implements IRenderBackend {
 		this._frameHost = this._createFrameHost();
 		this._resources = new WebGPUFrameServiceOwner(
 			this._frameHost,
-			this._resourceManager,
 			this._computeFacade,
 		);
 		this._postProcessExecutor = new WebGPUPostProcessExecutor(this._frameHost);
@@ -947,6 +947,7 @@ export class WebGPUBackend implements IRenderBackend {
 			backend._requireReady(`compute extension ${operation}`);
 		};
 		return {
+			resourceManager: this._resourceManager,
 			get device() {
 				return backend._state === "ready" ? backend._device : null;
 			},
@@ -1011,6 +1012,7 @@ export class WebGPUBackend implements IRenderBackend {
 			},
 			registerExternalTexture: (texture, resource, uploadedVersion, mipLevelCount) => {
 				assertReady("register external textures");
+				this._resourceManager.getTexture(resource);
 				this._registerExternalTexture(texture, resource, uploadedVersion, mipLevelCount);
 			},
 			unregisterExternalTexture: (texture) => {
@@ -1039,6 +1041,7 @@ export class WebGPUBackend implements IRenderBackend {
 		return {
 			device,
 			queue,
+			resourceManager: this._resourceManager,
 			get canvasFormat() {
 				return backend.canvasFormat;
 			},
@@ -1152,6 +1155,7 @@ export class WebGPUBackend implements IRenderBackend {
 	private _createPipelineCacheHost(): WebGPUPipelineCacheHost {
 		const thisRef = this;
 		return {
+			resourceManager: this._resourceManager,
 			get device() {
 				return thisRef._device;
 			},
@@ -1185,6 +1189,7 @@ export class WebGPUBackend implements IRenderBackend {
 	private _createBindingGroupCacheHost(): WebGPUBindingGroupCacheHost {
 		const thisRef = this;
 		return {
+			resourceManager: this._resourceManager,
 			get device() {
 				return thisRef._device;
 			},
@@ -1209,6 +1214,7 @@ export class WebGPUBackend implements IRenderBackend {
 	private _createCommandSchedulerHost(): WebGPUCommandSchedulerHost {
 		const thisRef = this;
 		return {
+			resourceManager: this._resourceManager,
 			get device() {
 				return thisRef._device;
 			},
@@ -1251,7 +1257,7 @@ export class WebGPUBackend implements IRenderBackend {
 		};
 	}
 
-	private _createResourceManagerHost() {
+	private _createResourceManagerHost(): WebGPUResourceManagerHost {
 		const thisRef = this;
 		return {
 			get device() {
@@ -1456,6 +1462,7 @@ export class WebGPUBackend implements IRenderBackend {
 		this._resetCurrentCanvasTargets();
 		this._errorScopes = null;
 		cleanup("command scheduler", () => this._commandScheduler.reset());
+		cleanup("resource manager", () => this._resourceManager.reset());
 		cleanup("pipeline cache", () => this._pipelineCache.reset());
 		cleanup("binding-group cache", () => this._bindingGroupCache.clear());
 		cleanup("object identity", () => this._objectIdentity.reset());

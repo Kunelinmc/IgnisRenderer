@@ -23,9 +23,7 @@ import {
 	TextureUsage,
 	type BufferDesc,
 	type BindingEntry,
-	type BindingGroupDesc,
 	type ColorTargetState,
-	type IShaderModule,
 	type IRenderTexture,
 	type PipelineDesc,
 	type SamplerDesc,
@@ -48,6 +46,7 @@ import type {
 	IComputePipeline,
 	IRenderBuffer,
 	IRenderPipeline,
+	ISampler,
 	IndexFormat,
 } from "../types";
 import { Logger } from "../../foundation/Logger";
@@ -56,39 +55,9 @@ import {
 	isWebGLFloatColorRenderTargetFormat,
 	resolveWebGLColorRenderTargetFormat,
 	resolveWebGLDepthRenderTargetFormat,
-	type WebGLColorRenderTargetFormat,
 } from "./WebGLRenderTargetFormat";
 import type { WebGLAuxiliaryUniform } from "./WebGLAuxiliaryRaster";
-
-interface WebGLCustomTexture extends IRenderTexture {
-	_gpuResource: WebGLTexture;
-	_webglTargetKind: "texture";
-	_webglColorFormat?: WebGLColorRenderTargetFormat;
-}
-
-interface WebGLCustomBuffer extends IRenderBuffer {
-	_webglBuffer: WebGLBuffer;
-	_webglUsage: BufferUsage;
-}
-
-interface WebGLCustomSampler {
-	readonly label?: string;
-	_webglSampler: WebGLSampler;
-}
-
-interface WebGLCustomShaderModule extends IShaderModule {
-	_webglCode: string;
-	_webglStage?: ShaderModuleDesc["stage"];
-}
-
-interface WebGLCustomPipeline extends IRenderPipeline {
-	_webglProgram: WebGLProgram;
-	_webglDesc: PipelineDesc;
-}
-
-interface WebGLCustomBindingGroup extends IBindingGroup {
-	_webglEntries: readonly BindingEntry[];
-}
+import { WebGLResourceStore, type WebGLPipelineState } from "./WebGLResourceStore";
 
 interface WebGLCustomRenderTarget {
 	descriptor: RenderTargetDescriptor;
@@ -97,8 +66,8 @@ interface WebGLCustomRenderTarget {
 	sampleCount: number;
 	sceneDepth: boolean;
 	framebuffer: WebGLFramebuffer;
-	color: WebGLCustomTexture[];
-	depth: WebGLCustomTexture | null;
+	color: IRenderTexture[];
+	depth: IRenderTexture | null;
 }
 
 export interface WebGLCustomRenderTargetRuntimeOptions {
@@ -118,6 +87,7 @@ export interface WebGLCustomRenderTargetRuntimeOptions {
 
 export class WebGLCustomRenderTargetRuntime {
 	private readonly _gl: WebGL2RenderingContext;
+	private readonly _resources = new WebGLResourceStore();
 	private readonly _restoreFrameState: (context: FrameContext) => void;
 	private readonly _executeSceneView?: WebGLCustomRenderTargetRuntimeOptions["executeSceneView"];
 	private readonly _supportsFloatColorBuffer: boolean;
@@ -138,6 +108,7 @@ export class WebGLCustomRenderTargetRuntime {
 	}
 
 	public sync(context: FrameContext): void {
+		this._resources.assertAlive();
 		const descriptors = context.renderTargets.getAll();
 		const activeIds = new Set(descriptors.map((descriptor) => descriptor.id));
 		for (const id of Array.from(this._targets.keys())) {
@@ -250,7 +221,7 @@ export class WebGLCustomRenderTargetRuntime {
 					this._restoreFrameState(context);
 					continue;
 				}
-				const encoder = new WebGLScopedRasterEncoder(this._gl);
+				const encoder = new WebGLScopedRasterEncoder(this._gl, null, this._resources);
 				try {
 					await job.descriptor.execute({
 						backend: "webgl",
@@ -259,7 +230,7 @@ export class WebGLCustomRenderTargetRuntime {
 						target: toExecutionTarget(target),
 						width: target.width,
 						height: target.height,
-						resources: createWebGLRasterResourceFacade(this._gl),
+						resources: createWebGLRasterResourceFacade(this._gl, this._resources),
 					});
 					encoder.finish();
 				} finally {
@@ -303,7 +274,7 @@ export class WebGLCustomRenderTargetRuntime {
 		const height = resolveReadbackDimension(id, "height", options.height, target.height);
 		const format = target.descriptor.color[attachmentIndex]?.format ??
 			TextureFormat.RGBA8Unorm;
-		const resolved = texture._webglColorFormat;
+		const resolved = this._resources.getTexture(texture).colorFormat;
 		if (!resolved) {
 			throw new Error(
 				`Render target "${id}" color attachment ${attachmentIndex} has no readback format.`
@@ -351,6 +322,7 @@ export class WebGLCustomRenderTargetRuntime {
 			this._destroyTarget(id);
 		}
 		this._lastSuccessfulFrame = false;
+		this._resources.destroy();
 	}
 
 	private _createTarget(
@@ -364,14 +336,15 @@ export class WebGLCustomRenderTargetRuntime {
 		if (!framebuffer) {
 			throw new Error(`Failed to create WebGL custom framebuffer "${descriptor.id}".`);
 		}
-		const color: WebGLCustomTexture[] = [];
-		let depth: WebGLCustomTexture | null = null;
+		const color: IRenderTexture[] = [];
+		let depth: IRenderTexture | null = null;
 		try {
 			for (let index = 0; index < descriptor.color.length; index++) {
 				const attachment = descriptor.color[index];
 				color.push(
 					createWebGLColorTexture(
 						gl,
+						this._resources,
 						width,
 						height,
 						attachment.format,
@@ -384,6 +357,7 @@ export class WebGLCustomRenderTargetRuntime {
 			if (descriptor.depth || sceneDepth) {
 				depth = createWebGLDepthTexture(
 					gl,
+					this._resources,
 					width,
 					height,
 					descriptor.depth?.format ?? TextureFormat.Depth32Float,
@@ -397,7 +371,7 @@ export class WebGLCustomRenderTargetRuntime {
 					gl.FRAMEBUFFER,
 					gl.COLOR_ATTACHMENT0 + index,
 					gl.TEXTURE_2D,
-					color[index]._gpuResource,
+					this._resources.getTexture(color[index]).texture,
 					0
 				);
 			}
@@ -406,7 +380,7 @@ export class WebGLCustomRenderTargetRuntime {
 					gl.FRAMEBUFFER,
 					gl.DEPTH_ATTACHMENT,
 					gl.TEXTURE_2D,
-					depth._gpuResource,
+					this._resources.getTexture(depth).texture,
 					0
 				);
 			}
@@ -474,10 +448,11 @@ function flipReadbackRows(
 
 export class WebGLScopedRasterEncoder implements ICommandEncoder {
 	private readonly _gl: WebGL2RenderingContext;
+	private readonly _resources: WebGLResourceStore;
 	private readonly _scopeState: { active: boolean } | null;
 	private _vertexArray: WebGLVertexArrayObject | null;
 	private _framebuffer: WebGLFramebuffer | null = null;
-	private _pipeline: WebGLCustomPipeline | null = null;
+	private _pipeline: IRenderPipeline | null = null;
 	private readonly _vertexBuffers = new Map<number, IRenderBuffer>();
 	private _indexBuffer: IRenderBuffer | null = null;
 	private _indexFormat: IndexFormat = "uint16";
@@ -486,8 +461,10 @@ export class WebGLScopedRasterEncoder implements ICommandEncoder {
 	public constructor(
 		gl: WebGL2RenderingContext,
 		scopeState: { active: boolean } | null = null,
+		resources = new WebGLResourceStore(),
 	) {
 		this._gl = gl;
+		this._resources = resources;
 		this._scopeState = scopeState;
 		this._vertexArray = typeof gl.createVertexArray === "function" ?
 			gl.createVertexArray() : null;
@@ -500,9 +477,14 @@ export class WebGLScopedRasterEncoder implements ICommandEncoder {
 		}
 		for (const attachment of desc.colorAttachments) {
 			this._assertScopeResource(attachment.view);
+			this._resources.getTexture(attachment.view);
 			if (attachment.resolveTarget) {
 				throw new Error("WebGL custom render passes do not support resolve targets.");
 			}
+		}
+		if (desc.depthStencilAttachment) {
+			this._assertScopeResource(desc.depthStencilAttachment.view);
+			this._resources.getTexture(desc.depthStencilAttachment.view);
 		}
 		const size = resolveRenderPassSize(desc);
 		const gl = this._gl;
@@ -514,7 +496,7 @@ export class WebGLScopedRasterEncoder implements ICommandEncoder {
 		this._framebuffer = framebuffer;
 		gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
 		desc.colorAttachments.forEach((attachment, index) => {
-			const texture = resolveWebGLTexture(attachment.view);
+			const texture = this._resources.getTexture(attachment.view).texture;
 			gl.framebufferTexture2D(
 				gl.FRAMEBUFFER,
 				gl.COLOR_ATTACHMENT0 + index,
@@ -531,7 +513,6 @@ export class WebGLScopedRasterEncoder implements ICommandEncoder {
 			);
 		}
 		if (desc.depthStencilAttachment) {
-			this._assertScopeResource(desc.depthStencilAttachment.view);
 			this._attachDepth(desc.depthStencilAttachment);
 		}
 		const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
@@ -579,14 +560,11 @@ export class WebGLScopedRasterEncoder implements ICommandEncoder {
 
 	public setPipeline(pipeline: IRenderPipeline): void {
 		this._assertScopeResource(pipeline);
-		const customPipeline = pipeline as WebGLCustomPipeline;
-		if (!customPipeline._webglProgram) {
-			throw new Error("WebGL custom render pass received an incompatible pipeline.");
-		}
-		this._pipeline = customPipeline;
+		const customPipeline = this._resources.getPipeline(pipeline);
+		this._pipeline = pipeline;
 		const gl = this._gl;
-		gl.useProgram(customPipeline._webglProgram);
-		applyPipelineState(gl, customPipeline._webglDesc);
+		gl.useProgram(customPipeline.program);
+		applyPipelineState(gl, customPipeline.desc);
 	}
 
 	public setBindingGroup(
@@ -596,20 +574,20 @@ export class WebGLScopedRasterEncoder implements ICommandEncoder {
 	): void {
 		this._assertScopeResource(group);
 		const pipeline = this._requirePipeline();
-		const customGroup = group as WebGLCustomBindingGroup;
-		if (!customGroup._webglEntries) {
-			throw new Error("WebGL custom render pass received an incompatible binding group.");
-		}
-		bindGroupResources(this._gl, pipeline, customGroup._webglEntries);
+		const entries = this._resources.getBindingGroup(group);
+		for (const entry of entries) this._assertScopeResource(entry.resource);
+		bindGroupResources(this._gl, this._resources, pipeline, entries);
 	}
 
 	public setVertexBuffer(slot: number, buffer: IRenderBuffer): void {
 		this._assertScopeResource(buffer);
+		this._resources.getBuffer(buffer);
 		this._vertexBuffers.set(slot, buffer);
 	}
 
 	public setIndexBuffer(buffer: IRenderBuffer, format: IndexFormat): void {
 		this._assertScopeResource(buffer);
+		this._resources.getBuffer(buffer);
 		this._indexBuffer = buffer;
 		this._indexFormat = format;
 	}
@@ -629,16 +607,16 @@ export class WebGLScopedRasterEncoder implements ICommandEncoder {
 			throw new Error("WebGL custom indexed draws require firstInstance=0.");
 		}
 		const pipeline = this._requirePipeline();
-		const indexBuffer = this._indexBuffer as WebGLCustomBuffer | null;
-		if (!indexBuffer?._webglBuffer) {
+		if (!this._indexBuffer) {
 			throw new Error("WebGL custom indexed draw requires an index buffer.");
 		}
+		const indexBuffer = this._resources.getBuffer(this._indexBuffer);
 		this._bindVertexBuffers(pipeline);
 		const gl = this._gl;
-		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer._webglBuffer);
+		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
 		const indexType = this._indexFormat === "uint32" ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT;
 		const indexSize = this._indexFormat === "uint32" ? 4 : 2;
-		const mode = primitiveTopologyToGL(gl, pipeline._webglDesc);
+		const mode = primitiveTopologyToGL(gl, pipeline.desc);
 		if (instanceCount > 1) {
 			gl.drawElementsInstanced(
 				mode,
@@ -665,7 +643,7 @@ export class WebGLScopedRasterEncoder implements ICommandEncoder {
 		const pipeline = this._requirePipeline();
 		this._bindVertexBuffers(pipeline);
 		const gl = this._gl;
-		const mode = primitiveTopologyToGL(gl, pipeline._webglDesc);
+		const mode = primitiveTopologyToGL(gl, pipeline.desc);
 		if (instanceCount > 1) {
 			gl.drawArraysInstanced(mode, firstVertex, vertexCount, instanceCount);
 			return;
@@ -699,7 +677,7 @@ export class WebGLScopedRasterEncoder implements ICommandEncoder {
 		for (const uniform of uniforms) {
 			applyNamedUniform(
 				this._gl,
-				pipeline._webglProgram,
+				pipeline.program,
 				uniform,
 			);
 		}
@@ -758,6 +736,7 @@ export class WebGLScopedRasterEncoder implements ICommandEncoder {
 	}
 
 	private _assertScopeActive(): void {
+		this._resources.assertAlive();
 		if (this._scopeState && !this._scopeState.active) {
 			throw new Error("WebGL auxiliary raster scope is no longer active.");
 		}
@@ -765,33 +744,27 @@ export class WebGLScopedRasterEncoder implements ICommandEncoder {
 
 	private _assertScopeResource(resource: unknown): void {
 		this._assertScopeActive();
-		if (
-			this._scopeState &&
-			(resource as { _webglScopeState?: unknown } | null)?._webglScopeState !==
-				this._scopeState
-		) {
-			throw new Error(
-				"WebGL auxiliary raster resources must belong to the active scope.",
-			);
-		}
+		if (this._scopeState) this._resources.assertScope(resource, this._scopeState);
+		else this._resources.assertResource(resource);
 	}
 
-	private _requirePipeline(): WebGLCustomPipeline {
+	private _requirePipeline(): WebGLPipelineState {
 		if (!this._pipeline) {
 			throw new Error("WebGL custom render pass draw requires a pipeline.");
 		}
-		return this._pipeline;
+		return this._resources.getPipeline(this._pipeline);
 	}
 
-	private _bindVertexBuffers(pipeline: WebGLCustomPipeline): void {
-		const layouts = pipeline._webglDesc.vertex.buffers ?? [];
+	private _bindVertexBuffers(pipeline: WebGLPipelineState): void {
+		const layouts = pipeline.desc.vertex.buffers ?? [];
 		for (let slot = 0; slot < layouts.length; slot++) {
-			const buffer = this._vertexBuffers.get(slot) as WebGLCustomBuffer | undefined;
-			if (!buffer?._webglBuffer) {
+			const handle = this._vertexBuffers.get(slot);
+			if (!handle) {
 				continue;
 			}
+			const buffer = this._resources.getBuffer(handle);
 			const layout = layouts[slot];
-			this._gl.bindBuffer(this._gl.ARRAY_BUFFER, buffer._webglBuffer);
+			this._gl.bindBuffer(this._gl.ARRAY_BUFFER, buffer);
 			for (const attribute of layout.attributes) {
 				bindVertexAttribute(this._gl, attribute, layout.arrayStride);
 				if (layout.stepMode === "instance") {
@@ -802,10 +775,7 @@ export class WebGLScopedRasterEncoder implements ICommandEncoder {
 	}
 
 	private _attachDepth(attachment: DepthStencilAttachment): void {
-		const resource = (attachment.view as WebGLCustomTexture | undefined)?._gpuResource;
-		if (!resource) {
-			return;
-		}
+		const resource = this._resources.getTexture(attachment.view).texture;
 		this._gl.framebufferTexture2D(
 			this._gl.FRAMEBUFFER,
 			this._gl.DEPTH_ATTACHMENT,
@@ -818,12 +788,13 @@ export class WebGLScopedRasterEncoder implements ICommandEncoder {
 
 function createWebGLColorTexture(
 	gl: WebGL2RenderingContext,
+	resources: WebGLResourceStore,
 	width: number,
 	height: number,
 	format: TextureFormat,
 	floatColorSupported: boolean,
 	label: string
-): WebGLCustomTexture {
+): IRenderTexture {
 	const texture = gl.createTexture();
 	if (!texture) {
 		throw new Error(`Failed to create ${label}.`);
@@ -854,22 +825,19 @@ function createWebGLColorTexture(
 		null
 	);
 	gl.bindTexture(gl.TEXTURE_2D, null);
-	return {
+	return resources.createTexture({
 		width,
 		height,
 		format,
 		requestedFormat: format,
-		_gpuResource: texture,
-		_webglTargetKind: "texture",
-		_webglColorFormat: resolved,
-		destroy: () => gl.deleteTexture(texture),
-	};
+	}, { texture, colorFormat: resolved, maxMipLevel: 0 }, () => gl.deleteTexture(texture));
 }
 
 function createWebGLTexture(
 	gl: WebGL2RenderingContext,
+	resources: WebGLResourceStore,
 	desc: TextureDesc
-): WebGLCustomTexture {
+): IRenderTexture {
 	if (desc.dimension && desc.dimension !== "2d") {
 		throw new Error("WebGL custom render pass textures only support 2d dimension.");
 	}
@@ -879,6 +847,7 @@ function createWebGLTexture(
 	if (isDepthFormat(desc.format) && (desc.usage & TextureUsage.RenderAttachment) !== 0) {
 		return createWebGLDepthTexture(
 			gl,
+			resources,
 			desc.width,
 			desc.height,
 			desc.format,
@@ -889,6 +858,7 @@ function createWebGLTexture(
 		(desc.usage & TextureUsage.RenderAttachment) !== 0;
 	return createWebGLColorTexture(
 		gl,
+		resources,
 		desc.width,
 		desc.height,
 		desc.format,
@@ -901,11 +871,12 @@ function createWebGLTexture(
 
 function createWebGLDepthTexture(
 	gl: WebGL2RenderingContext,
+	resources: WebGLResourceStore,
 	width: number,
 	height: number,
 	format: TextureFormat,
 	label: string
-): WebGLCustomTexture {
+): IRenderTexture {
 	const texture = gl.createTexture();
 	if (!texture) {
 		throw new Error(`Failed to create ${label}.`);
@@ -932,15 +903,12 @@ function createWebGLDepthTexture(
 		null
 	);
 	gl.bindTexture(gl.TEXTURE_2D, null);
-	return {
+	return resources.createTexture({
 		width,
 		height,
 		format,
 		requestedFormat: format,
-		_gpuResource: texture,
-		_webglTargetKind: "texture",
-		destroy: () => gl.deleteTexture(texture),
-	};
+	}, { texture, maxMipLevel: 0 }, () => gl.deleteTexture(texture));
 }
 
 function isDepthFormat(format: TextureFormat): boolean {
@@ -949,17 +917,6 @@ function isDepthFormat(format: TextureFormat): boolean {
 		format === TextureFormat.Depth32Float ||
 		format === TextureFormat.Depth24PlusStencil8 ||
 		format === TextureFormat.Depth32FloatStencil8;
-}
-
-function resolveWebGLTexture(texture: IRenderTexture | undefined): WebGLTexture {
-	const resource = (texture as WebGLCustomTexture | undefined)?._gpuResource;
-	if (
-		!resource ||
-		(texture as WebGLCustomTexture | undefined)?._webglTargetKind !== "texture"
-	) {
-		throw new Error("Render pass color attachment is not a WebGL texture.");
-	}
-	return resource;
 }
 
 function colorClearValueToArray(attachment: ColorAttachment): Float32Array {
@@ -988,23 +945,30 @@ function toExecutionTarget(
 	};
 }
 
+/** @internal WebGL resource composition; applications use renderer resource facades. */
 export function createWebGLRasterResourceFacade(
-	gl: WebGL2RenderingContext
+	gl: WebGL2RenderingContext,
+	resources: WebGLResourceStore,
 ): CustomRenderPassResourceFacade {
+	const create = <T>(operation: () => T): T => {
+		resources.assertAlive();
+		return operation();
+	};
 	return {
-		createBuffer: (desc) => createWebGLBuffer(gl, desc),
-		createTexture: (desc) => createWebGLTexture(gl, desc),
-		createSampler: (desc) => createWebGLSampler(gl, desc),
-		createShaderModule: (desc) => createWebGLShaderModule(desc),
-		createRenderPipeline: (desc) => createWebGLPipeline(gl, desc),
-		createBindingGroup: (desc) => createWebGLBindingGroup(desc),
+		createBuffer: (desc) => create(() => createWebGLBuffer(gl, resources, desc)),
+		createTexture: (desc) => create(() => createWebGLTexture(gl, resources, desc)),
+		createSampler: (desc) => create(() => createWebGLSampler(gl, resources, desc)),
+		createShaderModule: (desc) => create(() => resources.createShader(desc)),
+		createRenderPipeline: (desc) => create(() => createWebGLPipeline(gl, resources, desc)),
+		createBindingGroup: (desc) => create(() => resources.createBindingGroup(desc.label, desc.entries)),
 	};
 }
 
 function createWebGLBuffer(
 	gl: WebGL2RenderingContext,
+	resources: WebGLResourceStore,
 	desc: BufferDesc
-): WebGLCustomBuffer {
+): IRenderBuffer {
 	const buffer = gl.createBuffer();
 	if (!buffer) {
 		throw new Error(`Failed to create WebGL custom buffer "${desc.label ?? "unnamed"}".`);
@@ -1020,20 +984,14 @@ function createWebGLBuffer(
 		gl.bufferData(target, data, gl.STATIC_DRAW);
 	}
 	gl.bindBuffer(target, null);
-	return {
-		size: desc.size,
-		_webglBuffer: buffer,
-		_webglUsage: desc.usage,
-		_cpuData: desc.mappedAtCreation ? new ArrayBuffer(desc.size) : undefined,
-		destroy: () => gl.deleteBuffer(buffer),
-		unmap: () => {},
-	};
+	return resources.createBuffer(desc.size, buffer, () => gl.deleteBuffer(buffer));
 }
 
 function createWebGLSampler(
 	gl: WebGL2RenderingContext,
+	resources: WebGLResourceStore,
 	desc: SamplerDesc
-): WebGLCustomSampler {
+): ISampler {
 	const sampler = gl.createSampler();
 	if (!sampler) {
 		throw new Error(`Failed to create WebGL custom sampler "${desc.label ?? "unnamed"}".`);
@@ -1058,35 +1016,27 @@ function createWebGLSampler(
 		gl.TEXTURE_WRAP_T,
 		addressModeToGL(gl, desc.addressModeV)
 	);
-	return {
-		label: desc.label,
-		_webglSampler: sampler,
-	};
-}
-
-function createWebGLShaderModule(desc: ShaderModuleDesc): WebGLCustomShaderModule {
-	return {
-		label: desc.label,
-		_webglCode: desc.code,
-		_webglStage: desc.stage,
-	};
+	return resources.createSampler(desc.label, sampler, () => gl.deleteSampler(sampler));
 }
 
 function createWebGLPipeline(
 	gl: WebGL2RenderingContext,
+	resources: WebGLResourceStore,
 	desc: PipelineDesc
-): WebGLCustomPipeline {
+): IRenderPipeline {
+	const vertexModule = resources.getShader(desc.vertex.module);
+	const fragmentModule = desc.fragment ? resources.getShader(desc.fragment.module) : null;
 	const vertex = compileWebGLShader(
 		gl,
 		gl.VERTEX_SHADER,
-		desc.vertex.module as WebGLCustomShaderModule,
+		vertexModule,
 		desc.label
 	);
 	const fragment = desc.fragment ?
 		compileWebGLShader(
 			gl,
 			gl.FRAGMENT_SHADER,
-			desc.fragment.module as WebGLCustomShaderModule,
+			fragmentModule!,
 			desc.label
 		)
 	:	null;
@@ -1114,28 +1064,23 @@ function createWebGLPipeline(
 			`Failed to link WebGL custom pipeline "${desc.label ?? "unnamed"}": ${log}`
 		);
 	}
-	return {
-		label: desc.label,
-		_webglProgram: program,
-		_webglDesc: desc,
-		destroy: () => gl.deleteProgram(program),
-	} as WebGLCustomPipeline & { destroy(): void };
+	return resources.createPipeline(desc.label, { program, desc }, () => gl.deleteProgram(program));
 }
 
 function compileWebGLShader(
 	gl: WebGL2RenderingContext,
 	type: number,
-	module: WebGLCustomShaderModule,
+	module: ShaderModuleDesc,
 	label?: string
 ): WebGLShader {
-	if (!module._webglCode) {
+	if (!module.code) {
 		throw new Error(`WebGL custom pipeline "${label ?? "unnamed"}" has no GLSL source.`);
 	}
 	const shader = gl.createShader(type);
 	if (!shader) {
 		throw new Error(`Failed to create WebGL custom shader "${label ?? "unnamed"}".`);
 	}
-	gl.shaderSource(shader, module._webglCode);
+	gl.shaderSource(shader, module.code);
 	gl.compileShader(shader);
 	if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
 		const log = gl.getShaderInfoLog(shader) ?? "unknown compile error";
@@ -1147,50 +1092,44 @@ function compileWebGLShader(
 	return shader;
 }
 
-function createWebGLBindingGroup(desc: BindingGroupDesc): WebGLCustomBindingGroup {
-	return {
-		label: desc.label,
-		_webglEntries: desc.entries,
-		destroy: () => {},
-	} as WebGLCustomBindingGroup & { destroy(): void };
-}
-
 function bindGroupResources(
 	gl: WebGL2RenderingContext,
-	pipeline: WebGLCustomPipeline,
+	resources: WebGLResourceStore,
+	pipeline: WebGLPipelineState,
 	entries: readonly BindingEntry[]
 ): void {
 	for (const entry of entries) {
-		const resource = entry.resource as
-			| WebGLCustomBuffer
-			| WebGLCustomTexture
-			| WebGLCustomSampler
-			| undefined;
-		if ((resource as WebGLCustomTexture | undefined)?._webglTargetKind === "texture") {
+		const resource = entry.resource;
+		if ("kind" in resource && resource.kind === "texture") {
 			gl.activeTexture(gl.TEXTURE0 + entry.binding);
 			gl.bindTexture(
 				gl.TEXTURE_2D,
-				(resource as WebGLCustomTexture)._gpuResource as WebGLTexture
+				resources.getTexture(resource).texture
 			);
-			const location = findSamplerUniform(gl, pipeline._webglProgram, entry.binding);
+			const location = findSamplerUniform(gl, pipeline.program, entry.binding);
 			if (location) {
 				gl.uniform1i(location, entry.binding);
 			}
 			continue;
 		}
-		if ((resource as WebGLCustomSampler | undefined)?._webglSampler) {
-			gl.bindSampler(entry.binding, (resource as WebGLCustomSampler)._webglSampler);
+		if ("kind" in resource && resource.kind === "sampler") {
+			gl.bindSampler(entry.binding, resources.getSampler(resource));
 			continue;
 		}
-		if ((resource as WebGLCustomBuffer | undefined)?._webglBuffer) {
-			const buffer = resource as WebGLCustomBuffer;
-			gl.bindBufferBase(gl.UNIFORM_BUFFER, entry.binding, buffer._webglBuffer);
+		if (("kind" in resource && resource.kind === "buffer") || "buffer" in resource) {
+			const buffer = resources.getBuffer("buffer" in resource ? resource.buffer : resource);
+			if ("buffer" in resource && (resource.offset !== undefined || resource.size !== undefined)) {
+				gl.bindBufferRange(gl.UNIFORM_BUFFER, entry.binding, buffer, resource.offset ?? 0,
+					resource.size ?? resource.buffer.size - (resource.offset ?? 0));
+			} else {
+				gl.bindBufferBase(gl.UNIFORM_BUFFER, entry.binding, buffer);
+			}
 			const blockIndex = gl.getUniformBlockIndex(
-				pipeline._webglProgram,
+				pipeline.program,
 				`Binding${entry.binding}`
 			);
 			if (blockIndex !== gl.INVALID_INDEX) {
-				gl.uniformBlockBinding(pipeline._webglProgram, blockIndex, entry.binding);
+				gl.uniformBlockBinding(pipeline.program, blockIndex, entry.binding);
 			}
 		}
 	}

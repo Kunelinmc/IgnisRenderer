@@ -351,7 +351,7 @@ export class WebGPUParticleRenderResources implements WebGPUParticleBillboardRen
 			particleBinding = cachedBinding.group;
 			cachedBinding.lastUsedFrame = this._frameId;
 		} else {
-			this._destroyBindingGroup(cachedBinding?.group ?? null);
+			cachedBinding?.group?.destroy();
 			particleBinding = this._backend.createBindingGroup({
 				layout: this._layouts.particleBindGroupLayout,
 				entries: [
@@ -502,14 +502,9 @@ export class WebGPUParticleRenderResources implements WebGPUParticleBillboardRen
 		cacheKey: string,
 		entry: WebGPUParticleBindingCacheEntry,
 	): void {
-		this._destroyBindingGroup(entry.group);
+		entry.group?.destroy();
 		entry.uvTransformBuffer.destroy();
 		this._particleBindingCache.delete(cacheKey);
-	}
-
-	private _destroyBindingGroup(group: IBindingGroup | null): void {
-		const destroy = (group as { destroy?: () => void } | null)?.destroy;
-		if (typeof destroy === "function") destroy.call(group);
 	}
 
 	private async _ensureParticleResources(

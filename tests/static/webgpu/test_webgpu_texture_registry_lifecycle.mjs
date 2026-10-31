@@ -17,7 +17,7 @@ function createTexture() {
 
 function testColorAndDataSamplingKeepIndependentResources() {
 	const backend = new FakeWebGPUBackend();
-	const registry = new WebGPUTextureRegistry(backend, backend);
+	const registry = new WebGPUTextureRegistry(backend);
 	const texture = new Texture({
 		width: 1, height: 1,
 		data: new Uint8Array([128, 64, 32, 128]),
@@ -39,7 +39,7 @@ function testColorAndDataSamplingKeepIndependentResources() {
 
 function testColorSpaceMutationReplacesSamplingFormatWithoutPixelRevision() {
 	const backend = new FakeWebGPUBackend();
-	const registry = new WebGPUTextureRegistry(backend, backend);
+	const registry = new WebGPUTextureRegistry(backend);
 	const texture = new Texture({
 		width: 1, height: 1, data: new Uint8Array([128, 64, 32, 255]),
 		format: TextureFormat.RGBA8UnormSrgb, colorSpace: "sRGB",
@@ -57,7 +57,7 @@ function testColorSpaceMutationReplacesSamplingFormatWithoutPixelRevision() {
 
 function testExternalTextureRequiresKnownCompatibleSamplingFormat() {
 	const backend = new FakeWebGPUBackend();
-	const registry = new WebGPUTextureRegistry(backend, backend);
+	const registry = new WebGPUTextureRegistry(backend);
 	const texture = new Texture({
 		width: 1, height: 1, colorSpace: "sRGB",
 	});
@@ -76,7 +76,7 @@ function testSrgbFallbackRejectsLossOfNativeDecoding() {
 	backend.createTexture = (descriptor) => createTextureResource({
 		...descriptor, format: TextureFormat.RGBA8Unorm,
 	});
-	const registry = new WebGPUTextureRegistry(backend, backend);
+	const registry = new WebGPUTextureRegistry(backend);
 	const texture = new Texture({
 		width: 1, height: 1, data: new Uint8Array([128, 64, 32, 255]),
 		format: TextureFormat.RGBA8UnormSrgb, colorSpace: "sRGB",
@@ -94,7 +94,7 @@ function testFailedSamplingFormatReplacementPreservesPreviousResource() {
 	backend.createTexture = (descriptor) => createTextureResource({
 		...descriptor, format: TextureFormat.RGBA8Unorm,
 	});
-	const registry = new WebGPUTextureRegistry(backend, backend);
+	const registry = new WebGPUTextureRegistry(backend);
 	const texture = new Texture({
 		width: 1, height: 1, data: new Uint8Array([128, 64, 32, 255]),
 		colorSpace: "Linear",
@@ -111,7 +111,7 @@ function testFailedSamplingFormatReplacementPreservesPreviousResource() {
 
 function testCustomDecodeOverrideUsesNativeFormat() {
 	const backend = new FakeWebGPUBackend();
-	const registry = new WebGPUTextureRegistry(backend, backend);
+	const registry = new WebGPUTextureRegistry(backend);
 	const texture = new Texture({
 		width: 1, height: 1, data: new Uint8Array([128, 64, 32, 128]),
 		colorSpace: "Linear",
@@ -130,7 +130,7 @@ function testCustomDecodeOverrideUsesNativeFormat() {
 
 function testDisposeReleasesOwnedResources() {
 	const backend = new FakeWebGPUBackend();
-	const registry = new WebGPUTextureRegistry(backend, backend);
+	const registry = new WebGPUTextureRegistry(backend);
 	const texture = createTexture();
 	const resource = registry.getTextureForSlot(
 		texture,
@@ -156,7 +156,7 @@ function testDisposeReleasesOwnedResources() {
 
 function testReleaseDoesNotDestroyExternalTexture() {
 	const backend = new FakeWebGPUBackend();
-	const registry = new WebGPUTextureRegistry(backend, backend);
+	const registry = new WebGPUTextureRegistry(backend);
 	const texture = createTexture();
 	const externalResource = {
 		width: 1,
@@ -181,7 +181,7 @@ function testReleaseDoesNotDestroyExternalTexture() {
 
 function testReplacingOwnedTextureWithExternalResourceReleasesOnlyOwnedResource() {
 	const backend = new FakeWebGPUBackend();
-	const registry = new WebGPUTextureRegistry(backend, backend);
+	const registry = new WebGPUTextureRegistry(backend);
 	const texture = createTexture();
 	const ownedResource = registry.getTextureForSlot(
 		texture,
@@ -208,7 +208,7 @@ function testReplacingOwnedTextureWithExternalResourceReleasesOnlyOwnedResource(
 
 function testExternalRegistrationReplacesPreviouslyResolvedDataResources() {
 	const backend = new FakeWebGPUBackend();
-	const registry = new WebGPUTextureRegistry(backend, backend);
+	const registry = new WebGPUTextureRegistry(backend);
 	const texture = new Texture({
 		width: 1, height: 1, data: new Uint8Array([128, 64, 32, 255]),
 		colorSpace: "Linear",
@@ -236,7 +236,7 @@ function testExternalRegistrationReplacesPreviouslyResolvedDataResources() {
 
 async function testDisposeWaitsForPendingMipmapGeneration() {
 	const backend = new FakeWebGPUBackend();
-	const registry = new WebGPUTextureRegistry(backend, backend);
+	const registry = new WebGPUTextureRegistry(backend);
 	const texture = new Texture({
 		data: new Uint8ClampedArray(2 * 2 * 4).fill(255),
 		width: 2,
@@ -262,7 +262,7 @@ async function testDisposeWaitsForPendingMipmapGeneration() {
 
 async function testDisposeWaitsForAllSamplingRoleMipmaps() {
 	const backend = new FakeWebGPUBackend();
-	const registry = new WebGPUTextureRegistry(backend, backend);
+	const registry = new WebGPUTextureRegistry(backend);
 	const pending = [];
 	registry._mipmapGenerator = {
 		generate: () => new Promise((resolve) => pending.push(resolve)),
@@ -319,7 +319,7 @@ function testFinalizerReleasesAbandonedResources() {
 	globalThis.FinalizationRegistry = FakeFinalizationRegistry;
 	try {
 		const backend = new FakeWebGPUBackend();
-		const registry = new WebGPUTextureRegistry(backend, backend);
+		const registry = new WebGPUTextureRegistry(backend);
 		const texture = createTexture();
 		const resource = registry.getTextureForSlot(
 			texture,

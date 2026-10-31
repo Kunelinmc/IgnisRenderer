@@ -1,4 +1,8 @@
 import assert from "node:assert/strict";
+import { pathToFileURL } from "node:url";
+
+import { createWebGPUResourceManager } from "../../helpers/fakes.mjs";
+import * as computeFacade from "../../../src/backends/webgpu/ComputeFacade.ts";
 import {
 	createWebGPUComputeFacade,
 	getWebGPUComputeFacadeCacheStats,
@@ -61,7 +65,7 @@ async function testFacadeDelegatesAndCaches() {
 	assert.equal(backend.textureWrites.length, 1);
 
 	const slotResource = facadeA.resolveTextureForSlot({ id: "source" }, 2);
-	assert.equal(slotResource.kind, "slot-texture");
+	assert.equal(slotResource.kind, "texture");
 	assert.equal(slotResource.slotIndex, 2);
 
 	facadeA.registerExternalTexture(
@@ -75,19 +79,12 @@ async function testFacadeDelegatesAndCaches() {
 	const encoded = facadeA.createCommandEncoder();
 	facadeA.submit([encoded.finish()]);
 
-	const textureWithView = {
-		width: 1,
-		height: 1,
-		destroy() {},
-		_webgpuTexture: {
-			texture: {
-				createView(desc) {
-					return { kind: "custom-view", desc };
-				},
-			},
-			view: { kind: "default-view" },
+	const textureWithView = backend.resourceManager.registerTexture({
+		texture: {
+			createView(desc) { return { kind: "custom-view", desc }; },
 		},
-	};
+		view: { kind: "default-view" },
+	}, { width: 1, height: 1 });
 	assert.equal(
 		facadeA.createTextureView(textureWithView).kind,
 		"default-view"
@@ -141,6 +138,36 @@ function testResolverSupportsBackendAndFacade() {
 
 	const fromFacade = resolveWebGPUComputeFacade(facade);
 	assert.equal(fromFacade, facade);
+}
+
+function testPublicAndInternalBindingInputsUseTheSameOwner() {
+	const backend = new FakeWebGPUBackend();
+	const facade = createWebGPUComputeFacade(backend);
+	const buffer = facade.createBuffer({ size: 16, usage: 0 });
+	const texture = facade.createTexture({
+		width: 1, height: 1, format: "rgba8unorm", usage: 0,
+	});
+	const nativeView = backend.resourceManager.getTexture(texture).view;
+	const layout = facade.createBindGroupLayout({ entries: [] });
+	const nativeDesc = { layout, entries: [{ binding: 0, resource: nativeView }] };
+	const initialBindingCount = backend.createBindingGroupCalls;
+	assert.throws(() => facade.createBindingGroup(nativeDesc), /owned|binding|engine|resource/i,
+		"public binding creation cannot accept a raw native texture view");
+	assert.equal(backend.createBindingGroupCalls, initialBindingCount,
+		"public input rejection happens before the backend creates a binding");
+	const engineGroup = facade.createBindingGroup({
+		layout, entries: [{ binding: 0, resource: buffer }],
+	});
+	assert.equal(engineGroup.kind, "binding-group");
+	assert.equal(typeof computeFacade.createWebGPUInternalBindingGroup, "function",
+		"backend passes need a private native binding operation");
+	const nativeGroup = computeFacade.createWebGPUInternalBindingGroup(facade, nativeDesc);
+	assert.equal(nativeGroup.kind, "binding-group");
+	assert.equal(nativeGroup.desc.entries[0].resource, nativeView);
+	assert.equal(computeFacade.getWebGPUComputeResourceManager(facade), backend.resourceManager);
+	assert.equal("resourceManager" in facade, false,
+		"private owner access must not become a public facade property");
+	facade.destroy();
 }
 
 function testResolverRejectsRendererLikeSource() {
@@ -215,6 +242,7 @@ function testResolverRejectsBackendLikeDuckTyping() {
 export async function run() {
 	await testFacadeDelegatesAndCaches();
 	testResolverSupportsBackendAndFacade();
+	testPublicAndInternalBindingInputsUseTheSameOwner();
 	testResolverRejectsRendererLikeSource();
 	testResolverRejectsNonWebGPUBackend();
 	testCacheInvalidationRecreatesFacade();
@@ -222,6 +250,6 @@ export async function run() {
 	console.log("WebGPU compute facade tests passed");
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
 	await run();
 }

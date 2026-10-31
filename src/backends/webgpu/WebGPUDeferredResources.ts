@@ -1,3 +1,4 @@
+import { Logger } from "../../foundation/Logger";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import { TextureFormat } from "../../core/TextureFormat";
 import {
@@ -11,7 +12,6 @@ import {
 import type { WebGPUDeferredResourceProvider } from "./WebGPUResourceContracts";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
-import { destroyUniqueWebGPUHandles } from "./WebGPUManagedResourceUtils";
 import {
 	toShaderCompileError,
 	type WarmupPhaseCounters,
@@ -166,12 +166,12 @@ export class WebGPUDeferredResources implements WebGPUDeferredResourceProvider {
 				sampleCount: 1,
 			} as any);
 		} catch (error) {
-			destroyUniqueWebGPUHandles([shaderModule], "shader module", "WebGPUDeferredResources");
+			this._destroyResource(shaderModule);
 			throw error;
 		}
 		if (generation !== this._shaderGeneration || this._destroyed) {
-			destroyUniqueWebGPUHandles([pipeline], "pipeline", "WebGPUDeferredResources");
-			destroyUniqueWebGPUHandles([shaderModule], "shader module", "WebGPUDeferredResources");
+			this._destroyResource(pipeline);
+			this._destroyResource(shaderModule);
 			return this.getDeferredLightingPipeline();
 		}
 		this._deferredLightingShaderModule = shaderModule;
@@ -276,27 +276,18 @@ export class WebGPUDeferredResources implements WebGPUDeferredResourceProvider {
 
 	public onShaderRuntimeChanged(): void {
 		this._shaderGeneration++;
-		destroyUniqueWebGPUHandles(
-			[
-				this._deferredLightingPipeline,
-				this._decalPipeline,
-				this._decalBatchPipeline,
-			],
-			"pipeline",
-			"WebGPUDeferredResources",
-		);
-		destroyUniqueWebGPUHandles(
-			[this._deferredLightingShaderModule, this._decalShaderModule],
-			"shader module",
-			"WebGPUDeferredResources",
-		);
+		this._destroyResource(this._deferredLightingPipeline);
+		this._destroyResource(this._decalPipeline);
+		this._destroyResource(this._decalBatchPipeline);
+		this._destroyResource(this._deferredLightingShaderModule);
+		this._destroyResource(this._decalShaderModule);
 		this._deferredLightingShaderModule = null;
 		this._deferredLightingPipeline = null;
 		this._deferredLightingInFlight = null;
 		this._decalShaderModule = null;
 		this._decalPipeline = null;
 		this._decalBatchPipeline = null;
-		this._destroyBindingGroup(this._deferredUnusedBinding);
+		this._deferredUnusedBinding?.destroy();
 		this._deferredUnusedBinding = null;
 		if (this._placeholderTextures) {
 			this._placeholderTextures.rgba16Float.destroy();
@@ -326,8 +317,19 @@ export class WebGPUDeferredResources implements WebGPUDeferredResourceProvider {
 		return this._decalShaderModule;
 	}
 
-	private _destroyBindingGroup(group: IBindingGroup | null): void {
-		const destroy = (group as { destroy?: () => void } | null)?.destroy;
-		if (typeof destroy === "function") destroy.call(group);
+	private _destroyResource(
+		resource: IRenderPipeline | IShaderModule | IComputePipeline | null,
+	): void {
+		if (!resource) return;
+		const kind = resource.kind === "shader-module" ? "shader module" : "pipeline";
+		try {
+			resource.destroy();
+		} catch (error) {
+			Logger.warn(
+				`[webgpu-cache-resource-destroy-failed] Failed to destroy cached ${kind}: ` +
+					String(error),
+				{ scope: "WebGPUDeferredResources" },
+			);
+		}
 	}
 }

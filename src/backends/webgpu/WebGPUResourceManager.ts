@@ -1,34 +1,22 @@
 import {
 	BufferUsage,
+	TextureUsage,
+	type BindingResource,
 	type BufferDesc,
+	type IBindingGroup,
+	type IComputePipeline,
 	type IRenderBuffer,
+	type IRenderPipeline,
 	type IRenderTexture,
+	type ISampler,
+	type IShaderModule,
 	type TextureDataLayout,
 	type TextureDesc,
-	TextureUsage,
 } from "../types";
 import { getTextureFormatFallback, textureFormatRequiresFeature } from "../../core/TextureFormat";
 import { Logger } from "../../foundation/Logger";
-import {
-	attachWebGPUTexture,
-	createWebGPUTexture,
-	getWebGPUBuffer,
-	getWebGPUTexture,
-} from "./WebGPUResourceAccess";
 
-interface InternalRenderBuffer extends IRenderBuffer {
-	_gpuResource: GPUBuffer;
-}
-
-interface InternalTexture extends IRenderTexture {
-	requestedFormat: TextureDesc["format"];
-	format: TextureDesc["format"];
-	formatFallbackReason?: string;
-	_gpuResource: GPUTexture;
-	_gpuTexture: GPUTexture;
-	_gpuView: GPUTextureView;
-}
-
+/** @internal Device services for the WebGPU resource owner; applications use `Renderer`. */
 export interface WebGPUResourceManagerHost {
 	readonly device: GPUDevice | null;
 	readonly queue: GPUQueue | null;
@@ -47,13 +35,42 @@ export interface WebGPUResourceManagerHost {
 	runValidationScope<T>(label: string, operation: () => T): T;
 }
 
+/** @internal WebGPU texture allocation and its default sampling view. */
+export interface WebGPUTexture {
+	readonly texture: GPUTexture;
+	readonly view: GPUTextureView;
+}
+
+type ResourceKind = IRenderBuffer["kind"] | IRenderTexture["kind"] | ISampler["kind"] |
+	IShaderModule["kind"] | IRenderPipeline["kind"] | IComputePipeline["kind"] |
+	IBindingGroup["kind"];
+
+interface ResourceRecord<T extends object> {
+	native: T | null;
+	available: boolean;
+	dispose: () => void;
+}
+
 /**
- * Owns WebGPU-native resource creation and queue-backed resource uploads.
+ * Owns native allocations, opaque registrations, uploads, and resource lifetimes
+ * for one WebGPU backend and its device generations.
  *
- * @internal Owned by `WebGPUBackend`; applications must use `Renderer`.
+ * @internal Owned by `WebGPUBackend`; applications use `Renderer` or its compute facade.
  */
 export class WebGPUResourceManager {
-	constructor(private _host: WebGPUResourceManagerHost) {}
+	private readonly _buffers = new WeakMap<object, ResourceRecord<GPUBuffer>>();
+	private readonly _textures = new WeakMap<object, ResourceRecord<WebGPUTexture>>();
+	private readonly _samplers = new WeakMap<object, ResourceRecord<GPUSampler>>();
+	private readonly _shaders = new WeakMap<object, ResourceRecord<GPUShaderModule>>();
+	private readonly _renderPipelines = new WeakMap<object, ResourceRecord<GPURenderPipeline>>();
+	private readonly _computePipelines = new WeakMap<object, ResourceRecord<GPUComputePipeline>>();
+	private readonly _groups = new WeakMap<object, ResourceRecord<GPUBindGroup>>();
+	private readonly _records = new WeakMap<object, ResourceRecord<object>>();
+	// Records retain native allocations for explicit teardown, without retaining
+	// facade keys and preventing the existing forgotten-destroy diagnostics.
+	private readonly _live = new Set<ResourceRecord<object>>();
+
+	constructor(private readonly _host: WebGPUResourceManagerHost) {}
 
 	public createBuffer(desc: BufferDesc): IRenderBuffer {
 		this._host.assertDeviceOperational("create buffers");
@@ -76,16 +93,13 @@ export class WebGPUResourceManager {
 			gpuBuffer.unmap();
 		}
 
-		const buffer = {
+		let dispose = () => {};
+		const buffer = this.registerBuffer(gpuBuffer, {
 			size: desc.size,
-			destroy: () => {},
-			unmap: () => {},
-			_gpuResource: gpuBuffer,
-		} as InternalRenderBuffer;
-		buffer.unmap = () => {
-			tryUnmapBuffer(gpuBuffer);
-		};
-		buffer.destroy = this._host.createManagedDestroy(buffer, {
+		}, () => dispose());
+		// Isolate the facade capture from the manager-retained disposal closure.
+		buffer.unmap = createBufferUnmap(this, buffer);
+		dispose = this._host.createManagedDestroy(buffer, {
 			label: desc.label ?? "WebGPUBuffer",
 			dispose: () => {
 				tryUnmapBuffer(gpuBuffer);
@@ -140,29 +154,27 @@ export class WebGPUResourceManager {
 			});
 		}
 		const gpuTexture = device.createTexture(baseDescriptor);
-		const webgpuTexture = createWebGPUTexture(gpuTexture);
-		const texture: InternalTexture = {
+		const webgpuTexture = { texture: gpuTexture, view: gpuTexture.createView() };
+		let dispose = () => {};
+		const texture = this.registerTexture(webgpuTexture, {
 			width: resolvedWidth,
 			height: dimension === "1d" ? 1 : resolvedHeight,
 			requestedFormat: desc.format,
 			format: formatResolution.format,
 			formatFallbackReason: formatResolution.reason,
-			destroy: () => {},
-			_gpuResource: gpuTexture,
-			_gpuTexture: gpuTexture,
-			_gpuView: webgpuTexture.view,
-		};
-		texture.destroy = this._host.createManagedDestroy(texture, {
+		}, () => dispose());
+		dispose = this._host.createManagedDestroy(texture, {
 			label: desc.label ?? "WebGPUTexture",
 			dispose: () => gpuTexture.destroy(),
 		});
-		attachWebGPUTexture(texture, webgpuTexture);
 		return texture;
 	}
 
 	public writeBuffer(buffer: IRenderBuffer, data: BufferSource, offset: number = 0): void {
 		this._host.assertDeviceOperational("write buffers");
-		this._requireQueue("write buffers").writeBuffer(getWebGPUBuffer(buffer), offset, data);
+		this._requireQueue("write buffers").writeBuffer(
+			this.getBuffer(buffer), offset, data,
+		);
 	}
 
 	public writeTexture(
@@ -172,7 +184,7 @@ export class WebGPUResourceManager {
 		size: { width: number; height: number; depthOrArrayLayers?: number },
 	): void {
 		this._host.assertDeviceOperational("write textures");
-		const gpuTexture = getWebGPUTexture(texture).texture;
+		const gpuTexture = this.getTexture(texture).texture;
 		this._requireQueue("write textures").writeTexture(
 			{
 				texture: gpuTexture,
@@ -193,7 +205,7 @@ export class WebGPUResourceManager {
 		desc?: GPUTextureViewDescriptor,
 	): GPUTextureView {
 		this._host.assertDeviceOperational("create texture views");
-		const gpuTexture = getWebGPUTexture(texture);
+		const gpuTexture = this.getTexture(texture);
 		return this._host.runValidationScope("device.createTextureView", () => {
 			if (desc) {
 				return gpuTexture.texture.createView(desc);
@@ -216,6 +228,186 @@ export class WebGPUResourceManager {
 			throw new Error(`WebGPU backend is not initialized; cannot ${operation}.`);
 		}
 		return queue;
+	}
+
+	/** @internal Tests owner identity; getters additionally require a live record. */
+	public owns(resource: unknown): boolean {
+		return resource !== null && typeof resource === "object" && this._records.has(resource);
+	}
+
+	/** @internal Registers a buffer allocated by the owning WebGPU resource factory. */
+	public registerBuffer(
+		native: GPUBuffer,
+		metadata: Omit<IRenderBuffer, "kind" | "destroy">,
+		dispose: () => void = () => {},
+	): IRenderBuffer {
+		return this._register("buffer", this._buffers, native, metadata, dispose);
+	}
+
+	/** @internal Registers an owned or borrowed texture and its default view. */
+	public registerTexture(
+		native: WebGPUTexture,
+		metadata: Omit<IRenderTexture, "kind" | "destroy">,
+		dispose: () => void = () => {},
+	): IRenderTexture {
+		return this._register("texture", this._textures, native, metadata, dispose);
+	}
+
+	/** @internal Registers one managed reference to a cached WebGPU sampler. */
+	public registerSampler(native: GPUSampler, label?: string, dispose = () => {}): ISampler {
+		return this._register("sampler", this._samplers, native, { label }, dispose);
+	}
+
+	/** @internal Registers one managed reference to a cached WebGPU shader module. */
+	public registerShaderModule(
+		native: GPUShaderModule, label?: string, dispose = () => {},
+	): IShaderModule {
+		return this._register("shader-module", this._shaders, native, { label }, dispose);
+	}
+
+	/** @internal Registers one managed reference to a cached WebGPU render pipeline. */
+	public registerRenderPipeline(
+		native: GPURenderPipeline, label?: string, dispose = () => {},
+	): IRenderPipeline {
+		return this._register("render-pipeline", this._renderPipelines, native, { label }, dispose);
+	}
+
+	/** @internal Registers one managed reference to a cached WebGPU compute pipeline. */
+	public registerComputePipeline(
+		native: GPUComputePipeline, label?: string, dispose = () => {},
+	): IComputePipeline {
+		return this._register("compute-pipeline", this._computePipelines, native, { label }, dispose);
+	}
+
+	/** @internal Registers a WebGPU binding and its existing cache release operation. */
+	public registerBindingGroup(
+		native: GPUBindGroup, label?: string, dispose = () => {},
+	): IBindingGroup {
+		return this._register("binding-group", this._groups, native, { label }, dispose);
+	}
+
+	/** @internal Resolves live buffer state owned by this WebGPU backend. */
+	public getBuffer(resource: unknown): GPUBuffer {
+		return this._require(resource, this._buffers, "buffer");
+	}
+	/** @internal Resolves live texture state owned by this WebGPU backend. */
+	public getTexture(resource: unknown): WebGPUTexture {
+		return this._require(resource, this._textures, "texture");
+	}
+	/** @internal Resolves live sampler state owned by this WebGPU backend. */
+	public getSampler(resource: unknown): GPUSampler {
+		return this._require(resource, this._samplers, "sampler");
+	}
+	/** @internal Resolves live shader state owned by this WebGPU backend. */
+	public getShaderModule(resource: unknown): GPUShaderModule {
+		return this._require(resource, this._shaders, "shader module");
+	}
+	/** @internal Resolves live render pipeline state owned by this WebGPU backend. */
+	public getRenderPipeline(resource: unknown): GPURenderPipeline {
+		return this._require(resource, this._renderPipelines, "render pipeline");
+	}
+	/** @internal Resolves live compute pipeline state owned by this WebGPU backend. */
+	public getComputePipeline(resource: unknown): GPUComputePipeline {
+		return this._require(resource, this._computePipelines, "compute pipeline");
+	}
+	/** @internal Resolves live bind-group state owned by this WebGPU backend. */
+	public getBindingGroup(resource: unknown): GPUBindGroup {
+		return this._require(resource, this._groups, "binding group");
+	}
+
+	/** @internal Returns null for foreign, forged, retired or destroyed buffers. */
+	public tryGetBuffer(resource: unknown): GPUBuffer | null {
+		return this._tryGet(resource, this._buffers);
+	}
+	/** @internal Returns null for foreign, forged, retired or destroyed textures. */
+	public tryGetTexture(resource: unknown): WebGPUTexture | null {
+		return this._tryGet(resource, this._textures);
+	}
+	/** @internal Returns null for foreign, forged, retired or destroyed samplers. */
+	public tryGetSampler(resource: unknown): GPUSampler | null {
+		return this._tryGet(resource, this._samplers);
+	}
+
+	/** @internal Validates the renderer-only input boundary of the compute extension. */
+	public assertBindingResource(resource: BindingResource): void {
+		if (!resource || typeof resource !== "object") {
+			throw new Error("Binding resource must be an owned renderer resource.");
+		}
+		if ("buffer" in resource) {
+			this.getBuffer(resource.buffer);
+			return;
+		}
+		switch (resource.kind) {
+			case "buffer": this.getBuffer(resource); return;
+			case "texture": this.getTexture(resource); return;
+			case "sampler": this.getSampler(resource); return;
+			default: throw new Error("Binding resource must be an owned renderer resource.");
+		}
+	}
+
+	/** @internal Invalidates a facade while its native state awaits deferred disposal. */
+	public invalidate(resource: object): void {
+		const record = this._records.get(resource);
+		if (!record) throw new Error("Resource is not owned by this WebGPU backend.");
+		record.available = false;
+	}
+
+	/** @internal Retires this device generation and explicitly releases live records. */
+	public reset(): void {
+		let failure: unknown;
+		for (const record of this._live) {
+			try {
+				this._dispose(record);
+			} catch (error) {
+				failure ??= error;
+			}
+		}
+		if (failure) throw failure;
+	}
+
+	private _register<K extends ResourceKind, T extends object, M extends object>(
+		kind: K, records: WeakMap<object, ResourceRecord<T>>, native: T,
+		metadata: M, dispose: () => void,
+	): M & { readonly kind: K; destroy(): void } {
+		const record: ResourceRecord<T> = { native, available: true, dispose };
+		// Only this manager's private registration records establish provenance.
+		const facade = Object.assign({ kind }, metadata, {
+			destroy: () => this._dispose(record),
+		});
+		records.set(facade, record);
+		this._records.set(facade, record);
+		this._live.add(record);
+		return facade;
+	}
+
+	private _dispose<T extends object>(record: ResourceRecord<T>): void {
+		if (!record.native) return;
+		record.available = false;
+		record.native = null;
+		this._live.delete(record);
+		const dispose = record.dispose;
+		record.dispose = () => {};
+		dispose();
+	}
+
+	private _tryGet<T extends object>(
+		resource: unknown, records: WeakMap<object, ResourceRecord<T>>,
+	): T | null {
+		if (resource === null || typeof resource !== "object") return null;
+		// A record in this manager's typed table already proves resource provenance.
+		const record = records.get(resource);
+		return record?.available ? record.native : null;
+	}
+
+	private _require<T extends object>(
+		resource: unknown, records: WeakMap<object, ResourceRecord<T>>, kind: string,
+	): T {
+		const native = this._tryGet(resource, records);
+		if (native) return native;
+		if (!this.owns(resource)) {
+			throw new Error(`WebGPU ${kind} is not owned by this backend.`);
+		}
+		throw new Error(`WebGPU ${kind} is not live: wrong kind, destroyed or retired resource.`);
 	}
 }
 
@@ -244,6 +436,10 @@ function tryUnmapBuffer(buffer: GPUBuffer | null): void {
 			scope: "WebGPUResourceManager",
 		});
 	}
+}
+
+function createBufferUnmap(resources: WebGPUResourceManager, buffer: IRenderBuffer): () => void {
+	return () => tryUnmapBuffer(resources.getBuffer(buffer));
 }
 
 function mapBufferUsage(usage: number): GPUBufferUsageFlags {

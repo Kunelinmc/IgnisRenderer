@@ -18,7 +18,6 @@ import {
 	type WebGPUSceneTargetMode,
 } from "./WebGPUScenePassDescriptors";
 import type { WebGPUMaterialPipelineState } from "./WebGPUMaterialPipelineResolver";
-import { destroyUniqueWebGPUHandles } from "./WebGPUManagedResourceUtils";
 import type {
 	WebGPUDrawPipelineProvider,
 	WebGPUDrawPipelineRequest,
@@ -156,15 +155,17 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 
 	public invalidateShaderRuntimeCaches(): void {
 		this._shaderCacheGeneration++;
-		destroyUniqueWebGPUHandles([
-			...this._pipelineCache.values(),
-			...this._earlyZPrepassCache.values(),
-		], "pipeline", "WebGPUScenePipelineResources");
-		destroyUniqueWebGPUHandles([
-			...this._customShaderModuleCache.values(),
-			this._sceneShaderModule,
-			this._depthShaderModule,
-		], "shader module", "WebGPUScenePipelineResources");
+		for (const pipeline of this._pipelineCache.values()) {
+			this._destroyResource(pipeline);
+		}
+		for (const pipeline of this._earlyZPrepassCache.values()) {
+			this._destroyResource(pipeline);
+		}
+		for (const module of this._customShaderModuleCache.values()) {
+			this._destroyResource(module);
+		}
+		this._destroyResource(this._sceneShaderModule);
+		this._destroyResource(this._depthShaderModule);
 		this._sceneShaderModule = null;
 		this._sceneShaderDirectiveTag = "";
 		this._depthShaderModule = null;
@@ -224,16 +225,12 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 			throw error;
 		}
 		if (this._destroyed) {
-			destroyUniqueWebGPUHandles([pipeline], "pipeline", "WebGPUScenePipelineResources");
+			this._destroyResource(pipeline);
 			return null;
 		}
 		const winner = this._pipelineCache.get(cacheKey);
 		if (winner) {
-			destroyUniqueWebGPUHandles(
-				[pipeline],
-				"pipeline",
-				"WebGPUScenePipelineResources",
-			);
+			this._destroyResource(pipeline);
 			return winner;
 		}
 		this._pipelineCache.set(cacheKey, pipeline);
@@ -391,24 +388,16 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 			}
 			const pipeline = await this._backend.createPipeline(desc);
 			if (this._destroyed) {
-				destroyUniqueWebGPUHandles([pipeline], "pipeline", "WebGPUScenePipelineResources");
+				this._destroyResource(pipeline);
 				return null;
 			}
 			if (generation !== this._shaderCacheGeneration) {
-				destroyUniqueWebGPUHandles(
-					[pipeline],
-					"pipeline",
-					"WebGPUScenePipelineResources",
-				);
+				this._destroyResource(pipeline);
 				return this._resolveEarlyZPipeline(request);
 			}
 			const winner = this._earlyZPrepassCache.get(cacheKey);
 			if (winner) {
-				destroyUniqueWebGPUHandles(
-					[pipeline],
-					"pipeline",
-					"WebGPUScenePipelineResources",
-				);
+				this._destroyResource(pipeline);
 				return winner;
 			}
 			this._earlyZPrepassCache.set(cacheKey, pipeline);
@@ -755,11 +744,7 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 				generatedSourceBlocks,
 			});
 			if (generation !== this._shaderCacheGeneration) {
-				destroyUniqueWebGPUHandles(
-					[module],
-					"shader module",
-					"WebGPUScenePipelineResources",
-				);
+				this._destroyResource(module);
 				return this._getCustomShaderModule(
 					key,
 					code,
@@ -771,11 +756,7 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 			}
 			const winner = this._customShaderModuleCache.get(key);
 			if (winner) {
-				destroyUniqueWebGPUHandles(
-					[module],
-					"shader module",
-					"WebGPUScenePipelineResources",
-				);
+				this._destroyResource(module);
 				return winner;
 			}
 			this._customShaderModuleCache.set(key, module);
@@ -859,25 +840,15 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 				generation !== this._shaderCacheGeneration ||
 				directiveTag !== this._getDirectiveCacheTag()
 			) {
-				destroyUniqueWebGPUHandles(
-					[module],
-					"shader module",
-					"WebGPUScenePipelineResources",
-				);
+				this._destroyResource(module);
 				return this._getSceneShaderModule();
 			}
 			const winner = this._sceneShaderDirectiveTag === directiveTag ? this._sceneShaderModule : null;
 			if (winner) {
-				destroyUniqueWebGPUHandles(
-					[module],
-					"shader module",
-					"WebGPUScenePipelineResources",
-				);
+				this._destroyResource(module);
 				return winner;
 			}
-			destroyUniqueWebGPUHandles(
-				[this._sceneShaderModule], "shader module", "WebGPUScenePipelineResources",
-			);
+			this._destroyResource(this._sceneShaderModule);
 			this._sceneShaderModule = module;
 			this._sceneShaderDirectiveTag = directiveTag;
 			return module;
@@ -924,27 +895,21 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 				sourceKind: "builtin-scene",
 			});
 			if (this._destroyed) {
-				destroyUniqueWebGPUHandles([module], "shader module", "WebGPUScenePipelineResources");
+				this._destroyResource(module);
 				return null;
 			}
 			if (
 				generation !== this._shaderCacheGeneration ||
 				directiveTag !== this._getDirectiveCacheTag()
 			) {
-				destroyUniqueWebGPUHandles(
-					[module], "shader module", "WebGPUScenePipelineResources",
-				);
+				this._destroyResource(module);
 				return this._getDepthShaderModule();
 			}
 			if (this._depthShaderModule && this._depthShaderDirectiveTag === directiveTag) {
-				destroyUniqueWebGPUHandles(
-					[module], "shader module", "WebGPUScenePipelineResources",
-				);
+				this._destroyResource(module);
 				return this._depthShaderModule;
 			}
-			destroyUniqueWebGPUHandles(
-				[this._depthShaderModule], "shader module", "WebGPUScenePipelineResources",
-			);
+			this._destroyResource(this._depthShaderModule);
 			this._depthShaderModule = module;
 			this._depthShaderDirectiveTag = directiveTag;
 			return module;
@@ -966,4 +931,17 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 		return "none";
 	}
 
+	private _destroyResource(resource: IRenderPipeline | IShaderModule | null): void {
+		if (!resource) return;
+		const kind = resource.kind === "shader-module" ? "shader module" : "pipeline";
+		try {
+			resource.destroy();
+		} catch (error) {
+			Logger.warn(
+				`[webgpu-cache-resource-destroy-failed] Failed to destroy cached ${kind}: ` +
+					String(error),
+				{ scope: "WebGPUScenePipelineResources" },
+			);
+		}
+	}
 }

@@ -1,3 +1,4 @@
+import type { WebGPUResourceManager } from "./WebGPUResourceManager";
 import type { FrameContext } from "../../pipeline/types";
 import type {
 	NormalizedOcclusionCullingOptions,
@@ -15,9 +16,6 @@ import {
 } from "../types";
 import type { WebGPUFrameHost } from "./rendergraph/WebGPUFrameHost";
 import { tryGetNativeWebGPUCommandEncoder } from "./WebGPUCommandEncoder";
-import {
-	tryGetWebGPUBuffer,
-} from "./WebGPUResourceAccess";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import { Logger } from "../../foundation/Logger";
 import {
@@ -56,6 +54,7 @@ const READBACK_ALIGNMENT = 4;
  * Owns WebGPU previous-frame occlusion culling state and snapshots.
  */
 export class WebGPUOcclusionCullingRuntime {
+	private readonly _resources: WebGPUResourceManager;
 	private readonly _backend: WebGPUFrameHost;
 	private _frameIndex = 0;
 	private _lastCompletedFrameIndex = -1;
@@ -71,6 +70,7 @@ export class WebGPUOcclusionCullingRuntime {
 
 	constructor(backend: WebGPUFrameHost) {
 		this._backend = backend;
+		this._resources = backend.resourceManager;
 	}
 
 	public beginFrame(context: FrameContext): void {
@@ -95,24 +95,24 @@ export class WebGPUOcclusionCullingRuntime {
 		this._visibilityGeneration++;
 		this._visibilityByPacketId.clear();
 		for (const pending of this._pendingReadbacks) {
-			this._destroyGPUBuffer(pending.buffer);
+			this._destroyResource(pending.buffer);
 		}
 		this._pendingReadbacks = [];
 		this._lastCompletedFrameIndex = -1;
 	}
 
 	public onShaderRuntimeChanged(): void {
-		this._destroyPipeline(this._occlusionPipeline);
-		this._destroyShaderModule(this._occlusionModule);
+		this._destroyResource(this._occlusionPipeline);
+		this._destroyResource(this._occlusionModule);
 		this._occlusionPipeline = null;
 		this._occlusionModule = null;
 	}
 
 	public destroy(): void {
 		this.resetVisibility();
-		this._destroyBuffer(this._candidateBuffer);
-		this._destroyBuffer(this._resultBuffer);
-		this._destroyBuffer(this._paramsBuffer);
+		this._destroyResource(this._candidateBuffer);
+		this._destroyResource(this._resultBuffer);
+		this._destroyResource(this._paramsBuffer);
 		this._candidateBuffer = null;
 		this._resultBuffer = null;
 		this._paramsBuffer = null;
@@ -193,7 +193,7 @@ export class WebGPUOcclusionCullingRuntime {
 					} catch {
 						// Ignore unmap races after device loss.
 					}
-					this._destroyGPUBuffer(pending.buffer);
+					this._destroyResource(pending.buffer);
 					pending.done = true;
 				});
 		}
@@ -261,7 +261,7 @@ export class WebGPUOcclusionCullingRuntime {
 		const candidateBytes = candidateCount * CANDIDATE_STRIDE_BYTES;
 		const resultBytes = align(candidateCount * 4, READBACK_ALIGNMENT);
 		if (!this._candidateBuffer || this._candidateBuffer.size < candidateBytes) {
-			this._destroyBuffer(this._candidateBuffer);
+			this._destroyResource(this._candidateBuffer);
 			this._candidateBuffer = this._backend.createBuffer({
 				label: "WebGPUOcclusionCandidates",
 				size: Math.max(CANDIDATE_STRIDE_BYTES, candidateBytes),
@@ -269,7 +269,7 @@ export class WebGPUOcclusionCullingRuntime {
 			});
 		}
 		if (!this._resultBuffer || this._resultBuffer.size < resultBytes) {
-			this._destroyBuffer(this._resultBuffer);
+			this._destroyResource(this._resultBuffer);
 			this._resultBuffer = this._backend.createBuffer({
 				label: "WebGPUOcclusionResults",
 				size: Math.max(4, resultBytes),
@@ -321,11 +321,16 @@ export class WebGPUOcclusionCullingRuntime {
 			],
 			"WebGPUOcclusionCullingBinding",
 		);
-		encoder.beginComputePass({ label: "WebGPUOcclusionCulling" });
-		encoder.setComputePipeline(this._occlusionPipeline);
-		encoder.setBindingGroup(0, binding);
-		encoder.dispatchWorkgroups(ceilDiv(candidateCount, 64), 1, 1);
-		encoder.endComputePass();
+		try {
+			encoder.beginComputePass({ label: "WebGPUOcclusionCulling" });
+			encoder.setComputePipeline(this._occlusionPipeline);
+			encoder.setBindingGroup(0, binding);
+			encoder.dispatchWorkgroups(ceilDiv(candidateCount, 64), 1, 1);
+			encoder.endComputePass();
+		} finally {
+			// Native command recording retains the binding; release this facade's reference.
+			binding.destroy();
+		}
 	}
 
 	private _queueReadback(
@@ -341,7 +346,7 @@ export class WebGPUOcclusionCullingRuntime {
 			return;
 		}
 		const nativeEncoder = tryGetNativeWebGPUCommandEncoder(encoder);
-		const sourceBuffer = tryGetWebGPUBuffer(this._resultBuffer);
+		const sourceBuffer = this._resources.tryGetBuffer(this._resultBuffer);
 		if (!nativeEncoder || !sourceBuffer) {
 			this._warnOnce(
 				"webgpu-occlusion-readback-failed",
@@ -419,38 +424,6 @@ export class WebGPUOcclusionCullingRuntime {
 		});
 	}
 
-	private _destroyBuffer(buffer: IRenderBuffer | null): void {
-		try {
-			buffer?.destroy();
-		} catch {
-			// Backend reset may already have released the resource.
-		}
-	}
-
-	private _destroyTexture(texture: IRenderTexture | null): void {
-		try {
-			texture?.destroy();
-		} catch {
-			// Backend reset may already have released the resource.
-		}
-	}
-
-	private _destroyPipeline(pipeline: IComputePipeline | null): void {
-		this._destroyBuffer(pipeline as unknown as IRenderBuffer | null);
-	}
-
-	private _destroyShaderModule(module: IShaderModule | null): void {
-		this._destroyBuffer(module as unknown as IRenderBuffer | null);
-	}
-
-	private _destroyGPUBuffer(buffer: GPUBuffer): void {
-		try {
-			buffer.destroy();
-		} catch {
-			// Device loss may invalidate explicit destroy.
-		}
-	}
-
 	private _warnOnce(key: string, message: string): void {
 		if (this._warnedKeys.has(key)) {
 			return;
@@ -460,6 +433,14 @@ export class WebGPUOcclusionCullingRuntime {
 			scope: "WebGPUOcclusionCullingRuntime",
 			onceKey: key,
 		});
+	}
+
+	private _destroyResource(resource: { destroy(): void } | null | undefined): void {
+		try {
+			resource?.destroy();
+		} catch {
+			// Device loss or reset may already have released this owner's resource.
+		}
 	}
 }
 

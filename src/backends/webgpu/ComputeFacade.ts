@@ -18,6 +18,10 @@ import type {
 	TextureDesc,
 } from "../types";
 import { Logger } from "../../foundation/Logger";
+import type { WebGPUResourceManager } from "./WebGPUResourceManager";
+import type { WebGPUBindingGroupDesc } from "./WebGPUBindingGroupCache";
+
+const INTERNAL_COMPUTE_OPERATIONS = Symbol("WebGPUInternalComputeOperations");
 
 export const WEBGPU_COMPUTE_FACADE_BRAND = Symbol(
 	"IgnisRenderer.WebGPUComputeFacade"
@@ -40,6 +44,7 @@ type ResolveTextureForSlotMethod = (
  * @internal Owned by `WebGPUBackend`.
  */
 export interface WebGPUComputeFacadeHost {
+	readonly resourceManager: WebGPUResourceManager;
 	device: GPUDevice | null;
 	queue?: GPUQueue | null;
 	createSampler(desc: SamplerDesc): ISampler;
@@ -49,7 +54,7 @@ export interface WebGPUComputeFacadeHost {
 	): Promise<IComputePipeline>;
 	createBuffer(desc: BufferDesc): IRenderBuffer;
 	createTexture(desc: TextureDesc): IRenderTexture;
-	createBindingGroup(desc: BindingGroupDesc): IBindingGroup;
+	createBindingGroup(desc: WebGPUBindingGroupDesc): IBindingGroup;
 	createBindGroupLayout?: (
 		desc: GPUBindGroupLayoutDescriptor
 	) => GPUBindGroupLayout;
@@ -127,13 +132,14 @@ let WEBGPU_COMPUTE_FACADE_CACHE = new WeakMap<object, IWebGPUComputeFacade>();
 let WEBGPU_COMPUTE_FACADE_CACHE_ENTRY_COUNT = 0;
 
 interface AdaptedFacadeOps {
+	resourceManager: WebGPUResourceManager;
 	deviceSource: { device?: GPUDevice | null; queue?: GPUQueue | null };
 	createSampler: (desc: SamplerDesc) => ISampler;
 	createShaderModule: (desc: ShaderModuleDesc) => Promise<IShaderModule>;
 	createComputePipeline: (desc: ComputePipelineDesc) => Promise<IComputePipeline>;
 	createBuffer: (desc: BufferDesc) => IRenderBuffer;
 	createTexture: (desc: TextureDesc) => IRenderTexture;
-	createBindingGroup: (desc: BindingGroupDesc) => IBindingGroup;
+	createBindingGroup: (desc: WebGPUBindingGroupDesc) => IBindingGroup;
 	createBindGroupLayout?:
 		| ((desc: GPUBindGroupLayoutDescriptor) => GPUBindGroupLayout)
 		| null;
@@ -166,7 +172,31 @@ interface AdaptedFacadeOps {
 	onDestroy?: () => void;
 }
 
-function createAdaptedFacade(ops: AdaptedFacadeOps): IWebGPUComputeFacade {
+interface InternalComputeFacade extends IWebGPUComputeFacade {
+	[INTERNAL_COMPUTE_OPERATIONS](): AdaptedFacadeOps;
+}
+
+/** @internal WebGPU readback bridge; applications use `ComputeRuntime` operations. */
+export function getWebGPUComputeResourceManager(
+	facade: IWebGPUComputeFacade,
+): WebGPUResourceManager {
+	return getInternalOperations(facade).resourceManager;
+}
+
+/** @internal WebGPU pass bindings may use native views; applications use renderer resources. */
+export function createWebGPUInternalBindingGroup(
+	facade: IWebGPUComputeFacade, desc: WebGPUBindingGroupDesc,
+): IBindingGroup {
+	return getInternalOperations(facade).createBindingGroup(desc);
+}
+
+function getInternalOperations(facade: IWebGPUComputeFacade): AdaptedFacadeOps {
+	const resolve = (facade as Partial<InternalComputeFacade>)[INTERNAL_COMPUTE_OPERATIONS];
+	if (!resolve) throw new Error("WebGPU compute facade has no private resource owner.");
+	return resolve();
+}
+
+function createAdaptedFacade(ops: AdaptedFacadeOps): InternalComputeFacade {
 	let destroyed = false;
 	const trackedExternalTextures = new Set<Texture>();
 
@@ -180,6 +210,10 @@ function createAdaptedFacade(ops: AdaptedFacadeOps): IWebGPUComputeFacade {
 
 	return {
 		[WEBGPU_COMPUTE_FACADE_BRAND]: true,
+		[INTERNAL_COMPUTE_OPERATIONS]: () => {
+			assertAlive("access backend resources");
+			return ops;
+		},
 		get device() {
 			return ops.deviceSource.device ?? null;
 		},
@@ -208,6 +242,7 @@ function createAdaptedFacade(ops: AdaptedFacadeOps): IWebGPUComputeFacade {
 		},
 		createBindingGroup: (desc) => {
 			assertAlive("create binding groups");
+			for (const entry of desc.entries) ops.resourceManager.assertBindingResource(entry.resource);
 			return ops.createBindingGroup(desc);
 		},
 		createBindGroupLayout: (desc) => {
@@ -421,6 +456,7 @@ export function createWebGPUComputeFacade(
 		return cached;
 	}
 	const facade = createAdaptedFacade({
+		resourceManager: host.resourceManager,
 		deviceSource: host,
 		createSampler: (desc) => host.createSampler(desc),
 		createShaderModule: (desc) => host.createShaderModule(desc),

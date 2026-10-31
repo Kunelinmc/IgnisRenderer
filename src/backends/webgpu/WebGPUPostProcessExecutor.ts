@@ -86,7 +86,7 @@ export class WebGPUPostProcessExecutor implements IPostProcessExecutor {
 	}
 
 	public destroyResource(handle: PostProcessResourceHandle): void {
-		(handle.resource as IRenderTexture | null)?.destroy?.();
+		(handle.resource as IRenderTexture | null)?.destroy();
 	}
 
 	public invalidateResourceBindings(): void {

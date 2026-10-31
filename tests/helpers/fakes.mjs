@@ -5,20 +5,45 @@
  */
 
 import assert from "node:assert/strict";
+
+import { WebGPUResourceManager } from "../../src/backends/webgpu/WebGPUResourceManager.ts";
+import { Texture } from "../../src/core/Texture";
+import {
+	getTextureFormatInfo,
+	TextureFormat,
+} from "../../src/core/TextureFormat.ts";
+
 import {
 	installNoopPostProcessAdapter,
 } from "./postprocess.mjs";
+
+
+/** Creates real resource ownership with optional fake device and queue capabilities. */
+export function createWebGPUResourceManager(host = {}) {
+	return new WebGPUResourceManager({
+		get device() { return host.device ?? null; },
+		get queue() { return host.queue ?? null; },
+		assertDeviceOperational(operation) { host.assertDeviceOperational?.(operation); },
+		resolveSupportedSampleCount(requested, formats) {
+			return host.resolveSupportedSampleCount ?
+				host.resolveSupportedSampleCount(requested, formats) : requested;
+		},
+		createManagedDestroy(target, options) {
+			return host.createManagedDestroy ?
+				host.createManagedDestroy(target, options) : options.dispose;
+		},
+		runValidationScope(label, operation) {
+			return host.runValidationScope ?
+				host.runValidationScope(label, operation) : operation();
+		},
+	});
+}
 
 // --- Worker Fakes ---
 
 /**
  * Mocks the browser's Web Worker API.
  */
-import { Texture } from "../../src/core/Texture";
-import {
-	getTextureFormatInfo,
-	TextureFormat,
-} from "../../src/core/TextureFormat.ts";
 
 export class FakeWorker {
 	constructor(handler) {
@@ -345,8 +370,10 @@ export class FakeCommandEncoder {
 	copyTextureToBuffer(src, dst, size) {
 		this.calls.push(["copyTextureToBuffer", src, dst, size]);
 		this._ops.push(() => {
-			const texture = src.texture?._gpuResource || src.texture;
-			const buffer = dst.buffer?._gpuResource || dst.buffer;
+			const texture = src.texture?.kind === "texture" ?
+				this.backend.resourceManager.getTexture(src.texture).texture : src.texture;
+			const buffer = dst.buffer?.kind === "buffer" ?
+				this.backend.resourceManager.getBuffer(dst.buffer) : dst.buffer;
 			if (!texture?._bytes || !buffer?._bytes) return;
 
 			const width = Math.max(1, Math.floor(size.width));
@@ -372,8 +399,10 @@ export class FakeCommandEncoder {
 			this.backend.encoderCopyCalls.push([src, dst, size]);
 		}
 		this._ops.push(() => {
-			const source = src.texture?._gpuResource || src.texture;
-			const destination = dst.texture?._gpuResource || dst.texture;
+			const source = src.texture?.kind === "texture" ?
+				this.backend.resourceManager.getTexture(src.texture).texture : src.texture;
+			const destination = dst.texture?.kind === "texture" ?
+				this.backend.resourceManager.getTexture(dst.texture).texture : dst.texture;
 			if (!source?._bytes || !destination?._bytes) return;
 
 			const width = Math.max(1, Math.floor(size.width));
@@ -409,8 +438,8 @@ export class FakeCommandEncoder {
 	copyBufferToBuffer(src, srcOffset, dst, dstOffset, size) {
 		this.calls.push(["copyBufferToBuffer", src, srcOffset, dst, dstOffset, size]);
 		this._ops.push(() => {
-			const s = src._gpuResource || src;
-			const d = dst._gpuResource || dst;
+			const s = src.kind === "buffer" ? this.backend.resourceManager.getBuffer(src) : src;
+			const d = dst.kind === "buffer" ? this.backend.resourceManager.getBuffer(dst) : dst;
 			if (!s._bytes || !d._bytes) return;
 			const copied = s._bytes.subarray(srcOffset, srcOffset + size);
 			d._bytes.set(copied, dstOffset);
@@ -434,6 +463,7 @@ export class FakeCommandEncoder {
  */
 export class FakeWebGPUBackend {
 	constructor() {
+		this.resourceManager = createWebGPUResourceManager(this);
 		this.profile = { id: "webgpu" };
 		const postProcessSupport = installNoopPostProcessAdapter(
 			this,
@@ -490,17 +520,17 @@ export class FakeWebGPUBackend {
 		this.shaderRuntime = null;
 		this.warnings = [];
 		this._slotTextureCache = new WeakMap();
+		this._fallbackSlotTextures = new Map();
 		this._externalTextureResources = new WeakMap();
-		this.canvasColorTexture = {
-			width: 1,
-			height: 1,
-			destroy: () => this.destroyCalls++,
+		const canvasTexture = () => {
+			const texture = new FakeGPUTexture({ width: 1, height: 1 });
+			return this.resourceManager.registerTexture(
+				{ texture, view: texture.createView() }, { width: 1, height: 1 },
+				() => this.destroyCalls++,
+			);
 		};
-		this.canvasDepthTexture = {
-			width: 1,
-			height: 1,
-			destroy: () => this.destroyCalls++,
-		};
+		this.canvasColorTexture = canvasTexture();
+		this.canvasDepthTexture = canvasTexture();
 		
 		this.queue = {
 			copyExternalImageToTexture: (...args) => {
@@ -526,7 +556,7 @@ export class FakeWebGPUBackend {
 			bindGroupLayouts: this.bindGroupLayouts,
 			pipelineLayouts: this.pipelineLayouts,
 			createCommandEncoder: () => this.createCommandEncoder(),
-			createBuffer: (desc) => this.createBuffer(desc)._gpuResource,
+			createBuffer: (desc) => this.resourceManager.getBuffer(this.createBuffer(desc)),
 			createBindGroupLayout: (desc) => {
 				const layout = { kind: "bind-group-layout", desc };
 				this.bindGroupLayouts.push(layout);
@@ -553,8 +583,10 @@ export class FakeWebGPUBackend {
 			createRenderPipeline: () => {
 				throw new Error("synchronous render pipeline creation is forbidden");
 			},
-			createComputePipelineAsync: (desc) => this.createComputePipeline(desc),
-			createRenderPipelineAsync: (desc) => this.createRenderPipeline(desc),
+			createComputePipelineAsync: async (desc) =>
+				this.resourceManager.getComputePipeline(await this.createComputePipeline(desc)),
+			createRenderPipelineAsync: async (desc) =>
+				this.resourceManager.getRenderPipeline(this.createRenderPipeline(desc)),
 		};
 	}
 
@@ -590,38 +622,30 @@ export class FakeWebGPUBackend {
 		if (this.failCustomShaderModules && typeof desc.label === "string" && desc.label.startsWith("WebGPUShaderMaterial")) {
 			throw new Error("simulated custom shader module compile failure");
 		}
-		const module = {
-			kind: "shader-module",
-			label: desc.label,
-			desc,
-			destroyed: false,
-			destroy: () => {
+		const module = this.resourceManager.registerShaderModule(
+			{ desc, label: desc.label }, desc.label, () => {
 				this.destroyCalls++;
 				this.shaderModuleDestroyCalls++;
 				module.destroyed = true;
-			}
-		};
+			},
+		);
+		Object.assign(module, { desc, destroyed: false });
 		this.shaderModules.push(module);
 		return module;
 	}
 
 	async createComputePipeline(desc) {
-		const pipeline = { 
-			kind: "compute-pipeline",
-			desc, 
-			label: desc.label, 
-			destroyed: false,
-			destroy: () => {
+		const native = { getBindGroupLayout: () => {
+			const layout = { kind: "bind-group-layout" };
+			this.bindGroupLayouts.push(layout);
+			return layout;
+		} };
+		const pipeline = this.resourceManager.registerComputePipeline(native, desc.label, () => {
 				this.destroyCalls++;
 				this.computePipelineDestroyCalls++;
 				pipeline.destroyed = true;
-			},
-			_gpuResource: { getBindGroupLayout: () => {
-				const layout = { kind: "bind-group-layout" };
-				this.bindGroupLayouts.push(layout);
-				return layout;
-			} }
-		};
+		});
+		Object.assign(pipeline, { desc, destroyed: false });
 		this.pipelines.push(pipeline);
 		this.computePipelines.push(pipeline);
 		return pipeline;
@@ -643,18 +667,12 @@ export class FakeWebGPUBackend {
 				return layout;
 			}
 		};
-		const pipeline = {
-			kind: "render-pipeline",
-			desc,
-			label: desc.label,
-			_gpuResource: nativePipeline,
-			destroyed: false,
-			destroy: () => {
+		const pipeline = this.resourceManager.registerRenderPipeline(nativePipeline, desc.label, () => {
 				this.destroyCalls++;
 				this.renderPipelineDestroyCalls++;
 				pipeline.destroyed = true;
-			}
-		};
+		});
+		Object.assign(pipeline, { desc, destroyed: false });
 		this.pipelines.push(pipeline);
 		this.renderPipelines.push(pipeline);
 		return pipeline;
@@ -663,22 +681,14 @@ export class FakeWebGPUBackend {
 	createBuffer(desc) {
 		this.bufferDescs.push(desc);
 		const gpuBuffer = new FakeGPUBuffer(desc);
-		const buffer = {
-			kind: "buffer",
-			size: desc.size,
-			usage: desc.usage,
-			label: desc.label,
-			desc,
-			_gpuResource: gpuBuffer,
-			lastWrite: null,
-			destroyed: false,
-			destroy: () => {
+		const buffer = this.resourceManager.registerBuffer(gpuBuffer, { size: desc.size }, () => {
 				this.destroyCalls++;
 				this.bufferDestroyCalls++;
 				buffer.destroyed = true;
 				gpuBuffer.destroy();
-			}
-		};
+		});
+		Object.assign(buffer, { usage: desc.usage, label: desc.label, desc,
+			lastWrite: null, destroyed: false });
 		this.buffers.push(buffer);
 		return buffer;
 	}
@@ -690,63 +700,43 @@ export class FakeWebGPUBackend {
 		}
 		this.createTextureCalls.push(desc);
 		const gpuTexture = new FakeGPUTexture(desc);
-		const texture = {
-			kind: "texture",
+		const texture = this.resourceManager.registerTexture(
+			{ texture: gpuTexture, view: gpuTexture.createView() }, {
 			width: desc.width,
 			height: desc.height,
 			requestedFormat: desc.format,
 			format: desc.format,
 			formatFallbackReason: undefined,
-			usage: desc.usage,
-			label: desc.label,
-			desc,
-			_gpuResource: gpuTexture,
-			lastWrite: null,
-			_webgpuTexture: {
-				texture: gpuTexture,
-				view: gpuTexture.createView()
-			},
-			destroyed: false,
-			destroy: () => {
+			}, () => {
 				this.destroyCalls++;
 				this.textureDestroyCalls++;
 				texture.destroyed = true;
 				gpuTexture.destroy();
-			}
-		};
+			},
+		);
+		Object.assign(texture, { usage: desc.usage, label: desc.label, desc,
+			lastWrite: null, destroyed: false });
 		this.textures.push(texture);
 		return texture;
 	}
 
 	createTextureView(texture, desc) {
-		let view;
-		if (!desc && texture._webgpuTexture?.view) {
-			view = texture._webgpuTexture.view;
-		} else if (desc && texture._webgpuTexture?.texture?.createView) {
-			view = texture._webgpuTexture.texture.createView(desc);
-		} else if (texture._gpuResource?.createView) {
-			view = texture._gpuResource.createView(desc);
-		} else {
-			view = new FakeGPUTextureView(texture, desc);
-		}
+		const state = this.resourceManager.getTexture(texture);
+		const view = desc ? state.texture.createView(desc) : state.view;
 		this.textureViews.push(view);
 		return view;
 	}
 
 	createSampler(desc) {
 		this.samplerDescs.push(desc);
-		const sampler = { 
-			kind: "sampler",
-			desc, 
-			label: desc.label, 
-			destroyed: false,
-			destroy: () => {
+		const sampler = this.resourceManager.registerSampler(
+			{ [Symbol.toStringTag]: "GPUSampler" }, desc.label, () => {
 				this.destroyCalls++;
 				this.samplerDestroyCalls++;
 				sampler.destroyed = true;
 			},
-			_gpuResource: { [Symbol.toStringTag]: "GPUSampler" }
-		};
+		);
+		Object.assign(sampler, { desc, destroyed: false });
 		this.samplers.push(sampler);
 		return sampler;
 	}
@@ -759,26 +749,19 @@ export class FakeWebGPUBackend {
 			label: desc.label,
 			[Symbol.toStringTag]: "GPUBindGroup"
 		};
-		const group = { 
-			kind: "binding-group",
-			desc, 
-			label: desc.label, 
-			entries: desc.entries,
-			_gpuResource: gpuBindGroup,
-			destroyed: false,
-			destroy: () => {
+		const group = this.resourceManager.registerBindingGroup(gpuBindGroup, desc.label, () => {
 				this.destroyCalls++;
 				this.bindingGroupDestroyCalls++;
 				group.destroyed = true;
-			} 
-		};
+		});
+		Object.assign(group, { desc, entries: desc.entries, destroyed: false });
 		this.bindingGroups.push(group);
 		return group;
 	}
 
 	writeBuffer(buffer, data, offset = 0) {
 		this.writeBufferCalls++;
-		const gpuBuffer = buffer._gpuResource || buffer;
+		const gpuBuffer = buffer.kind === "buffer" ? this.resourceManager.getBuffer(buffer) : buffer;
 		const view = (data instanceof Uint8Array) ? data : 
 			(data.buffer ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength) : new Uint8Array(data));
 		
@@ -794,13 +777,14 @@ export class FakeWebGPUBackend {
 		lastWrite.data = data;
 		lastWrite.offset = offset;
 		gpuBuffer.lastWrite = lastWrite;
-		if (buffer && typeof buffer === "object" && "_gpuResource" in buffer) {
+		if (buffer.kind === "buffer") {
 			buffer.lastWrite = lastWrite;
 		}
 	}
 
 	writeTexture(texture, data, layout, size) {
-		const gpuTexture = texture._gpuResource || texture;
+		const gpuTexture = texture.kind === "texture" ?
+			this.resourceManager.getTexture(texture).texture : texture;
 		const src = (data instanceof Uint8Array) ? data : 
 			(data.buffer ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength) : new Uint8Array(data));
 
@@ -828,7 +812,7 @@ export class FakeWebGPUBackend {
 		lastWrite.layout = layout;
 		lastWrite.size = size;
 		gpuTexture.lastWrite = lastWrite;
-		if (texture && typeof texture === "object" && "_gpuResource" in texture) {
+		if (texture.kind === "texture") {
 			texture.lastWrite = lastWrite;
 		}
 	}
@@ -854,7 +838,7 @@ export class FakeWebGPUBackend {
 
 	getTextureForSlot(texture, slotIndex) {
 		if (!texture || typeof texture !== "object") {
-			return { kind: "slot-texture", texture, slotIndex };
+			return this._getFallbackSlotTexture(slotIndex);
 		}
 		const external = this._externalTextureResources.get(texture);
 		if (external) {
@@ -886,7 +870,20 @@ export class FakeWebGPUBackend {
 			this._slotTextureCache.set(texture, created);
 			return created;
 		}
-		return { kind: "slot-texture", texture, slotIndex };
+		return this._getFallbackSlotTexture(slotIndex);
+	}
+
+	_getFallbackSlotTexture(slotIndex) {
+		let fallback = this._fallbackSlotTextures.get(slotIndex);
+		if (!fallback) {
+			const texture = new FakeGPUTexture({ width: 1, height: 1 });
+			fallback = this.resourceManager.registerTexture(
+				{ texture, view: texture.createView() }, { width: 1, height: 1 },
+			);
+			fallback.slotIndex = slotIndex;
+			this._fallbackSlotTextures.set(slotIndex, fallback);
+		}
+		return fallback;
 	}
 
 	resolveTextureForSlot(texture, slotIndex) {

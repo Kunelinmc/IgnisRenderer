@@ -81,7 +81,7 @@ function testRenderResourcesLeaveShaderRuntimeSubscriptionToBackend() {
 			};
 		},
 	};
-	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
+	const resources = new WebGPURenderResources(backend, createWebGPUComputeFacade(backend));
 
 	assert.equal(listenerCount, 0);
 
@@ -92,7 +92,6 @@ function testRenderResourcesLeaveShaderRuntimeSubscriptionToBackend() {
 async function testRenderResourcesLogPointLightLimitOnlyOnce() {
 	const backend = new FakeBackend();
 	const resources = new WebGPURenderResources(
-		backend,
 		backend,
 		createWebGPUComputeFacade(backend),
 	);
@@ -144,7 +143,7 @@ async function testRenderResourcesUseCopyDstForUploads() {
 	]);
 	const packet = createPacket(model);
 	const frame = createFrame(packet);
-	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
+	const resources = new WebGPURenderResources(backend, createWebGPUComputeFacade(backend));
 
 	const frameResources = resources.prepareFrame(
 		createFrameContextWithFeatures(
@@ -301,7 +300,7 @@ async function testRenderResourcesUseCopyDstForUploads() {
 
 async function testStaticBatchSplitDiagnosticsAccumulateAndResetPerFrame() {
 	const backend = new FakeBackend();
-	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
+	const resources = new WebGPURenderResources(backend, createWebGPUComputeFacade(backend));
 	try {
 		const first = createPacket(createModel([new PBRMaterial()]));
 		const different = createPacket(createModel([new PBRMaterial()]));
@@ -361,7 +360,7 @@ async function testStaticBatchSplitDiagnosticsAccumulateAndResetPerFrame() {
 
 function testVolumetricLightingUsesEffectiveSurfaceLights() {
 	const backend = new FakeBackend();
-	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
+	const resources = new WebGPURenderResources(backend, createWebGPUComputeFacade(backend));
 	try {
 		for (const entry of [
 			{ clustered: false, maxLights: 2, pointCount: 16 },
@@ -415,7 +414,7 @@ function testVolumetricLightingUsesEffectiveSurfaceLights() {
 
 function testVolumetricLightingDataStaysScopedAndClearsWhenDisabled() {
 	const backend = new FakeBackend();
-	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
+	const resources = new WebGPURenderResources(backend, createWebGPUComputeFacade(backend));
 	try {
 		const frame = createFrame(createPacket(createModel([new PBRMaterial()])));
 		frame.lights = [new PointLight()];

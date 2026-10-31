@@ -1,5 +1,6 @@
 import type { ICommandBuffer, ICommandEncoder } from "../ICommandEncoder";
 import type { IRenderTexture } from "../types";
+import type { WebGPUResourceManager } from "./WebGPUResourceManager";
 
 export interface WebGPUCommandBufferInternals {
 	_backendCommandBuffer: GPUCommandBuffer;
@@ -14,6 +15,7 @@ export interface WebGPUTimestampWrites {
 }
 
 export interface WebGPUCommandEncoderHost {
+	readonly resourceManager: WebGPUResourceManager;
 	createPassTimestampWrites(label: string): WebGPUTimestampWrites | undefined;
 	getCurrentColorView(): GPUTextureView;
 	getCurrentDepthView(): GPUTextureView;

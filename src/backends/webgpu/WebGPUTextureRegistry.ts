@@ -13,7 +13,6 @@ import {
 import { Logger } from "../../foundation/Logger";
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
 import type { WebGPUResourceManager } from "./WebGPUResourceManager";
-import { tryGetWebGPUTextureHandle } from "./WebGPUResourceAccess";
 import {
 	createTextureMipUploadLevels,
 	WEBGPU_TEXTURE_SLOT,
@@ -47,8 +46,8 @@ interface TextureDisposeObserver {
 }
 
 export class WebGPUTextureRegistry {
+	private readonly _resources: WebGPUResourceManager;
 	private _backend: WebGPUDeviceResourceHost;
-	private _resourceManager: WebGPUResourceManager;
 	private _textureCache = new WeakMap<Texture, TextureCacheEntry>();
 	private _dataTextureCache = new WeakMap<Texture, TextureCacheEntry>();
 	private _srgbTextureCache = new WeakMap<Texture, TextureCacheEntry>();
@@ -75,10 +74,9 @@ export class WebGPUTextureRegistry {
 
 	constructor(
 		backend: WebGPUDeviceResourceHost,
-		resourceManager: WebGPUResourceManager,
 	) {
 		this._backend = backend;
-		this._resourceManager = resourceManager;
+		this._resources = backend.resourceManager;
 	}
 
 	public getTextureForSlot(
@@ -201,7 +199,7 @@ export class WebGPUTextureRegistry {
 				const uploads = createTextureMipUploadLevels(texture, cacheEntry.format);
 				for (const upload of uploads) {
 					const uploadData = this._toArrayBufferBackedView(upload.data);
-					this._resourceManager.writeTexture(
+					this._resources.writeTexture(
 						cacheEntry.resource,
 						uploadData,
 						{
@@ -387,7 +385,7 @@ export class WebGPUTextureRegistry {
 				label: "WebGPUWhiteTexture",
 			});
 			const data = new Uint8Array(256).fill(255);
-			this._resourceManager.writeTexture(
+			this._resources.writeTexture(
 				this._whiteTexture,
 				new Uint8Array(data),
 				{ bytesPerRow: 256, rowsPerImage: 1 },
@@ -413,7 +411,7 @@ export class WebGPUTextureRegistry {
 			data[1] = 128;
 			data[2] = 255;
 			data[3] = 255;
-			this._resourceManager.writeTexture(
+			this._resources.writeTexture(
 				this._neutralNormalTexture,
 				new Uint8Array(data),
 				{ bytesPerRow: 256, rowsPerImage: 1 },
@@ -448,7 +446,7 @@ export class WebGPUTextureRegistry {
 		}
 		this._ownedTextures.clear();
 		for (const sampler of this._ownedSamplers) {
-			this._destroySampler(sampler);
+			sampler?.destroy();
 		}
 		this._ownedSamplers.clear();
 		this._textureCache = new WeakMap<Texture, TextureCacheEntry>();
@@ -596,7 +594,7 @@ export class WebGPUTextureRegistry {
 		}
 
 		try {
-			const gpuTexture = tryGetWebGPUTextureHandle(target);
+			const gpuTexture = this._resources.tryGetTexture(target)?.texture;
 			if (!gpuTexture) {
 				return false;
 			}
@@ -689,7 +687,7 @@ export class WebGPUTextureRegistry {
 			resources.sampler = null;
 		}
 		if (this._ownedSamplers.delete(sampler)) {
-			this._destroySampler(sampler);
+			sampler?.destroy();
 		}
 	}
 
@@ -722,13 +720,6 @@ export class WebGPUTextureRegistry {
 		}
 		this._disposeUnsubscribers.get(texture)?.();
 		this._disposeUnsubscribers.delete(texture);
-	}
-
-	private _destroySampler(sampler: ISampler): void {
-		const destroyFn = (sampler as { destroy?: () => void }).destroy;
-		if (typeof destroyFn === "function") {
-			destroyFn.call(sampler);
-		}
 	}
 }
 

@@ -446,7 +446,7 @@ export class WebGPUStaticMeshBatcher {
 			// Active entries move to the end on first use; no inactive entry follows them.
 			if (oldest[1].lastUsedFrame === this._arenaRevision) break;
 			this._materialBindings.delete(oldest[0]);
-			(oldest[1].bindingGroup as { destroy?: () => void }).destroy?.();
+			oldest[1].bindingGroup.destroy();
 			this._drawResources.releaseMaterial(oldest[1].material);
 		}
 	}
@@ -480,7 +480,7 @@ export class WebGPUStaticMeshBatcher {
 	private _destroyMaterialBindings(): void {
 		this._bindingRevision++;
 		for (const entry of this._materialBindings.values()) {
-			(entry.bindingGroup as { destroy?: () => void }).destroy?.();
+			entry.bindingGroup.destroy();
 			this._drawResources.releaseMaterial(entry.material);
 		}
 		this._materialBindings.clear();

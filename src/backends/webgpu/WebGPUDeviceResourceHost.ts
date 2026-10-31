@@ -1,6 +1,5 @@
 import type { TextureFormat } from "../../core/TextureFormat";
 import type {
-	BindingGroupDesc,
 	BufferDesc,
 	ComputePipelineDesc,
 	IBindingGroup,
@@ -16,6 +15,8 @@ import type {
 	TextureDesc,
 } from "../types";
 import type { WebGPUShaderRuntimeView } from "./WebGPUMaterialPipelineResolver";
+import type { WebGPUBindingGroupDesc } from "./WebGPUBindingGroupCache";
+import type { WebGPUResourceManager } from "./WebGPUResourceManager";
 
 /**
  * Narrow device-scoped capability consumed by WebGPU resource owners.
@@ -23,6 +24,7 @@ import type { WebGPUShaderRuntimeView } from "./WebGPUMaterialPipelineResolver";
  * @internal Owned by `WebGPUBackend`; applications must use `Renderer`.
  */
 export interface WebGPUDeviceResourceHost {
+	readonly resourceManager: WebGPUResourceManager;
 	readonly device: GPUDevice | null;
 	readonly queue: GPUQueue | null;
 	readonly canvasFormat: TextureFormat;
@@ -40,7 +42,7 @@ export interface WebGPUDeviceResourceHost {
 	createShaderModule(desc: ShaderModuleDesc): Promise<IShaderModule>;
 	createPipeline(desc: PipelineDesc): Promise<IRenderPipeline>;
 	createComputePipeline(desc: ComputePipelineDesc): Promise<IComputePipeline>;
-	createBindingGroup(desc: BindingGroupDesc): IBindingGroup;
+	createBindingGroup(desc: WebGPUBindingGroupDesc): IBindingGroup;
 	createTextureView(
 		texture: IRenderTexture,
 		desc?: GPUTextureViewDescriptor,

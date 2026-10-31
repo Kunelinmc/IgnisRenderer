@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+
+import { createWebGPUResourceManager } from "../../helpers/fakes.mjs";
+const resourceManager = createWebGPUResourceManager();
 import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
 import {
@@ -6,7 +9,9 @@ import {
 } from "../../../src/backends/webgpu/WebGPUShadowCasterRenderer.ts";
 
 function createResource(id) {
-	return { id, _gpuResource: { id: `gpu:${id}`, destroy() {} } };
+	return Object.assign(resourceManager.registerBuffer(
+		{ id: `gpu:${id}`, destroy() {} }, { size: 64 },
+	), { id });
 }
 
 const fallback = createResource("fallback");
@@ -19,7 +24,7 @@ const device = {
 		return group;
 	},
 };
-const backend = { device };
+const backend = { device, resourceManager };
 let payload = {
 	generation: 0,
 	paramsBuffer: fallback,
@@ -46,6 +51,35 @@ const submission = packet.submission;
 const geometry = { morphPositionBuffer: null };
 const context = { transient: { get() { return null; } } };
 
+function testGeometryResourcesBelongToShadowOwner() {
+	const own = createResource("geometry:own");
+	const foreignStore = createWebGPUResourceManager();
+	const foreign = foreignStore.registerBuffer({ destroy() {} }, { size: 64 });
+	const geometry = {
+		shadowVertexBindings: [{ slot: 0, buffer: foreign }],
+		indexBuffer: own,
+		indexFormat: "uint32",
+	};
+	const caster = new WebGPUShadowCasterRenderer(backend, {
+		getGeometry() { return geometry; },
+	}, pool);
+	assert.throws(() => caster._collectShadowDrawCandidate(submission), /not owned/i,
+		"foreign vertex buffers must not enter a shadow candidate");
+	geometry.shadowVertexBindings[0].buffer = own;
+	geometry.indexBuffer = foreign;
+	assert.throws(() => caster._collectShadowDrawCandidate(submission), /not owned/i,
+		"foreign index buffers must not enter a shadow candidate");
+	geometry.indexBuffer = own;
+	const candidate = caster._collectShadowDrawCandidate(submission);
+	assert.equal(candidate.vertexBindings[0].buffer, resourceManager.getBuffer(own));
+	assert.equal(candidate.indexBuffer, resourceManager.getBuffer(own));
+	own.destroy();
+	assert.throws(() => caster._collectShadowDrawCandidate(submission), /not live|destroyed/i);
+	foreign.destroy();
+}
+
+testGeometryResourcesBelongToShadowOwner();
+
 assert.strictEqual(
 	renderer._resolveAnimationBinding(submission, geometry, context),
 	staticGroup
@@ -64,7 +98,7 @@ const first = renderer._resolveAnimationBinding(submission, geometry, context);
 assert.equal(bindGroups.length, 1);
 assert.strictEqual(
 	first.desc.entries[1].resource.buffer,
-	payload.jointMatricesBuffer._gpuResource
+	resourceManager.getBuffer(payload.jointMatricesBuffer)
 );
 assert.strictEqual(
 	renderer._resolveAnimationBinding(submission, geometry, context),

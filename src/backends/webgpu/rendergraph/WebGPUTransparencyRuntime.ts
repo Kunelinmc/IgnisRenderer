@@ -531,7 +531,7 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 	}
 
 	public invalidateFrameResources(): void {
-		this._destroyBindingGroup(this._resolveBinding);
+		this._resolveBinding?.destroy();
 		this._resolveBinding = null;
 		this._resolveBindingScene = null;
 		this._resolveBindingAccum = null;
@@ -540,9 +540,9 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 
 	public onShaderRuntimeChanged(): void {
 		this.invalidateFrameResources();
-		this._destroyManagedResource(this._resolvePipeline);
-		this._destroyManagedResource(this._resolveSampler);
-		this._destroyManagedResource(this._resolveShaderModule);
+		this._resolvePipeline?.destroy();
+		this._resolveSampler?.destroy();
+		this._resolveShaderModule?.destroy();
 		this._resolvePipeline = null;
 		this._resolveSampler = null;
 		this._resolveShaderModule = null;
@@ -826,15 +826,5 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 		session: WebGPUFrameSession,
 	): Exclude<WebGPUSceneTargetMode, "single"> {
 		return session.targets.sceneTargetMode === "color" ? "color" : "mrt";
-	}
-
-	private _destroyBindingGroup(group: IBindingGroup | null): void {
-		const destroy = (group as { destroy?: () => void } | null)?.destroy;
-		if (typeof destroy === "function") destroy.call(group);
-	}
-
-	private _destroyManagedResource(resource: unknown): void {
-		const destroy = (resource as { destroy?: () => void } | null)?.destroy;
-		if (typeof destroy === "function") destroy.call(resource);
 	}
 }

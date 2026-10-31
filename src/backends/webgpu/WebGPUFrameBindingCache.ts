@@ -87,7 +87,7 @@ export interface WebGPUFrameBindingPrepareOptions {
 
 export class WebGPUFrameBindingCache {
 	private _backend: WebGPUDeviceResourceHost;
-	private _resourceManager: WebGPUResourceManager;
+	private readonly _resources: WebGPUResourceManager;
 	private _layouts: WebGPUPipelineLayouts;
 	private _textureRegistry: WebGPUTextureRegistry;
 	private _shadowRuntime: WebGPUShadowRuntime;
@@ -139,13 +139,12 @@ export class WebGPUFrameBindingCache {
 
 	constructor(
 		backend: WebGPUDeviceResourceHost,
-		resourceManager: WebGPUResourceManager,
 		layouts: WebGPUPipelineLayouts,
 		textureRegistry: WebGPUTextureRegistry,
 		shadowRuntime: WebGPUShadowRuntime,
 	) {
 		this._backend = backend;
-		this._resourceManager = resourceManager;
+		this._resources = backend.resourceManager;
 		this._layouts = layouts;
 		this._textureRegistry = textureRegistry;
 		this._shadowRuntime = shadowRuntime;
@@ -263,8 +262,8 @@ export class WebGPUFrameBindingCache {
 			this._environmentSampler !== currentEnvironmentSampler ||
 			this._envSpecularSampler !== currentEnvSpecularSampler
 		) {
-			this._destroyBindingGroup(this._sceneBinding);
-			this._destroyBindingGroup(this._environmentBinding);
+			this._sceneBinding?.destroy();
+			this._environmentBinding?.destroy();
 			this._sceneBinding = null;
 			this._environmentBinding = null;
 			this._shadowAtlas = currentShadowAtlas;
@@ -312,7 +311,7 @@ export class WebGPUFrameBindingCache {
 			this._irradianceProbeGridTextureGridId !== grid.id
 		) {
 			const data = this._packIrradianceProbeGridTextureData(grid);
-			this._resourceManager.writeTexture(
+			this._resources.writeTexture(
 				this._ownedIrradianceProbeGridTexture,
 				data as Float32Array<ArrayBuffer>,
 				{ bytesPerRow: width * 4 * 4, rowsPerImage: height },
@@ -641,11 +640,11 @@ export class WebGPUFrameBindingCache {
 	}
 
 	public destroy(): void {
-		this._destroyBindingGroup(this._sceneBinding);
-		this._destroyBindingGroup(this._particleFrameBinding);
-		this._destroyBindingGroup(this._depthFrameBinding);
-		this._destroyBindingGroup(this._decalFrameBinding);
-		this._destroyBindingGroup(this._environmentBinding);
+		this._sceneBinding?.destroy();
+		this._particleFrameBinding?.destroy();
+		this._depthFrameBinding?.destroy();
+		this._decalFrameBinding?.destroy();
+		this._environmentBinding?.destroy();
 		this._sceneBinding = null;
 		this._particleFrameBinding = null;
 		this._depthFrameBinding = null;
@@ -672,25 +671,11 @@ export class WebGPUFrameBindingCache {
 		this._environmentTexture = null;
 		this._envSpecularTexture = null;
 		this._brdfLUTTexture = null;
-		this._destroySampler(this._shadowComparisonSampler);
+		this._shadowComparisonSampler?.destroy();
 		this._shadowComparisonSampler = null;
 		this._environmentSampler = null;
 		this._envSpecularSampler = null;
 		this.resetTemporalState();
-	}
-
-	private _destroyBindingGroup(group: IBindingGroup | null): void {
-		const destroyFn = (group as { destroy?: () => void } | null)?.destroy;
-		if (typeof destroyFn === "function") {
-			destroyFn.call(group);
-		}
-	}
-
-	private _destroySampler(sampler: ISampler | null): void {
-		const destroyFn = (sampler as { destroy?: () => void } | null)?.destroy;
-		if (typeof destroyFn === "function") {
-			destroyFn.call(sampler);
-		}
 	}
 }
 

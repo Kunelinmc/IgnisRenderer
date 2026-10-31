@@ -1,3 +1,4 @@
+import type { WebGPUResourceManager } from "./WebGPUResourceManager";
 import type { TextureFilter } from "../../core/Texture";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import {
@@ -15,7 +16,6 @@ import {
 	PrimitiveTopology,
 } from "../types";
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
-import { getWebGPURenderPipeline } from "./WebGPUResourceAccess";
 
 interface WebGPUMipmapPipelineEntry {
 	pipeline: IRenderPipeline;
@@ -29,6 +29,7 @@ const GPU_SHADER_STAGE_FRAGMENT =
  * Generates 2D texture mip chains by rendering each mip from the previous mip.
  */
 export class WebGPUMipmapGenerator {
+	private readonly _resources: WebGPUResourceManager;
 	private _backend: WebGPUDeviceResourceHost;
 	private _shaderModule: IShaderModule | null = null;
 	private _shaderModulePromise: Promise<IShaderModule | null> | null = null;
@@ -45,6 +46,7 @@ export class WebGPUMipmapGenerator {
 
 	constructor(backend: WebGPUDeviceResourceHost) {
 		this._backend = backend;
+		this._resources = backend.resourceManager;
 	}
 
 	/**
@@ -108,8 +110,8 @@ export class WebGPUMipmapGenerator {
 						},
 					],
 				});
-				pass.setPipeline(getWebGPURenderPipeline(pipeline));
-				pass.setBindGroup(0, getNativeBindGroup(binding));
+				pass.setPipeline(this._resources.getRenderPipeline(pipeline));
+				pass.setBindGroup(0, this._resources.getBindingGroup(binding));
 				pass.draw(3, 1, 0, 0);
 				pass.end();
 			}
@@ -117,7 +119,7 @@ export class WebGPUMipmapGenerator {
 			return true;
 		} finally {
 			for (const binding of transientBindings) {
-				this._destroyManagedResource(binding);
+				binding?.destroy();
 			}
 		}
 	}
@@ -127,10 +129,10 @@ export class WebGPUMipmapGenerator {
 	 */
 	public destroy(): void {
 		this._lifecycleGeneration++;
-		this._destroyManagedResource(this._shaderModule);
-		this._destroyManagedResource(this._sampler);
+		this._shaderModule?.destroy();
+		this._sampler?.destroy();
 		for (const entry of this._pipelines.values()) {
-			this._destroyManagedResource(entry.pipeline);
+			entry.pipeline?.destroy();
 		}
 		this._sampler = null;
 		this._shaderModule = null;
@@ -203,12 +205,12 @@ export class WebGPUMipmapGenerator {
 			},
 		});
 		if (this._lifecycleGeneration !== generation) {
-			this._destroyManagedResource(pipeline);
+			pipeline?.destroy();
 			return null;
 		}
 		const existing = this._pipelines.get(format);
 		if (existing) {
-			this._destroyManagedResource(pipeline);
+			pipeline?.destroy();
 			return existing.pipeline;
 		}
 		this._pipelines.set(format, { pipeline });
@@ -234,11 +236,11 @@ export class WebGPUMipmapGenerator {
 			})
 			.then((module) => {
 				if (this._lifecycleGeneration !== generation) {
-					this._destroyManagedResource(module);
+					module?.destroy();
 					return null;
 				}
 				if (this._shaderModule) {
-					this._destroyManagedResource(module);
+					module?.destroy();
 					return this._shaderModule;
 				}
 				this._shaderModule = module;
@@ -325,13 +327,6 @@ export class WebGPUMipmapGenerator {
 		this._viewCache.set(texture as object, views);
 		return views;
 	}
-
-	private _destroyManagedResource(resource: unknown): void {
-		const destroyFn = (resource as { destroy?: () => void } | null)?.destroy;
-		if (typeof destroyFn === "function") {
-			destroyFn.call(resource);
-		}
-	}
 }
 
 export function textureFilterRequiresMipmaps(
@@ -371,11 +366,4 @@ export function canGenerateWebGPUMipmaps(format: TextureFormat): boolean {
 	} catch {
 		return false;
 	}
-}
-
-function getNativeBindGroup(binding: IBindingGroup): GPUBindGroup {
-	return (
-		(binding as { _gpuResource?: GPUBindGroup })._gpuResource ??
-		(binding as unknown as GPUBindGroup)
-	);
 }

@@ -80,9 +80,9 @@ export class WebGPUDepthDirtyClearPass {
 	 * @sideEffects Destroys cached managed GPU resources.
 	 */
 	public onShaderRuntimeChanged(): void {
-		this._destroyManagedResource(this._shaderModule);
+		this._shaderModule?.destroy();
 		for (const pipeline of this._pipelines.values()) {
-			this._destroyManagedResource(pipeline);
+			pipeline?.destroy();
 		}
 		this._shaderModule = null;
 		this._pipelines.clear();
@@ -141,12 +141,5 @@ export class WebGPUDepthDirtyClearPass {
 		} as any);
 		this._pipelines.set(cacheKey, pipeline);
 		return pipeline;
-	}
-
-	private _destroyManagedResource(resource: unknown): void {
-		const destroyFn = (resource as { destroy?: () => void } | null)?.destroy;
-		if (typeof destroyFn === "function") {
-			destroyFn.call(resource);
-		}
 	}
 }

@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
 
+import { createWebGPUResourceManager } from "../../helpers/fakes.mjs";
+import { WebGPUHiZBuilder } from "../../../src/backends/webgpu/WebGPUHiZBuilder.ts";
+import { createWebGPUComputeFacade } from "../../../src/backends/webgpu/ComputeFacade.ts";
+
 import {
 	DEFAULT_WEBGPU_DENOISE_OPTIONS,
 	WebGPUDenoiser,
@@ -142,7 +146,7 @@ function testShaderDefensiveFiltering() {
 
 async function testFastAndQualityDispatches() {
 	const backend = new FakeBackend();
-	const denoiser = new WebGPUDenoiser(backend);
+	const denoiser = new WebGPUDenoiser(createWebGPUComputeFacade(backend));
 	const fastEncoder = new FakeEncoder();
 	const fastRequest = createRequest(fastEncoder);
 	const fast = await denoiser.encode(fastRequest);
@@ -236,7 +240,7 @@ async function testFastAndQualityDispatches() {
 
 async function testSourceOverwriteAndValidation() {
 	const backend = new FakeBackend();
-	const denoiser = new WebGPUDenoiser(backend);
+	const denoiser = new WebGPUDenoiser(createWebGPUComputeFacade(backend));
 	const encoder = new FakeEncoder();
 	const source = createTexture(16, 8, "source-output");
 	const overwrite = await denoiser.encode(createRequest(encoder, {
@@ -304,7 +308,7 @@ async function testSourceOverwriteAndValidation() {
 
 async function testRuntimeOwnershipAndInvalidation() {
 	const backend = new FakeBackend();
-	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
+	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend), () => {});
 	const denoiser = runtime.getDenoiser();
 	assert.equal(runtime.getDenoiser(), denoiser);
 
@@ -331,6 +335,30 @@ async function testRuntimeOwnershipAndInvalidation() {
 	assert.equal(backend.bufferDestroyCalls, backend.buffers.length);
 }
 
+function testDeviceLossCleanupContinuesAfterReleaseFailures() {
+	const backend = new FakeBackend();
+	const facade = createWebGPUComputeFacade(backend);
+	for (const owner of [new WebGPUDenoiser(facade), new WebGPUHiZBuilder(facade)]) {
+		const released = [];
+		const first = backend.resourceManager.registerBindingGroup({}, "first", () => {
+			released.push("first");
+			throw new Error("device lost during binding release");
+		});
+		const second = backend.resourceManager.registerBindingGroup({}, "second", () => {
+			released.push("second");
+		});
+		owner._bindings.set("first", { group: first, resources: [] });
+		owner._bindings.set("second", { group: second, resources: [] });
+		assert.doesNotThrow(() => owner.invalidateBindings());
+		assert.deepEqual(released, ["first", "second"]);
+		assert.equal(owner._bindings.size, 0);
+		assert.doesNotThrow(() => owner.invalidateBindings());
+		assert.deepEqual(released, ["first", "second"]);
+		owner.destroy();
+	}
+}
+
+testDeviceLossCleanupContinuesAfterReleaseFailures();
 testOptionsAndParameterPacking();
 testShaderDefensiveFiltering();
 await testFastAndQualityDispatches();

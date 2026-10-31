@@ -257,6 +257,35 @@ async function testWebGLCustomTargetExecutionAndReadback() {
 				0, 1, 0,
 			]),
 		});
+		assert.equal(vertexBuffer.kind, "buffer");
+		assert.deepEqual(Object.keys(vertexBuffer).sort(),
+			["destroy", "kind", "size", "unmap"]);
+		assert.deepEqual(Object.keys(pipeline).sort(), ["destroy", "kind", "label"]);
+		assert.deepEqual(Object.keys(vertexModule).sort(), ["destroy", "kind", "label"]);
+		assert.equal(passContext.target.color[0].texture.kind, "texture");
+		assert.equal("_gpuResource" in passContext.target.color[0].texture, false,
+			"custom render-target handles must not expose native texture storage");
+		assert.throws(() => passContext.resources.createBindingGroup({
+			entries: [{ binding: 0, resource: vertexModule }],
+		}), /binding resource/,
+			"shader handles cannot be used as bindable resources");
+		const commandsBefore = gl.calls.length;
+		assert.throws(() => passContext.encoder.beginRenderPass({
+			colorAttachments: [{ view: vertexBuffer, loadOp: "load", storeOp: "store" }],
+		}), /texture resource/);
+		assert.equal(gl.calls.length, commandsBefore,
+			"wrong-kind attachments must be rejected before issuing native commands");
+		assert.throws(() => passContext.encoder.setVertexBuffer(0, {
+			...vertexBuffer,
+		}), /resource.*(owner|unavailable|invalid)/i,
+			"copying portable metadata must not forge a usable resource");
+		const disposed = passContext.resources.createBuffer({
+			size: 4, usage: BufferUsage.Vertex,
+		});
+		disposed.destroy();
+		disposed.destroy();
+		assert.throws(() => passContext.encoder.setVertexBuffer(0, disposed),
+			/destroyed|unavailable/i);
 		passContext.encoder.beginRenderPass({
 			colorAttachments: passContext.target.color.map((attachment) => ({
 				view: attachment.texture,
@@ -530,6 +559,42 @@ async function testWebGLSceneViewJobDelegatesToIsolatedExecutor() {
 	assert.equal(received.target.height, 32);
 }
 
+async function testWebGLResourceOwnerAndTeardown() {
+	const gl = createFakeGL();
+	const runtime = new WebGLCustomRenderTargetRuntime(gl);
+	const otherRuntime = new WebGLCustomRenderTargetRuntime(gl);
+	let resources;
+	let buffer;
+	const context = createContext((pass) => {
+		resources = pass.resources;
+		buffer = resources.createBuffer({ size: 12, usage: BufferUsage.Vertex });
+	});
+	const stage = { stage: "render-target-views" };
+	runtime.sync(context);
+	await runtime.executePass(stage, context);
+	const foreignContext = createContext((pass) => {
+		assert.throws(() => pass.encoder.setVertexBuffer(0, buffer), /another owner/,
+			"resource ownership must distinguish runtimes sharing the same GL context");
+		assert.throws(() => pass.resources.createBindingGroup({
+			entries: [{ binding: 0, resource: buffer }],
+		}), /another owner/);
+	});
+	otherRuntime.sync(foreignContext);
+	await otherRuntime.executePass(stage, foreignContext);
+	const deletedBefore = gl.calls.filter((call) => call[0] === "deleteBuffer").length;
+	runtime.destroy();
+	runtime.destroy();
+	buffer.destroy();
+	assert.equal(gl.calls.filter((call) => call[0] === "deleteBuffer").length,
+		deletedBefore + 1, "owner teardown releases outstanding buffers exactly once");
+	const allocationsBefore = gl.calls.filter((call) => call[0] === "bufferData").length;
+	assert.throws(() => resources.createBuffer({ size: 4, usage: BufferUsage.Vertex }),
+		/owner has been destroyed/);
+	assert.equal(gl.calls.filter((call) => call[0] === "bufferData").length,
+		allocationsBefore, "expired facades reject before allocating a native buffer");
+	otherRuntime.destroy();
+}
+
 await testWebGLCustomTargetExecutionAndReadback();
 testWebGLStrictFormatValidation();
 testWebGLCoreFormatMappings();
@@ -537,4 +602,5 @@ testWebGLIncompleteFramebufferIsTransactional();
 await testWebGLPassFailureRestoresState();
 await testWebGLFloat16ReadbackLayout();
 await testWebGLSceneViewJobDelegatesToIsolatedExecutor();
+await testWebGLResourceOwnerAndTeardown();
 console.log("WebGL custom render target tests passed");

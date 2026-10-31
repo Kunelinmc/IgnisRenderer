@@ -419,7 +419,7 @@ export class WebGPUPlanarReflectionPass {
 		}
 		this._targets.clear();
 		for (const binding of this._bindings.values()) {
-			destroyBindingGroup(binding);
+			binding?.destroy();
 		}
 		this._bindings.clear();
 		this._activeReflections = [];
@@ -564,7 +564,7 @@ export class WebGPUPlanarReflectionPass {
 	private _destroyTargets(targets: PlanarReflectionTargetSet): void {
 		const binding = this._bindings.get(targets.sceneColor);
 		if (binding) {
-			destroyBindingGroup(binding);
+			binding?.destroy();
 			this._bindings.delete(targets.sceneColor);
 		}
 		destroyTargets(targets);
@@ -855,13 +855,6 @@ function createTargets(
 function destroyTargets(targets: PlanarReflectionTargetSet): void {
 	targets.sceneColor.destroy();
 	targets.depth.destroy();
-}
-
-function destroyBindingGroup(group: IBindingGroup | null): void {
-	const destroyFn = (group as { destroy?: () => void } | null)?.destroy;
-	if (typeof destroyFn === "function") {
-		destroyFn.call(group);
-	}
 }
 
 function resolveDirtyRects(

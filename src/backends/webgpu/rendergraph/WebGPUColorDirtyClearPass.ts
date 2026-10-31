@@ -72,9 +72,9 @@ export class WebGPUColorDirtyClearPass {
 	}
 
 	public onShaderRuntimeChanged(): void {
-		this._destroyManagedResource(this._shaderModule);
+		this._shaderModule?.destroy();
 		for (const pipeline of this._pipelines.values()) {
-			this._destroyManagedResource(pipeline);
+			pipeline?.destroy();
 		}
 		this._shaderModule = null;
 		this._pipelines.clear();
@@ -157,13 +157,6 @@ export class WebGPUColorDirtyClearPass {
 				`WebGPU ${mode} dirty clear requires ${expected} attachments; ` +
 					`received ${count}.`
 			);
-		}
-	}
-
-	private _destroyManagedResource(resource: unknown): void {
-		const destroyFn = (resource as { destroy?: () => void } | null)?.destroy;
-		if (typeof destroyFn === "function") {
-			destroyFn.call(resource);
 		}
 	}
 }

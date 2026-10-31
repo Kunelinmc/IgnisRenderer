@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createWebGPUComputeFacade } from "../../../src/backends/webgpu/ComputeFacade.ts";
 import { readFile } from "node:fs/promises";
 
 import {
@@ -15,7 +16,6 @@ import { POST_PROCESS_SHARED_RESOURCE_IDS } from "../../../src/postprocess/execu
 import {
 	FakeBackend,
 	FakeEncoder,
-	createTexture,
 } from "../../helpers/webgpu_postprocess_runtime_test_helpers.mjs";
 
 function createFrameContext(transmissionFactor = 1) {
@@ -275,7 +275,10 @@ function testTransientDescriptors() {
 
 async function testTraceAndComposeDispatchPayloads() {
 	const backend = new FakeBackend();
-	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
+	const createTexture = (width, height, label) => backend.createTexture({
+		width, height, label, format: label === "hiz" ? "r32float" : "rgba16float", usage: 0,
+	});
+	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend), () => {});
 	const encoder = new FakeEncoder();
 	const input = createTexture(64, 32, "scene");
 	const output = createTexture(64, 32, "output");

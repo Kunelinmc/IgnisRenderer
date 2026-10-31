@@ -15,6 +15,18 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
 
 ### Backend lifecycle and execution
 
+- WebGL resource facades must expose only portable resource metadata and an
+  idempotent `destroy()` method. Native textures, buffers, samplers, programs,
+  shader sources, pipeline descriptors, binding entries, and scope membership
+  must remain in typed, context-owner-local resource tables.
+- Resource resolution must reject fabricated handles, handles from another
+  resource owner, destroyed handles, and handles from an expired auxiliary
+  scope before issuing native commands. Context teardown must explicitly
+  release outstanding native allocations and invalidate their handles.
+- Auxiliary pipeline caching must share programs through private records while
+  issuing separate scope-owned handles. Shader source and pipeline state must
+  participate in cache identity without reading private fields from handles.
+
 - Whole-frame graph compilation may reuse the previous compiled graph only
   when the complete logical frame plan is unchanged, including resource
   descriptors and physical bindings, ordered stages and dependencies, node

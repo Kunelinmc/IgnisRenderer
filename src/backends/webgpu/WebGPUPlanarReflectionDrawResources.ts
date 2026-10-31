@@ -1,3 +1,4 @@
+import { Logger } from "../../foundation/Logger";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import { TextureFormat } from "../../core/TextureFormat";
@@ -8,7 +9,6 @@ import {
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
 import type { DrawPacket } from "../../pipeline/types";
 import type { WebGPUDrawResourceAssembler } from "./WebGPUDrawResourceAssembler";
-import { destroyUniqueWebGPUHandles } from "./WebGPUManagedResourceUtils";
 import { readWebGPUShaderRuntimeView } from "./WebGPUMaterialPipelineResolver";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
 import type {
@@ -119,11 +119,7 @@ export class WebGPUPlanarReflectionDrawResources
 		} as any);
 		const winner = this._pipelines.get(cacheKey);
 		if (winner) {
-			destroyUniqueWebGPUHandles(
-				[pipeline],
-				"pipeline",
-				"WebGPUPlanarReflectionDrawResources",
-			);
+			this._destroyResource(pipeline);
 			return winner;
 		}
 		this._pipelines.set(cacheKey, pipeline);
@@ -131,16 +127,10 @@ export class WebGPUPlanarReflectionDrawResources
 	}
 
 	public onShaderRuntimeChanged(): void {
-		destroyUniqueWebGPUHandles(
-			[...this._pipelines.values()],
-			"pipeline",
-			"WebGPUPlanarReflectionDrawResources",
-		);
-		destroyUniqueWebGPUHandles(
-			[this._shaderModule],
-			"shader module",
-			"WebGPUPlanarReflectionDrawResources",
-		);
+		for (const pipeline of this._pipelines.values()) {
+			this._destroyResource(pipeline);
+		}
+		this._destroyResource(this._shaderModule);
 		this._pipelines.clear();
 		this._shaderModule = null;
 		this._shaderDirectiveTag = "";
@@ -167,16 +157,31 @@ export class WebGPUPlanarReflectionDrawResources
 			stage: "unknown",
 			sourceKind: "builtin-scene",
 		});
+		// Another request may have published this tag while this acquisition awaited.
+		if (this._shaderModule && this._shaderDirectiveTag === directiveTag) {
+			this._destroyResource(module);
+			return this._shaderModule;
+		}
 		if (this._shaderModule) {
-			destroyUniqueWebGPUHandles(
-				[this._shaderModule],
-				"shader module",
-				"WebGPUPlanarReflectionDrawResources",
-			);
+			this._destroyResource(this._shaderModule);
 		}
 		this._shaderModule = module;
 		this._shaderDirectiveTag = directiveTag;
 		return module;
+	}
+
+	private _destroyResource(resource: IRenderPipeline | IShaderModule | null): void {
+		if (!resource) return;
+		const kind = resource.kind === "shader-module" ? "shader module" : "pipeline";
+		try {
+			resource.destroy();
+		} catch (error) {
+			Logger.warn(
+				`[webgpu-cache-resource-destroy-failed] Failed to destroy cached ${kind}: ` +
+					String(error),
+				{ scope: "WebGPUPlanarReflectionDrawResources" },
+			);
+		}
 	}
 }
 

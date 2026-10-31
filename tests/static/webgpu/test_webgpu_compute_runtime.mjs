@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+
+import { createWebGPUResourceManager } from "../../helpers/fakes.mjs";
 import { TextureFormat } from "../../../src/core/TextureFormat.ts";
 import {
 	BufferUsage,
@@ -6,6 +8,7 @@ import {
 } from "../../../src/backends/types.ts";
 import { ComputeRuntime } from "../../../src/backends/webgpu/ComputeRuntime.ts";
 import { createWebGPUComputeFacade } from "../../../src/backends/webgpu/ComputeFacade.ts";
+import { WebGPUCommandEncoder } from "../../../src/backends/webgpu/WebGPUCommandEncoder.ts";
 import { float32ToFloat16Bits } from "../../../src/foundation/Float16.ts";
 
 import { FakeWebGPUBackend } from "../../helpers/fakes.mjs";
@@ -231,8 +234,221 @@ async function testDispatchValidationRules() {
 	runtime.destroy();
 }
 
+async function testBindingKindsIgnoreNativeLookingMetadata() {
+	const backend = new FakeWebGPUBackend();
+	const runtime = new ComputeRuntime(createWebGPUComputeFacade(backend));
+	const buffer = runtime.createBuffer({ size: 16, usage: BufferUsage.Uniform });
+	const sampler = runtime.createSampler({});
+	// Extra metadata must not override the declared renderer resource kind.
+	Object.assign(buffer, { width: 1, height: 1, [Symbol.toStringTag]: "GPUTexture" });
+	Object.assign(sampler, { size: 16, createView() {} });
+	const kernel = await runtime.createKernel({
+		code: "@compute @workgroup_size(1) fn csMain() {}",
+		bindings: [
+			{ key: "params", binding: 0, type: "buffer" },
+			{ key: "sampler", binding: 1, type: "sampler" },
+		],
+		workgroupSize: { x: 1 },
+	});
+	const ticket = kernel.dispatch({
+		resources: { params: buffer, sampler }, dispatch: { x: 1 },
+	});
+	assert.equal(backend.bindingGroups.at(-1).entries[0].resource, buffer);
+	assert.equal(backend.bindingGroups.at(-1).entries[1].resource, sampler);
+	await ticket.done;
+	runtime.destroy();
+}
+
+async function testSchemaBindingsRequireLiveResourcesFromTheRuntimeStore() {
+	const backend = new FakeWebGPUBackend();
+	const foreign = new FakeWebGPUBackend();
+	const runtime = new ComputeRuntime(createWebGPUComputeFacade(backend));
+	const make = {
+		buffer: (owner) => owner.createBuffer({ size: 16, usage: BufferUsage.Uniform }),
+		texture: (owner) => owner.createTexture({
+			width: 1, height: 1, format: TextureFormat.RGBA8Unorm,
+			usage: TextureUsage.TextureBinding,
+		}),
+		sampler: (owner) => owner.createSampler({}),
+	};
+	const retired = Object.fromEntries(Object.entries(make).map(([kind, create]) =>
+		[kind, create(backend)]));
+	backend.resourceManager.reset();
+	const owned = Object.fromEntries(Object.entries(make).map(([kind, create]) =>
+		[kind, create(backend)]));
+	for (const kind of Object.keys(make)) {
+		const kernel = await runtime.createKernel({
+			code: "@compute @workgroup_size(1) fn csMain() {}",
+			bindings: [{ key: "value", binding: 0, type: kind }],
+			workgroupSize: { x: 1 },
+		});
+		const destroyed = make[kind](backend);
+		destroyed.destroy();
+		const otherKind = kind === "buffer" ? owned.texture : owned.buffer;
+		const forged = { ...owned[kind] };
+		const native = kind === "buffer" ? backend.resourceManager.getBuffer(owned[kind]) :
+			kind === "texture" ? backend.resourceManager.getTexture(owned[kind]).texture :
+			backend.resourceManager.getSampler(owned[kind]);
+		const initial = [backend.createBindingGroupCalls, backend.createCommandEncoderCalls,
+			backend.submits];
+		const invalidResources = [
+			make[kind](foreign), destroyed, retired[kind], forged, native, otherKind,
+		];
+		if (kind === "texture") {
+			invalidResources.push(backend.resourceManager.getTexture(owned.texture).view);
+		}
+		for (const invalid of invalidResources) {
+			for (const override of [false, true]) {
+				assert.throws(() => kernel.dispatch({
+					resources: { value: override ? owned[kind] : invalid },
+					overrideEntries: override ? [{ binding: 0, resource: invalid }] : undefined,
+					dispatch: { x: 1 },
+				}), /expects|owned|not live|renderer resource/i,
+				`${kind} schema entries and overrides must reject invalid resources`);
+			}
+		}
+		assert.deepEqual([backend.createBindingGroupCalls, backend.createCommandEncoderCalls,
+			backend.submits], initial, "invalid bindings must fail before native work is created");
+		const ticket = kernel.dispatch({ resources: { value: owned[kind] }, dispatch: { x: 1 } });
+		await ticket.done;
+		kernel.destroy();
+	}
+	for (const resource of Object.values(owned)) resource.destroy();
+	foreign.resourceManager.reset();
+	runtime.destroy();
+}
+
+async function testBufferRangesPreserveBindingsAndRetainTheirUnderlyingBuffer() {
+	const backend = new FakeWebGPUBackend();
+	const foreign = new FakeWebGPUBackend();
+	const runtime = new ComputeRuntime(createWebGPUComputeFacade(backend));
+	const kernel = await runtime.createKernel({
+		code: "@compute @workgroup_size(1) fn csMain() {}",
+		bindings: [
+			{ key: "first", binding: 0, type: "buffer" },
+			{ key: "second", binding: 1, type: "buffer" },
+		],
+		workgroupSize: { x: 1 },
+	});
+	const buffer = runtime.createBuffer({ size: 64, usage: BufferUsage.Uniform });
+	const native = runtime._resourceManager.getBuffer(buffer);
+	const first = { buffer, offset: 0, size: 16 };
+	const second = { buffer, offset: 32, size: 16 };
+	const dead = backend.createBuffer({ size: 64, usage: BufferUsage.Uniform });
+	dead.destroy();
+	for (const invalidBuffer of [
+		foreign.createBuffer({ size: 64, usage: BufferUsage.Uniform }), dead, native,
+		{ ...buffer }, backend.createTexture({
+			width: 1, height: 1, format: TextureFormat.RGBA8Unorm, usage: TextureUsage.TextureBinding,
+		}),
+	]) {
+		assert.throws(() => kernel.dispatch({
+			resources: { first, second },
+			overrideEntries: [{ binding: 0, resource: { buffer: invalidBuffer, offset: 0, size: 16 } }],
+			dispatch: { x: 1 },
+		}), /expects|owned|not live|renderer resource/i);
+	}
+	assert.equal(backend.createBindingGroupCalls, 0);
+	assert.equal(backend.createCommandEncoderCalls, 0);
+	const ticket = kernel.dispatch({
+		resources: { first: { buffer, offset: 16, size: 16 }, second },
+		overrideEntries: [{ binding: 0, resource: first }], dispatch: { x: 1 },
+	});
+	assert.deepEqual(backend.bindingGroups.at(-1).entries,
+		[{ binding: 0, resource: first }, { binding: 1, resource: second }]);
+	assert.equal(runtime.getResourceStats().inflightReferenceCount, 3,
+		"two ranges retain one buffer reference plus the kernel's module and pipeline");
+	buffer.destroy();
+	assert.equal(native.destroyed, false, "ranges keep their underlying buffer alive in flight");
+	await ticket.done;
+	assert.equal(native.destroyed, true);
+	assert.equal(runtime.getResourceStats().inflightReferenceCount, 0);
+	foreign.resourceManager.reset();
+	backend.resourceManager.reset();
+	runtime.destroy();
+}
+
+async function testFailedDispatchReleasesBindingsAndRetainedResources() {
+	for (const stage of ["foreign group", "destroyed group", "encoder", "recording", "finish",
+		"submission", "cleanup", "completion cleanup"]) {
+		const backend = new FakeWebGPUBackend();
+		const foreign = new FakeWebGPUBackend();
+		const failure = new Error(`dispatch failure: ${stage}`);
+		backend.createCommandEncoder = () => {
+			if (stage === "encoder") throw failure;
+			return new WebGPUCommandEncoder({
+				beginComputePass() {
+					return {
+						setPipeline() {},
+						setBindGroup() {},
+						dispatchWorkgroups() {
+							if (stage === "recording" || stage === "cleanup") throw failure;
+						},
+						end() {},
+					};
+				},
+				finish() {
+					if (stage === "finish") throw failure;
+					return {};
+				},
+			}, { resourceManager: backend.resourceManager, createPassTimestampWrites() {} }, {});
+		};
+		backend.submit = () => { if (stage === "submission") throw failure; };
+		if (stage.endsWith("cleanup")) {
+			const createBindingGroup = backend.createBindingGroup.bind(backend);
+			backend.createBindingGroup = (desc) => {
+				const group = createBindingGroup(desc);
+				const destroy = group.destroy;
+				group.destroy = () => { destroy(); throw new Error("binding cleanup failure"); };
+				return group;
+			};
+		}
+		const runtime = new ComputeRuntime(createWebGPUComputeFacade(backend));
+		const kernel = await runtime.createKernel({
+			code: "@compute @workgroup_size(1) fn csMain() {}",
+			bindings: [{ key: "params", binding: 0, type: "buffer" }],
+			workgroupSize: { x: 1 },
+		});
+		const buffer = runtime.createBuffer({ size: 16, usage: BufferUsage.Uniform });
+		const native = backend.resourceManager.getBuffer(buffer);
+		let extraBindGroups;
+		if (stage === "foreign group" || stage === "destroyed group") {
+			const owner = stage === "foreign group" ? foreign : backend;
+			const group = owner.resourceManager.registerBindingGroup({});
+			if (stage === "destroyed group") group.destroy();
+			extraBindGroups = [{ index: 1, group }];
+		}
+		const dispatch = () => kernel.dispatch({
+			resources: { params: buffer }, dispatch: { x: 1 }, extraBindGroups,
+		});
+		if (stage === "completion cleanup") {
+			await assert.rejects(dispatch().done, /binding cleanup failure/);
+		} else {
+			const expectedError = stage.endsWith("group") ? /owned|not live/i :
+				stage === "cleanup" ? /binding cleanup failure/ : (error) => error === failure;
+			assert.throws(dispatch, expectedError);
+		}
+		assert.equal(backend.bindingGroups.at(-1).destroyed, true,
+			`${stage}: a failed dispatch must release its transient binding group`);
+		assert.equal(runtime.getResourceStats().inflightReferenceCount, 0,
+			`${stage}: a failed dispatch must release all acquired references`);
+		assert.equal(backend.resourceManager.getBuffer(buffer), native,
+			`${stage}: failure must leave caller-owned resources usable`);
+		runtime.destroy();
+		assert.equal(native.destroyed, true,
+			`${stage}: destruction must not wait for a ticket that was never returned`);
+		assert.equal(runtime.getResourceStats().ownedResourceCount, 0);
+		foreign.resourceManager.reset();
+		backend.resourceManager.reset();
+	}
+}
+
 async function testRuntimeOwnedResourceDestroyIsDeferredUntilDispatchDone() {
-	const runtime = createRuntime();
+	const backend = new FakeWebGPUBackend();
+	let complete;
+	backend.queue.onSubmittedWorkDone = () => new Promise((resolve) => { complete = resolve; });
+	const facade = createWebGPUComputeFacade(backend);
+	const runtime = new ComputeRuntime(facade);
 	const kernel = await runtime.createKernel({
 		code: "@compute @workgroup_size(1) fn csMain() {}",
 		bindings: [{ key: "params", binding: 0, type: "buffer" }],
@@ -246,11 +462,114 @@ async function testRuntimeOwnedResourceDestroyIsDeferredUntilDispatchDone() {
 		resources: { params: paramsBuffer },
 		dispatch: { x: 1, y: 1, z: 1 },
 	});
+	const nativeBuffer = runtime._resourceManager.getBuffer(paramsBuffer);
 	paramsBuffer.destroy();
-	assert.equal(paramsBuffer._gpuResource.destroyed, false);
+	assert.equal(nativeBuffer.destroyed, false);
+	const bindingCount = backend.createBindingGroupCalls;
+	const encoderCount = backend.createCommandEncoderCalls;
+	assert.throws(() => kernel.dispatch({
+		resources: { params: paramsBuffer }, dispatch: { x: 1 },
+	}), /not live|destroyed/i);
+	assert.throws(() => facade.createBindingGroup({
+		entries: [{ binding: 0, resource: { buffer: paramsBuffer } }],
+	}), /not live|destroyed/i);
+	assert.throws(() => runtime.writeBuffer(paramsBuffer, new Uint8Array(4)), /not live|destroyed/i);
+	await assert.rejects(() => runtime.readBuffer({ buffer: paramsBuffer, size: 0 }),
+		/not live|destroyed/i);
+	assert.equal(backend.createBindingGroupCalls, bindingCount);
+	assert.equal(backend.createCommandEncoderCalls, encoderCount);
+	assert.equal(nativeBuffer.destroyed, false);
+	complete();
 	await ticket.done;
-	assert.equal(paramsBuffer._gpuResource.destroyed, true);
+	assert.equal(nativeBuffer.destroyed, true);
 	runtime.destroy();
+}
+
+async function testRuntimeDestroyInvalidatesInflightTextureAndSampler() {
+	const backend = new FakeWebGPUBackend();
+	let complete;
+	backend.queue.onSubmittedWorkDone = () => new Promise((resolve) => { complete = resolve; });
+	const facade = createWebGPUComputeFacade(backend);
+	const runtime = new ComputeRuntime(facade);
+	const kernel = await runtime.createKernel({
+		code: "@compute @workgroup_size(1) fn csMain() {}",
+		bindings: [
+			{ key: "image", binding: 0, type: "texture" },
+			{ key: "sampler", binding: 1, type: "sampler" },
+		],
+		workgroupSize: { x: 1 },
+	});
+	const texture = runtime.createTexture({
+		width: 1, height: 1, format: TextureFormat.RGBA8Unorm,
+		usage: TextureUsage.CopySrc | TextureUsage.CopyDst | TextureUsage.TextureBinding,
+	});
+	const sampler = runtime.createSampler({});
+	const nativeTexture = runtime._resourceManager.getTexture(texture).texture;
+	const ticket = kernel.dispatch({ resources: { image: texture, sampler }, dispatch: { x: 1 } });
+	runtime.destroy();
+	assert.equal(nativeTexture.destroyed, false);
+	assert.equal(backend.samplerDestroyCalls, 0);
+	for (const resource of [texture, sampler]) {
+		assert.throws(() => facade.createBindingGroup({ entries: [{ binding: 0, resource }] }),
+			/not live|destroyed/i);
+	}
+	assert.throws(() => facade.writeTexture(texture, new Uint8Array(4),
+		{ bytesPerRow: 4 }, { width: 1, height: 1 }), /not live|destroyed/i);
+	texture.destroy();
+	sampler.destroy();
+	complete();
+	await ticket.done;
+	assert.equal(nativeTexture.destroyed, true);
+	assert.equal(backend.samplerDestroyCalls, 1);
+}
+
+async function testReadbacksRequireTheRuntimeBackendOwner() {
+	const backendA = new FakeWebGPUBackend();
+	const backendB = new FakeWebGPUBackend();
+	const runtimeA = new ComputeRuntime(createWebGPUComputeFacade(backendA));
+	const runtimeB = new ComputeRuntime(createWebGPUComputeFacade(backendB));
+	const foreignBuffer = runtimeA.createBuffer({
+		size: 16, usage: BufferUsage.CopySrc | BufferUsage.CopyDst,
+	});
+	const foreignTexture = runtimeA.createTexture({
+		width: 1, height: 1, format: TextureFormat.RGBA8Unorm,
+		usage: TextureUsage.CopySrc | TextureUsage.CopyDst,
+	});
+	const initialBufferCount = backendB.buffers.length;
+	const initialEncoderCount = backendB.createCommandEncoderCalls;
+	await assert.rejects(() => runtimeB.readBuffer({ buffer: foreignBuffer }),
+		/owned|backend|WebGPU/i, "buffer readback must reject another backend's resource");
+	await assert.rejects(() => runtimeB.readBuffer({ buffer: foreignBuffer, size: 0 }),
+		/owned|backend|WebGPU/i, "empty reads still require valid resource ownership");
+	await assert.rejects(() => runtimeB.readTexture({
+		texture: foreignTexture, format: TextureFormat.RGBA8Unorm,
+	}), /owned|backend|WebGPU/i,
+	"texture readback must reject another backend's resource");
+	assert.equal(backendB.buffers.length, initialBufferCount,
+		"foreign readbacks cannot allocate staging buffers");
+	assert.equal(backendB.createCommandEncoderCalls, initialEncoderCount,
+		"foreign readbacks cannot record native copies");
+	assert.equal(backendB.submits, 0);
+
+	// Backend-created resources remain borrowable by a runtime on that same backend.
+	const borrowedBuffer = backendB.createBuffer({
+		size: 4, usage: BufferUsage.CopySrc | BufferUsage.CopyDst,
+	});
+	backendB.writeBuffer(borrowedBuffer, new Uint8Array([1, 2, 3, 4]));
+	const beforeRawRead = backendB.buffers.length;
+	await assert.rejects(() => runtimeB.readBuffer({
+		buffer: backendB.resourceManager.getBuffer(borrowedBuffer),
+	}),
+		/owned|backend|WebGPU/i, "raw native buffers cannot bypass facade ownership");
+	assert.equal(backendB.buffers.length, beforeRawRead);
+	const readback = await runtimeB.readBuffer({ buffer: borrowedBuffer });
+	assert.deepEqual(Array.from(readback.bytes), [1, 2, 3, 4]);
+	const nativeBorrowed = backendB.resourceManager.getBuffer(borrowedBuffer);
+	runtimeB.destroy();
+	assert.equal(nativeBorrowed.destroyed, false,
+		"runtime readback does not acquire ownership of a borrowed source buffer");
+	borrowedBuffer.destroy();
+	runtimeA.destroy();
 }
 
 async function testGetResourceStatsForDebugging() {
@@ -316,6 +635,12 @@ await testReadTextureNormalizesBGRA8Unorm();
 await testReadTextureDecodesRGBA16FloatWithPadding();
 await testKernelSchemaValidation();
 await testDispatchValidationRules();
+await testBufferRangesPreserveBindingsAndRetainTheirUnderlyingBuffer();
+await testBindingKindsIgnoreNativeLookingMetadata();
+await testSchemaBindingsRequireLiveResourcesFromTheRuntimeStore();
+await testFailedDispatchReleasesBindingsAndRetainedResources();
 await testRuntimeOwnedResourceDestroyIsDeferredUntilDispatchDone();
+await testRuntimeDestroyInvalidatesInflightTextureAndSampler();
+await testReadbacksRequireTheRuntimeBackendOwner();
 await testGetResourceStatsForDebugging();
 console.log("WebGPU compute runtime tests passed");

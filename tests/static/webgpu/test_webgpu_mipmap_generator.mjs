@@ -22,7 +22,7 @@ async function waitForCondition(predicate, message, count = 32) {
 
 async function testRegistryAutoGeneratesMipmapChainForMipmapMinFilter() {
 	const backend = new FakeWebGPUBackend();
-	const registry = new WebGPUTextureRegistry(backend, backend);
+	const registry = new WebGPUTextureRegistry(backend);
 	const texture = new Texture({
 		data: new Uint8ClampedArray(8 * 4 * 4).fill(255),
 		width: 8,
@@ -56,7 +56,7 @@ async function testRegistryAutoGeneratesMipmapChainForMipmapMinFilter() {
 
 function testRegistryKeepsExplicitMipmapsAuthoritative() {
 	const backend = new FakeWebGPUBackend();
-	const registry = new WebGPUTextureRegistry(backend, backend);
+	const registry = new WebGPUTextureRegistry(backend);
 	const texture = new Texture({
 		data: new Uint8ClampedArray(8 * 4 * 4).fill(255),
 		width: 8,
@@ -85,7 +85,7 @@ function testRegistryKeepsExplicitMipmapsAuthoritative() {
 
 function testRegistrySkipsUnsupportedMipmapFormat() {
 	const backend = new FakeWebGPUBackend();
-	const registry = new WebGPUTextureRegistry(backend, backend);
+	const registry = new WebGPUTextureRegistry(backend);
 	const texture = new Texture({
 		data: new Float32Array(4 * 4 * 4).fill(1),
 		width: 4,
