@@ -75,6 +75,11 @@ export class WebGLGeometryRegistry {
 	private _gl: WebGL2RenderingContext;
 	private _cache = new WeakMap<object, WebGLCachedGeometryEntry>();
 	private _owned = new Set<WebGLGeometryHandle>();
+	private _finalizationRegistry: FinalizationRegistry<WebGLGeometryHandle> | null =
+		typeof FinalizationRegistry === "function" ?
+			new FinalizationRegistry((handle) => {
+				if (this._owned.delete(handle)) this._destroyHandle(handle);
+			}) : null;
 	private _warnCallback: WebGLGeometryWarn | null = null;
 	private readonly _maxTextureSize: number;
 	private _uploadScheduling: "immediate" | "deferred";
@@ -124,6 +129,10 @@ export class WebGLGeometryRegistry {
 		if (cached && cached.geometryVersion === geometryVersion) {
 			return cached.handle;
 		}
+		if (cached) {
+			this._cache.delete(geometry.resourceKey);
+			this._finalizationRegistry?.unregister(geometry.resourceKey);
+		}
 		if (cached?.handle) {
 			this._owned.delete(cached.handle);
 			this._destroyHandle(cached.handle);
@@ -135,6 +144,9 @@ export class WebGLGeometryRegistry {
 		const uploaded = this._uploadPrimitive(submission);
 		if (uploaded.handle) {
 			this._owned.add(uploaded.handle);
+			this._finalizationRegistry?.register(
+				geometry.resourceKey, uploaded.handle, geometry.resourceKey,
+			);
 		}
 		if (uploaded.handle || uploaded.cacheFailure) {
 			this._cache.set(geometry.resourceKey, {
@@ -153,6 +165,8 @@ export class WebGLGeometryRegistry {
 			this._destroyHandle(handle);
 		}
 		this._owned.clear();
+		this._cache = new WeakMap();
+		this._finalizationRegistry = null;
 	}
 
 	/**
@@ -216,6 +230,9 @@ export class WebGLGeometryRegistry {
 			}
 			if (uploaded.handle) {
 				this._owned.add(uploaded.handle);
+				this._finalizationRegistry?.register(
+					pending.geometry.resourceKey, uploaded.handle, pending.geometry.resourceKey,
+				);
 			}
 			this._cache.set(pending.geometry.resourceKey, {
 				handle: uploaded.handle,

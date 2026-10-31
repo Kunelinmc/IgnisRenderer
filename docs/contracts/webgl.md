@@ -23,6 +23,14 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   resource owner, destroyed handles, and handles from an expired auxiliary
   scope before issuing native commands. Context teardown must explicitly
   release outstanding native allocations and invalidate their handles.
+- `WebGLTextureRegistry` must release its textures and cancel pending uploads
+  when the source `Texture.dispose()` is called. When `FinalizationRegistry`
+  is available, unreachable source textures and geometry resource keys must
+  also release their registry-owned native resources. Context teardown must
+  release all remaining resources without requiring finalization.
+- Failed or stale texture uploads must release unpublished allocations while
+  preserving previously cached or pending allocations that remain in use. A
+  later resolve must be able to retry the upload.
 - Auxiliary pipeline caching must share programs through private records while
   issuing separate scope-owned handles. Shader source and pipeline state must
   participate in cache identity without reading private fields from handles.
@@ -143,6 +151,8 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   and preserve retry semantics for transient allocation failures. Permanent
   validation failures must cache a failure result exactly like immediate
   scheduling.
+- Replacing a cached geometry version must invalidate its old cache entry before
+  its native resources are destroyed or the replacement upload is queued.
 - Prepared draw geometry must be consumed through its opaque resource key,
   captured data, topology, and version. WebGL must not inspect primitive
   authoring state through the resource key.

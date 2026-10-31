@@ -106,6 +106,15 @@ interface ResolvedTextureCacheEntry {
 	format: TextureFormat;
 }
 
+interface TextureOwnedResources {
+	textures: Set<WebGLTexture>;
+	unsubscribe: () => void;
+}
+
+interface TextureDisposeObserver {
+	registry: WebGLTextureRegistry | null;
+}
+
 export const DEFAULT_DEFERRED_UPLOADS_PER_FRAME = 4;
 export const DEFAULT_DEFERRED_UPLOAD_BYTES_PER_FRAME = 32 * 1024 * 1024;
 
@@ -123,6 +132,13 @@ export class WebGLTextureRegistry {
 	>();
 	private _pendingUploadQueue: PendingTextureUpload[] = [];
 	private _owned = new Set<WebGLTexture>();
+	private _textureResources = new WeakMap<Texture, TextureOwnedResources>();
+	private _resourceRecords = new Set<TextureOwnedResources>();
+	private _disposeObserver: TextureDisposeObserver = { registry: this };
+	private _finalizationRegistry: FinalizationRegistry<TextureOwnedResources> | null =
+		typeof FinalizationRegistry === "function" ?
+			new FinalizationRegistry((resources) => this._releaseOwnedResources(resources))
+		: null;
 	private _whiteTexture: WebGLTexture | null = null;
 	private _whiteTextureResult: ResolvedWebGLTexture | null = null;
 	private _neutralNormalTexture: WebGLTexture | null = null;
@@ -288,13 +304,20 @@ export class WebGLTextureRegistry {
 	}
 
 	public destroy(): void {
+		this._disposeObserver.registry = null;
+		for (const resources of this._resourceRecords) {
+			this._releaseOwnedResources(resources);
+		}
 		for (const texture of this._owned) {
 			this._gl.deleteTexture(texture);
 		}
 		this._owned.clear();
 		this._pendingUploadQueue = [];
 		this._pendingUploadsByTexture = new WeakMap();
+		this._cache = new WeakMap();
 		this._resolvedByLabel = new WeakMap();
+		this._textureResources = new WeakMap();
+		this._finalizationRegistry = null;
 		this._whiteTexture = null;
 		this._whiteTextureResult = null;
 		this._neutralNormalTexture = null;
@@ -386,6 +409,7 @@ export class WebGLTextureRegistry {
 				return this.getWhiteTexture();
 			}
 			this._owned.add(glTexture);
+			this._trackTexture(texture, glTexture);
 		}
 
 		if (this._shouldDeferUpload(label)) {
@@ -402,14 +426,17 @@ export class WebGLTextureRegistry {
 			});
 		}
 
-		const uploadOk = this._uploadTexture(
-			glTexture,
-			texture,
-			label,
-			uploadFormat
-		);
+		let uploadOk: boolean;
+		try {
+			uploadOk = this._uploadTexture(glTexture, texture, label, uploadFormat);
+		} catch (error) {
+			this._gl.bindTexture(this._gl.TEXTURE_2D, null);
+			this._releaseUnpublishedTexture(texture, glTexture);
+			throw error;
+		}
 		if (!uploadOk) {
 			this._resolvedByLabel.get(texture)?.delete(label);
+			this._releaseUnpublishedTexture(texture, glTexture);
 			return this.getWhiteTexture();
 		}
 		const entries = cachedEntries ?? new Map<string, TextureEntry>();
@@ -496,25 +523,86 @@ export class WebGLTextureRegistry {
 				pending.height !== (pending.texture.height | 0)
 			) {
 				entries.delete(pending.cacheKey);
+				this._releaseUnpublishedTexture(pending.texture, pending.targetTexture);
 				continue;
 			}
 
-			const uploadOk = this._uploadTexture(
-				pending.targetTexture,
-				pending.texture,
-				pending.label,
-				pending.uploadFormat
-			);
 			entries.delete(pending.cacheKey);
+			let uploadOk: boolean;
+			try {
+				uploadOk = this._uploadTexture(
+					pending.targetTexture, pending.texture, pending.label, pending.uploadFormat,
+				);
+			} catch (error) {
+				this._gl.bindTexture(this._gl.TEXTURE_2D, null);
+				this._releaseUnpublishedTexture(pending.texture, pending.targetTexture);
+				throw error;
+			}
 			if (uploadOk) {
 				this._commitTextureEntry(pending);
 				uploads++;
 				uploadedBytes += pending.estimatedBytes;
+			} else {
+				this._releaseUnpublishedTexture(pending.texture, pending.targetTexture);
 			}
 		}
 
 		if (this._pendingUploadQueue.length > 0) {
 			this._notifyUploadPending();
+		}
+	}
+
+	private _trackTexture(texture: Texture, native: WebGLTexture): void {
+		let resources = this._textureResources.get(texture);
+		if (!resources) {
+			const observer = this._disposeObserver;
+			resources = {
+				textures: new Set(),
+				unsubscribe: texture.onDispose((source) =>
+					observer.registry?._releaseTexture(source)),
+			};
+			this._textureResources.set(texture, resources);
+			this._resourceRecords.add(resources);
+			this._finalizationRegistry?.register(texture, resources, resources);
+		}
+		resources.textures.add(native);
+	}
+
+	private _releaseTexture(texture: Texture): void {
+		this._pendingUploadQueue = this._pendingUploadQueue.filter(
+			(pending) => pending.texture !== texture,
+		);
+		this._pendingUploadsByTexture.delete(texture);
+		this._cache.delete(texture);
+		this._resolvedByLabel.delete(texture);
+		const resources = this._textureResources.get(texture);
+		this._textureResources.delete(texture);
+		if (resources) this._releaseOwnedResources(resources);
+	}
+
+	private _releaseOwnedResources(resources: TextureOwnedResources): void {
+		if (!this._resourceRecords.delete(resources)) return;
+		this._finalizationRegistry?.unregister(resources);
+		resources.unsubscribe();
+		for (const native of resources.textures) {
+			if (this._owned.delete(native)) this._gl.deleteTexture(native);
+		}
+		resources.textures.clear();
+	}
+
+	private _releaseUnpublishedTexture(texture: Texture, native: WebGLTexture): void {
+		for (const entry of this._cache.get(texture)?.values() ?? []) {
+			if (entry.texture === native) return;
+		}
+		for (const pending of this._pendingUploadsByTexture.get(texture)?.values() ?? []) {
+			if (pending.targetTexture === native) return;
+		}
+		const resources = this._textureResources.get(texture);
+		if (!resources?.textures.delete(native)) return;
+		if (this._owned.delete(native)) this._gl.deleteTexture(native);
+		if (resources.textures.size === 0) {
+			this._textureResources.delete(texture);
+			this._releaseOwnedResources(resources);
 		}
 	}
 

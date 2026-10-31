@@ -423,6 +423,58 @@ function testGeometryRegistryDeferredDiscardsStaleVersions() {
 	assert.equal(handle.vertexCount, 3);
 }
 
+function testGeometryVersionChangeInvalidatesDestroyedHandle() {
+	const gl = createDeferredCaptureGL();
+	const deleted = [];
+	gl.deleteBuffer = (buffer) => deleted.push(buffer);
+	const registry = new WebGLGeometryRegistry(gl, () => {}, {
+		uploadScheduling: "deferred",
+	});
+	const primitive = makeTrianglePrimitive("p-retired");
+	primitive.geometryVersion = 1;
+	const first = asPacket({ id: "retired-first", primitive });
+	registry.getGeometry(first);
+	registry.beginFrame();
+	const original = registry.getGeometry(first);
+	assert.ok(original);
+	primitive.geometryVersion = 2;
+	const second = asPacket({ id: "retired-second", primitive });
+	assert.equal(registry.getGeometry(second), null);
+	assert.equal(registry.getGeometry(second), null);
+	assert.equal(deleted.filter((buffer) => buffer === original.vertexBuffer).length, 1);
+	assert.equal(registry.getGeometry(first), null);
+	registry.destroy();
+}
+
+function testGeometryFinalizationReleasesBuffersOnce() {
+	const original = globalThis.FinalizationRegistry;
+	let finalizer;
+	globalThis.FinalizationRegistry = class {
+		constructor(callback) { this.callback = callback; finalizer = this; }
+		register(_key, held) { this.held = held; }
+		unregister() { return true; }
+	};
+	try {
+		const gl = createDeferredCaptureGL();
+		const deleted = [];
+		gl.deleteBuffer = (buffer) => deleted.push(buffer);
+		const registry = new WebGLGeometryRegistry(gl);
+		const packet = asPacket({
+			id: "finalized",
+			primitive: makeTrianglePrimitive("p-finalized"),
+		});
+		const handle = registry.getGeometry(packet);
+		assert.ok(handle);
+		finalizer.callback(finalizer.held);
+		assert.ok(deleted.includes(handle.vertexBuffer));
+		assert.ok(deleted.includes(handle.indexBuffer));
+		registry.destroy();
+		assert.equal(deleted.filter((buffer) => buffer === handle.vertexBuffer).length, 1);
+	} finally {
+		globalThis.FinalizationRegistry = original;
+	}
+}
+
 function testGeometryRegistryDeferredCachesPermanentFailures() {
 	const warnings = [];
 	const registry = new WebGLGeometryRegistry(createDeferredCaptureGL(), (k, m) =>
@@ -929,6 +981,8 @@ await runWebGLBackendFile([
 	testGeometryRegistryDeferredUploadsRespectByteBudgets,
 	testGeometryRegistryNotifiesEachSharedPrimitivePacketOnce,
 	testGeometryRegistryDeferredDiscardsStaleVersions,
+	testGeometryVersionChangeInvalidatesDestroyedHandle,
+	testGeometryFinalizationReleasesBuffersOnce,
 	testGeometryRegistryDeferredCachesPermanentFailures,
 	testGeometryRegistryFusedValidationPreservesWarnKeys,
 	testDrawWebGLPacketBindsPBRTexturesAndUVSets,

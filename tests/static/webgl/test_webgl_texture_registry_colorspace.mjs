@@ -9,6 +9,8 @@ function createTextureRegistryTestGL(options = {}) {
 	let textureId = 0;
 	const textureParameterCalls = [];
 	const texImage2DCalls = [];
+	const deletedTextures = [];
+	const createdTextures = [];
 	let generateMipmapCallCount = 0;
 	const gl = {
 		MAX_TEXTURE_SIZE: 0x0d33,
@@ -60,9 +62,11 @@ function createTextureRegistryTestGL(options = {}) {
 			return null;
 		},
 		createTexture() {
-			return { id: `tex-${++textureId}` };
+			const texture = { id: `tex-${++textureId}` };
+			createdTextures.push(texture);
+			return texture;
 		},
-		deleteTexture() {},
+		deleteTexture(texture) { deletedTextures.push(texture); },
 		bindTexture() {},
 		pixelStorei() {},
 		texParameteri(target, pname, value) {
@@ -109,6 +113,8 @@ function createTextureRegistryTestGL(options = {}) {
 		},
 		textureParameterCalls,
 		texImage2DCalls,
+		createdTextures,
+		deletedTextures,
 		get createdTextureCount() {
 			return textureId;
 		},
@@ -682,7 +688,158 @@ function testDeferredUploadDiscardsStaleSamplingMetadata() {
 	registry.destroy();
 }
 
+function testDisposeReleasesVariantsAndCancelsPendingUpload() {
+	const gl = createTextureRegistryTestGL();
+	const registry = new WebGLTextureRegistry(gl, () => {}, { uploadScheduling: "deferred" });
+	const texture = createSolidTexture("sRGB");
+	const data = registry.getBaseColorTexture(texture, false).texture;
+	const fallback = registry.getBaseColorTexture(texture).texture;
+	const pending = gl.createdTextures.at(-2);
+	assert.equal(registry.pendingUploadCount, 1);
+	texture.dispose();
+	assert.deepEqual(new Set(gl.deletedTextures), new Set([data, pending]));
+	assert.ok(!gl.deletedTextures.includes(fallback));
+	assert.equal(registry.pendingUploadCount, 0);
+	registry.beginFrame();
+	const replacement = registry.getBaseColorTexture(texture, false).texture;
+	assert.notStrictEqual(replacement, data);
+	texture.dispose();
+	registry.destroy();
+	assert.equal(gl.deletedTextures.filter((item) => item === data).length, 1);
+	assert.equal(gl.deletedTextures.filter((item) => item === pending).length, 1);
+	assert.equal(gl.deletedTextures.filter((item) => item === replacement).length, 1);
+}
+
+function testFailedAndStaleUploadsReleaseUnpublishedTextures() {
+	const gl = createTextureRegistryTestGL();
+	const registry = new WebGLTextureRegistry(gl, () => {}, { uploadScheduling: "deferred" });
+	const empty = new Texture({ width: 1, height: 1, colorSpace: "Linear" });
+	registry.getBaseColorTexture(empty, false);
+	const failed = gl.createdTextures[0];
+	assert.ok(gl.deletedTextures.includes(failed));
+	registry.getBaseColorTexture(empty, false);
+	assert.ok(gl.deletedTextures.includes(gl.createdTextures.at(-1)));
+
+	const texture = createSolidTexture("sRGB");
+	registry.getBaseColorTexture(texture);
+	const stale = gl.createdTextures.at(-1);
+	texture.markNeedsUpdate();
+	registry.beginFrame();
+	assert.ok(gl.deletedTextures.includes(stale));
+	registry.getBaseColorTexture(texture);
+	registry.beginFrame();
+	assert.ok(!gl.deletedTextures.includes(registry.getBaseColorTexture(texture).texture));
+	registry.destroy();
+}
+
+function testStalePendingUpdatePreservesPublishedTexture() {
+	const gl = createTextureRegistryTestGL();
+	const registry = new WebGLTextureRegistry(gl, () => {}, { uploadScheduling: "deferred" });
+	const texture = createSolidTexture("sRGB");
+	registry.getBaseColorTexture(texture);
+	registry.beginFrame();
+	const published = registry.getBaseColorTexture(texture).texture;
+	texture.markNeedsUpdate();
+	assert.strictEqual(registry.getBaseColorTexture(texture).texture, published);
+	texture.markNeedsUpdate();
+	registry.beginFrame();
+	assert.ok(!gl.deletedTextures.includes(published));
+	registry.getBaseColorTexture(texture);
+	registry.beginFrame();
+	assert.strictEqual(registry.getBaseColorTexture(texture).texture, published);
+	registry.destroy();
+}
+
+function testUploadExceptionsReleaseUnpublishedTextureAndPermitRetry() {
+	for (const deferred of [false, true]) {
+		const gl = createTextureRegistryTestGL();
+		const upload = gl.texImage2D;
+		let fail = true;
+		gl.texImage2D = (...args) => {
+			if (fail && args[8]?.[0] === 128) throw new Error("upload failed");
+			upload(...args);
+		};
+		const registry = new WebGLTextureRegistry(gl, () => {}, {
+			uploadScheduling: deferred ? "deferred" : "immediate",
+		});
+		const texture = createSolidTexture("sRGB");
+		if (deferred) {
+			registry.getBaseColorTexture(texture);
+			assert.throws(() => registry.beginFrame(), /upload failed/);
+		} else {
+			assert.throws(() => registry.getBaseColorTexture(texture), /upload failed/);
+		}
+		const failed = gl.createdTextures[0];
+		assert.ok(gl.deletedTextures.includes(failed));
+		fail = false;
+		registry.getBaseColorTexture(texture);
+		if (deferred) registry.beginFrame();
+		const recovered = registry.getBaseColorTexture(texture).texture;
+		assert.notStrictEqual(recovered, failed);
+		assert.ok(!gl.deletedTextures.includes(recovered));
+		registry.destroy();
+	}
+}
+
+function testImmediateFailureDoesNotDeleteSharedPendingTexture() {
+	const gl = createTextureRegistryTestGL();
+	const registry = new WebGLTextureRegistry(gl, () => {}, { uploadScheduling: "deferred" });
+	const texture = new Texture({ width: 1, height: 1, colorSpace: "Linear" });
+	registry.getBaseColorTexture(texture);
+	const pending = gl.createdTextures[0];
+	registry.getBaseColorTexture(texture, false);
+	assert.ok(!gl.deletedTextures.includes(pending));
+	registry.beginFrame();
+	assert.equal(gl.deletedTextures.filter((item) => item === pending).length, 1);
+	assert.equal(registry.pendingUploadCount, 0);
+	registry.destroy();
+}
+
+function testTextureFinalizationReleasesOnlyItsOwnedResources() {
+	const original = globalThis.FinalizationRegistry;
+	let finalizer;
+	globalThis.FinalizationRegistry = class {
+		constructor(callback) { this.callback = callback; finalizer = this; }
+		register(_source, held) { this.held = held; }
+		unregister() { return true; }
+	};
+	try {
+		const gl = createTextureRegistryTestGL();
+		const registry = new WebGLTextureRegistry(gl);
+		const texture = createSolidTexture("sRGB");
+		const native = registry.getBaseColorTexture(texture).texture;
+		finalizer.callback(finalizer.held);
+		assert.deepEqual(gl.deletedTextures, [native]);
+		registry.destroy();
+		assert.deepEqual(gl.deletedTextures, [native]);
+	} finally {
+		globalThis.FinalizationRegistry = original;
+	}
+}
+
+function testTextureDisposeNotifiesEveryRegistry() {
+	const firstGL = createTextureRegistryTestGL();
+	const secondGL = createTextureRegistryTestGL();
+	const first = new WebGLTextureRegistry(firstGL);
+	const second = new WebGLTextureRegistry(secondGL);
+	const texture = createSolidTexture("sRGB");
+	const firstNative = first.getBaseColorTexture(texture).texture;
+	const secondNative = second.getBaseColorTexture(texture).texture;
+	texture.dispose();
+	assert.deepEqual(firstGL.deletedTextures, [firstNative]);
+	assert.deepEqual(secondGL.deletedTextures, [secondNative]);
+	first.destroy();
+	second.destroy();
+}
+
 function run() {
+	testDisposeReleasesVariantsAndCancelsPendingUpload();
+	testFailedAndStaleUploadsReleaseUnpublishedTextures();
+	testStalePendingUpdatePreservesPublishedTexture();
+	testUploadExceptionsReleaseUnpublishedTextureAndPermitRetry();
+	testImmediateFailureDoesNotDeleteSharedPendingTexture();
+	testTextureFinalizationReleasesOnlyItsOwnedResources();
+	testTextureDisposeNotifiesEveryRegistry();
 	testOneSourceUsesSeparateColorAndDataFormats();
 	testUnavailableSrgbFormatRejectsInsteadOfLosingDecode();
 	testResolvedTextureCacheObservesFormatChangesWithoutVersionChange();
