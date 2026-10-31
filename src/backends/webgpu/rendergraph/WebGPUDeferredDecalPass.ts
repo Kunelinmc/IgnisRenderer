@@ -183,13 +183,13 @@ export class WebGPUDeferredDecalPass {
 	}
 
 	public destroyBindings(): void {
-		this._destroyBindingGroup(this._snapshotReadBinding);
+		this._snapshotReadBinding?.destroy();
 		this._snapshotReadBinding = null;
-		this._destroyBindingGroup(this._outputBinding);
+		this._outputBinding?.destroy();
 		this._outputBinding = null;
 		this._outputBindingSources = [];
 		for (const entry of this._materialBindingSlots) {
-			this._destroyBindingGroup(entry.group);
+			entry.group?.destroy();
 		}
 		this._materialBindingSlots = [];
 		for (const buffer of this._uniformBuffers) {
@@ -198,7 +198,7 @@ export class WebGPUDeferredDecalPass {
 		this._uniformBuffers = [];
 		this._uniformBufferCursor = 0;
 		for (const buffers of this._batchBufferSets) {
-			this._destroyBindingGroup(buffers.binding);
+			buffers.binding?.destroy();
 			buffers.params.destroy();
 			buffers.decals.destroy();
 			buffers.tileHeaders.destroy();
@@ -728,7 +728,7 @@ export class WebGPUDeferredDecalPass {
 			return current;
 		}
 		current.destroy();
-		this._destroyBindingGroup(buffers.binding);
+		buffers.binding?.destroy();
 		buffers.binding = null;
 		buffers.bindingSources = [];
 		return this._createBuffer(size, usage, label);
@@ -752,7 +752,7 @@ export class WebGPUDeferredDecalPass {
 		) {
 			return buffers.binding;
 		}
-		this._destroyBindingGroup(buffers.binding);
+		buffers.binding?.destroy();
 		buffers.binding = this._host.createBindingGroup({
 			layout: this._resources.getDecalBatchBindGroupLayout(),
 			entries: sources.map((resource, binding) => ({
@@ -811,7 +811,7 @@ export class WebGPUDeferredDecalPass {
 		if (this._snapshotKey === snapshotKey && this._snapshotTextures.length === targets.length) {
 			return;
 		}
-		this._destroyBindingGroup(this._snapshotReadBinding);
+		this._snapshotReadBinding?.destroy();
 		this._snapshotReadBinding = null;
 		for (const texture of this._snapshotTextures) {
 			texture.destroy();
@@ -852,7 +852,7 @@ export class WebGPUDeferredDecalPass {
 		) {
 			return this._outputBinding;
 		}
-		this._destroyBindingGroup(this._outputBinding);
+		this._outputBinding?.destroy();
 		this._outputBinding = this._host.createBindingGroup({
 			layout: this._resources.getDecalOutputBindGroupLayout(),
 			entries: sources.map((resource, index) => ({
@@ -891,7 +891,7 @@ export class WebGPUDeferredDecalPass {
 		}
 
 		if (cached) {
-			this._destroyBindingGroup(cached.group);
+			cached.group?.destroy();
 		}
 		const entries: Array<{ binding: number; resource: any }> = [
 			{ binding: 0, resource: uniformBuffer },
@@ -939,13 +939,6 @@ export class WebGPUDeferredDecalPass {
 					depthOrArrayLayers: 1,
 				},
 			);
-		}
-	}
-
-	private _destroyBindingGroup(group: IBindingGroup | null): void {
-		const destroyFn = (group as { destroy?: () => void } | null)?.destroy;
-		if (typeof destroyFn === "function") {
-			destroyFn.call(group);
 		}
 	}
 

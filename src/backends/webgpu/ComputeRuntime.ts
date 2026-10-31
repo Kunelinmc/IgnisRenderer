@@ -42,13 +42,13 @@ import {
 } from "../types";
 import {
 	resolveWebGPUComputeFacade,
+	getWebGPUComputeResourceManager,
 	type IWebGPUComputeFacade,
 	type WebGPUComputeFacadeSource,
 } from "./ComputeFacade";
 import { float16BitsToFloat32 } from "../../foundation/Float16";
 import { alignTo } from "./texture";
-import { getWebGPUResourceHandle } from "./WebGPUResourceHandle";
-import { getWebGPUTexture, tryGetWebGPUBuffer, tryGetWebGPUTexture } from "./WebGPUResourceAccess";
+import type { WebGPUResourceManager } from "./WebGPUResourceManager";
 
 export type {
 	BufferReadbackResult,
@@ -123,7 +123,7 @@ interface OwnedResourceRecord {
 	label: string;
 	kind: OwnedResourceKind;
 	target: object;
-	proxy: object;
+	dispose: () => void;
 	inflightRefs: number;
 	destroyRequested: boolean;
 	destroyed: boolean;
@@ -147,6 +147,7 @@ interface KernelResourceSet {
 
 export class ComputeRuntime implements IComputeRuntime {
 	private _computeFacade: IWebGPUComputeFacade;
+	private readonly _resourceManager: WebGPUResourceManager;
 	private _destroyed = false;
 	private _ownedResources = new Set<OwnedResourceRecord>();
 	private _ownedResourceByObject = new WeakMap<object, OwnedResourceRecord>();
@@ -163,6 +164,7 @@ export class ComputeRuntime implements IComputeRuntime {
 	constructor(source: WebGPUComputeFacadeSource) {
 		this._computeFacade = resolveWebGPUComputeFacade(source);
 		resolveWebGPUComputeContext(this._computeFacade);
+		this._resourceManager = getWebGPUComputeResourceManager(this._computeFacade);
 	}
 
 	public createBuffer(desc: BufferDesc): IRenderBuffer {
@@ -272,7 +274,7 @@ export class ComputeRuntime implements IComputeRuntime {
 			};
 			pipeline = await this._computeFacade.createComputePipeline(pipelineDesc);
 		} catch (error) {
-			this._destroySafely(module, `${label}Module`);
+			this._destroyResource(module, `${label}Module`);
 			throw error;
 		}
 
@@ -305,6 +307,8 @@ export class ComputeRuntime implements IComputeRuntime {
 
 	public async readBuffer(options: ReadBufferOptions): Promise<BufferReadbackResult> {
 		this._assertAlive("read buffers");
+		const sourceBuffer = getWebGPUComputeResourceManager(this._computeFacade)
+			.getBuffer(options.buffer);
 		const offset = assertNonNegativeInteger(
 			options.offset ?? 0,
 			"readBuffer.offset"
@@ -314,7 +318,6 @@ export class ComputeRuntime implements IComputeRuntime {
 		if (size <= 0) {
 			return createBufferReadbackResult(new Uint8Array(0));
 		}
-		const sourceBuffer = resolveGPUBufferHandle(options.buffer);
 		const context = resolveWebGPUComputeContext(this._computeFacade);
 		const readbackBuffer = context.device.createBuffer({
 			label: "ComputeRuntimeReadBuffer",
@@ -352,6 +355,8 @@ export class ComputeRuntime implements IComputeRuntime {
 		options: ReadTextureOptions
 	): Promise<TextureReadbackResult> {
 		this._assertAlive("read textures");
+		const sourceTexture = getWebGPUComputeResourceManager(this._computeFacade)
+			.getTexture(options.texture).texture;
 		const textureObject = options.texture as unknown as object;
 		const metadata = this._textureMetadata.get(textureObject) ?? null;
 		const width = assertPositiveInteger(
@@ -375,7 +380,6 @@ export class ComputeRuntime implements IComputeRuntime {
 			options.mipLevel ?? 0,
 			"readTexture.mipLevel"
 		);
-		const sourceTexture = getWebGPUTexture(options.texture).texture;
 		const context = resolveWebGPUComputeContext(this._computeFacade);
 		const readbackBuffer = context.device.createBuffer({
 			label: "ComputeRuntimeReadTextureBuffer",
@@ -489,6 +493,7 @@ export class ComputeRuntime implements IComputeRuntime {
 		const groupZeroEntries = resolveGroupZeroEntries(
 			kernel.bindings,
 			options.resources,
+			getWebGPUComputeResourceManager(this._computeFacade),
 			options.overrideEntries
 		);
 		const extraBindGroups = normalizeExtraBindGroups(options.extraBindGroups);
@@ -500,37 +505,45 @@ export class ComputeRuntime implements IComputeRuntime {
 		});
 
 		const retained = new Set<OwnedResourceRecord>();
-		this._retainOwnedResourceRecord(kernel.resources.moduleRecord, retained);
-		this._retainOwnedResourceRecord(kernel.resources.pipelineRecord, retained);
-		for (const entry of groupZeroEntries) {
-			this._retainOwnedResource(entry.resource, retained);
-		}
-
-		const encoder = this._computeFacade.createCommandEncoder();
-		recordKernelDispatch(
-			encoder,
-			options.label ?? kernel.label,
-			kernel.pipeline,
-			bindGroup,
-			extraBindGroups,
-			dimensions
-		);
-		const commandBuffer = encoder.finish();
 		let ticketDone: Promise<void>;
 		try {
+			this._retainOwnedResourceRecord(kernel.resources.moduleRecord, retained);
+			this._retainOwnedResourceRecord(kernel.resources.pipelineRecord, retained);
+			for (const entry of groupZeroEntries) {
+				const resource = entry.resource;
+				// A range borrows the same owned buffer lifetime as a direct buffer binding.
+				this._retainOwnedResource("buffer" in resource ? resource.buffer : resource, retained);
+			}
+
+			const encoder = this._computeFacade.createCommandEncoder();
+			recordKernelDispatch(
+				encoder,
+				options.label ?? kernel.label,
+				kernel.pipeline,
+				bindGroup,
+				extraBindGroups,
+				dimensions
+			);
+			const commandBuffer = encoder.finish();
 			this._submitCommands([commandBuffer]);
 			ticketDone = resolveWebGPUComputeContext(
 				this._computeFacade,
 			).queue.onSubmittedWorkDone();
 		} catch (error) {
-			this._destroySafely(bindGroup, `${kernel.label} bind group`);
-			this._releaseRetainedOwnedResources(retained);
+			try {
+				this._destroyResource(bindGroup, `${kernel.label} bind group`);
+			} finally {
+				this._releaseRetainedOwnedResources(retained);
+			}
 			throw error;
 		}
 
 		const done = ticketDone.finally(() => {
-			this._destroySafely(bindGroup, `${kernel.label} bind group`);
-			this._releaseRetainedOwnedResources(retained);
+			try {
+				this._destroyResource(bindGroup, `${kernel.label} bind group`);
+			} finally {
+				this._releaseRetainedOwnedResources(retained);
+			}
 		});
 		return {
 			done,
@@ -563,50 +576,11 @@ export class ComputeRuntime implements IComputeRuntime {
 		kind: OwnedResourceKind
 	): TResource {
 		const record = this._registerOwnedResource(resource, label, kind);
-		const runtime = this;
-		const proxy = new Proxy(resource, {
-			get(target, prop, receiver) {
-				if (prop === "destroy") {
-					return () => {
-						runtime._requestOwnedResourceDestroy(record);
-					};
-				}
-				const value = Reflect.get(target, prop, receiver);
-				return typeof value === "function" ? value.bind(target) : value;
-			},
-			set(target, prop, value, receiver) {
-				return Reflect.set(target, prop, value, receiver);
-			},
-			has(target, prop) {
-				if (prop === "destroy") {
-					return true;
-				}
-				return Reflect.has(target, prop);
-			},
-			ownKeys(target) {
-				const keys = Reflect.ownKeys(target);
-				if (!keys.includes("destroy")) {
-					keys.push("destroy");
-				}
-				return keys;
-			},
-			getOwnPropertyDescriptor(target, prop) {
-				if (prop === "destroy") {
-					return {
-						configurable: true,
-						enumerable: true,
-						value: () => {
-							runtime._requestOwnedResourceDestroy(record);
-						},
-						writable: false,
-					};
-				}
-				return Reflect.getOwnPropertyDescriptor(target, prop);
-			},
-		});
-		record.proxy = proxy;
-		this._ownedResourceByObject.set(proxy, record);
-		return proxy;
+		// Preserve the authentic backend facade while deferring physical disposal.
+		(resource as { destroy(): void }).destroy = () => {
+			this._requestOwnedResourceDestroy(record);
+		};
+		return resource;
 	}
 
 	private _registerOwnedResource(
@@ -625,7 +599,8 @@ export class ComputeRuntime implements IComputeRuntime {
 			label,
 			kind,
 			target: resource,
-			proxy: resource,
+			dispose: typeof (resource as { destroy?: unknown }).destroy === "function" ?
+				(resource as { destroy(): void }).destroy.bind(resource) : () => {},
 			inflightRefs: 0,
 			destroyRequested: false,
 			destroyed: false,
@@ -679,6 +654,7 @@ export class ComputeRuntime implements IComputeRuntime {
 			return;
 		}
 		record.destroyRequested = true;
+		this._resourceManager.invalidate(record.target);
 		if (record.inflightRefs > 0) {
 			return;
 		}
@@ -691,21 +667,15 @@ export class ComputeRuntime implements IComputeRuntime {
 		}
 		record.destroyed = true;
 		this._ownedResources.delete(record);
-		this._ownedResourceByObject.delete(record.proxy);
 		this._ownedResourceByObject.delete(record.target);
-		this._destroySafely(record.target, record.label);
+		this._destroyResource({ destroy: record.dispose }, record.label);
 	}
 
-	private _destroySafely(resource: unknown, label: string): void {
-		const destroyFn = (resource as { destroy?: () => void } | null)?.destroy;
-		if (typeof destroyFn !== "function") {
-			return;
-		}
+	private _destroyResource(resource: { destroy(): void }, label: string): void {
 		try {
-			destroyFn.call(resource);
+			resource.destroy();
 		} catch (error) {
-			const detail =
-				error instanceof Error ? error.message : String(error);
+			const detail = error instanceof Error ? error.message : String(error);
 			throw new Error(`Failed to destroy ${label}: ${detail}`);
 		}
 	}
@@ -887,6 +857,7 @@ function resolveDispatchDimensions(
 function resolveGroupZeroEntries(
 	schema: ReadonlyArray<NormalizedComputeBindingSchemaEntry>,
 	resources: Record<string, BindingResource>,
+	resourceManager: WebGPUResourceManager,
 	overrideEntries?: ComputeDispatchGroupOverride[]
 ): BindingEntry[] {
 	const expectedKeys = new Set(schema.map((entry) => entry.key));
@@ -918,7 +889,8 @@ function resolveGroupZeroEntries(
 		validateBindingResourceType(
 			schemaEntry.key,
 			schemaEntry.type,
-			override.resource
+			override.resource,
+			resourceManager,
 		);
 		overrideByBinding.set(binding, override.resource);
 	}
@@ -935,7 +907,7 @@ function resolveGroupZeroEntries(
 				`Compute dispatch is missing required resource "${entry.key}".`
 			);
 		}
-		validateBindingResourceType(entry.key, entry.type, resource);
+		validateBindingResourceType(entry.key, entry.type, resource, resourceManager);
 		entries.push({
 			binding: entry.binding,
 			resource,
@@ -1239,153 +1211,21 @@ function bytesToFloat32Array(bytes: Uint8Array): Float32Array {
 	return new Float32Array(sliced);
 }
 
-function resolveTextureBytesPerPixel(format: TextureFormat): number {
-	return getTextureFormatInfo(format).bytesPerBlock;
-}
-
-function resolveGPUBufferHandle(resource: unknown): GPUBuffer {
-	const fromWrapped = tryGetWebGPUBuffer(resource);
-	if (fromWrapped) {
-		return fromWrapped;
-	}
-	if (isLikelyGPUBufferHandle(resource)) {
-		return resource as GPUBuffer;
-	}
-	throw new Error("Expected a GPU buffer-backed resource.");
-}
-
 function validateBindingResourceType(
 	key: string,
 	expectedType: ComputeBindingType,
-	resource: BindingResource
+	resource: BindingResource,
+	resourceManager: WebGPUResourceManager,
 ): void {
-	const actualType = classifyBindingResource(resource);
-	if (actualType === expectedType) {
-		return;
+	const actualType = resource && typeof resource === "object" ?
+		("buffer" in resource ? "buffer" : resource.kind ?? "unknown") : "unknown";
+	if (actualType !== expectedType) {
+		throw new Error(
+			`Compute resource "${key}" expects "${expectedType}" but received "${actualType}".`
+		);
 	}
-	throw new Error(
-		`Compute resource "${key}" expects "${expectedType}" but received "${actualType}".`
-	);
-}
-
-function classifyBindingResource(resource: unknown): ComputeBindingType | "unknown" {
-	if (isTextureBindingResource(resource)) {
-		return "texture";
-	}
-	if (isBufferBindingResource(resource)) {
-		return "buffer";
-	}
-	if (isSamplerBindingResource(resource)) {
-		return "sampler";
-	}
-	return "unknown";
-}
-
-function isBufferBindingResource(resource: unknown): boolean {
-	if (!resource || typeof resource !== "object") {
-		return false;
-	}
-	if (tryGetWebGPUBuffer(resource)) {
-		return true;
-	}
-	const bufferBinding = resource as { buffer?: unknown };
-	if (bufferBinding.buffer && isLikelyGPUBufferHandle(bufferBinding.buffer)) {
-		return true;
-	}
-	const tag = getObjectTag(resource);
-	if (tag === "[object GPUBuffer]") {
-		return true;
-	}
-	if (
-		typeof (resource as { size?: unknown }).size === "number" &&
-		typeof (resource as { destroy?: unknown }).destroy === "function"
-	) {
-		return true;
-	}
-	return false;
-}
-
-function isTextureBindingResource(resource: unknown): boolean {
-	if (!resource || typeof resource !== "object") {
-		return false;
-	}
-	if (tryGetWebGPUTexture(resource)) {
-		return true;
-	}
-	const tag = getObjectTag(resource);
-	if (tag === "[object GPUTexture]" || tag === "[object GPUTextureView]") {
-		return true;
-	}
-	if (typeof (resource as { createView?: unknown }).createView === "function") {
-		return true;
-	}
-	const textureLike = resource as {
-		width?: unknown;
-		height?: unknown;
-		destroy?: unknown;
-	};
-	if (
-		typeof textureLike.width === "number" &&
-		typeof textureLike.height === "number" &&
-		typeof textureLike.destroy === "function"
-	) {
-		return true;
-	}
-	return false;
-}
-
-function isSamplerBindingResource(resource: unknown): boolean {
-	if (!resource || typeof resource !== "object") {
-		return false;
-	}
-	if (isBufferBindingResource(resource) || isTextureBindingResource(resource)) {
-		return false;
-	}
-	const tag = getObjectTag(resource);
-	if (tag === "[object GPUSampler]") {
-		return true;
-	}
-	const handle = getWebGPUResourceHandle(resource);
-	if (handle) {
-		if (isLikelyGPUBufferHandle(handle) || isLikelyGPUTextureHandle(handle)) {
-			return false;
-		}
-		return true;
-	}
-	return false;
-}
-
-function isLikelyGPUBufferHandle(value: unknown): boolean {
-	if (!value || typeof value !== "object") {
-		return false;
-	}
-	const candidate = value as {
-		destroy?: unknown;
-		mapAsync?: unknown;
-		getMappedRange?: unknown;
-		createView?: unknown;
-	};
-	if (typeof candidate.createView === "function") {
-		return false;
-	}
-	if (
-		typeof candidate.mapAsync === "function" ||
-		typeof candidate.getMappedRange === "function"
-	) {
-		return true;
-	}
-	return typeof candidate.destroy === "function" && "size" in candidate;
-}
-
-function isLikelyGPUTextureHandle(value: unknown): boolean {
-	if (!value || typeof value !== "object") {
-		return false;
-	}
-	return typeof (value as { createView?: unknown }).createView === "function";
-}
-
-function getObjectTag(value: unknown): string {
-	return Object.prototype.toString.call(value);
+	// Kind selects the schema type; only the owning manager proves a live resource.
+	resourceManager.assertBindingResource(resource);
 }
 
 function assertPositiveInteger(value: number, name: string): number {

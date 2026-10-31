@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+
+import { createWebGPUResourceManager } from "../../helpers/fakes.mjs";
 import { ShaderCompileError } from "../../../src/foundation/Error.ts";
 import { MeshInstance } from "../../../src/meshes/MeshInstance.ts";
 import {
@@ -29,8 +31,12 @@ import {
 } from "../../../src/backends/webgpu/WebGPUScenePipelineResources.ts";
 import { resolveWebGPUScenePassDescriptor } from "../../../src/backends/webgpu/WebGPUScenePassDescriptors.ts";
 import { WebGPUPlanarReflectionPass } from "../../../src/backends/webgpu/WebGPUPlanarReflectionPass.ts";
+import { WebGPUPlanarReflectionDrawResources } from "../../../src/backends/webgpu/WebGPUPlanarReflectionDrawResources.ts";
 import { WebGPUEnvironmentResources } from "../../../src/backends/webgpu/WebGPUEnvironmentResources.ts";
 import { WebGPUDeferredResources } from "../../../src/backends/webgpu/WebGPUDeferredResources.ts";
+import { WebGPUPipelineCache } from "../../../src/backends/webgpu/WebGPUPipelineCache.ts";
+import { WebGPUObjectIdentity } from "../../../src/backends/webgpu/WebGPUObjectIdentity.ts";
+import { TextureFormat } from "../../../src/core/TextureFormat.ts";
 import {
 	Logger
 } from "../../../src/foundation/Logger.ts";
@@ -68,7 +74,6 @@ function testWebGPUFrameServiceConstructionDoesNotCompilePipelines() {
 	const backend = new FakeBackend();
 	const owner = new WebGPURenderResources(
 		backend,
-		backend,
 		createWebGPUComputeFacade(backend),
 	);
 	try {
@@ -91,7 +96,7 @@ async function testWebGPUBlendMaterialsUseTransparentPipelineState() {
 	const frame = createFrame(packet);
 	frame.opaquePackets = [];
 	frame.transparentPackets = [packet];
-	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
+	const resources = new WebGPURenderResources(backend, createWebGPUComputeFacade(backend));
 
 	const frameResources = resources.prepareFrame(
 		createFrameContextWithFeatures(
@@ -158,7 +163,7 @@ async function testWebGPUTransmissionMaterialsUseTransparentPipelineState() {
 	const frame = createFrame(packet);
 	frame.opaquePackets = [];
 	frame.transparentPackets = [packet];
-	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
+	const resources = new WebGPURenderResources(backend, createWebGPUComputeFacade(backend));
 
 	const frameResources = resources.prepareFrame(
 		createFrameContextWithFeatures(
@@ -217,7 +222,7 @@ async function testWebGPUEarlyZPrepassOpaquePipelineHasDepthOnlyState() {
 	const model = createModel([new PBRMaterial()]);
 	const packet = createPacket(model);
 	const frame = createFrame(packet);
-	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
+	const resources = new WebGPURenderResources(backend, createWebGPUComputeFacade(backend));
 
 	const frameResources = resources.prepareFrame(
 		createFrameContextWithFeatures(
@@ -274,7 +279,7 @@ async function testWebGPUEarlyZPrepassMaskPipelineUsesMaskDepthFragment() {
 	const model = createModel([material]);
 	const packet = createPacket(model);
 	const frame = createFrame(packet);
-	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
+	const resources = new WebGPURenderResources(backend, createWebGPUComputeFacade(backend));
 
 	const frameResources = resources.prepareFrame(
 		createFrameContextWithFeatures(
@@ -321,7 +326,7 @@ async function testWebGPUEarlyZColorPipelineUsesReadOnlyDepthState() {
 	const model = createModel([new PBRMaterial()]);
 	const packet = createPacket(model);
 	const frame = createFrame(packet);
-	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
+	const resources = new WebGPURenderResources(backend, createWebGPUComputeFacade(backend));
 
 	const frameResources = resources.prepareFrame(
 		createFrameContextWithFeatures(
@@ -367,7 +372,7 @@ async function testOpaqueEqualDepthWinnerMatchesWithAndWithoutPrepass() {
 			const material = new PBRMaterial({ alphaMode });
 			const packet = createPacket(createModel([material]));
 			const owner = new WebGPURenderResources(
-				backend, backend, createWebGPUComputeFacade(backend),
+				backend, createWebGPUComputeFacade(backend),
 			);
 			owner.beginFrameResourceLifecycle();
 			try {
@@ -457,7 +462,7 @@ fn customVs(@location(0) position: vec3<f32>) -> @builtin(position) vec4<f32> {
 	const supportedModel = createModel([shaderMaterial]);
 	const supportedPacket = createPacket(supportedModel);
 	const frame = createFrame(supportedPacket);
-	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
+	const resources = new WebGPURenderResources(backend, createWebGPUComputeFacade(backend));
 
 	const frameResources = resources.prepareFrame(
 		createFrameContextWithFeatures(
@@ -567,7 +572,7 @@ fn customFs() -> @location(0) vec4<f32> {
 	const model = createModel([shaderMaterial]);
 	const packet = createPacket(model);
 	const frame = createFrame(packet);
-	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
+	const resources = new WebGPURenderResources(backend, createWebGPUComputeFacade(backend));
 
 	const frameResources = resources.prepareFrame(
 		createFrameContextWithFeatures(
@@ -665,7 +670,7 @@ fn customFs() -> @location(0) vec4<f32> {
 	const model = createModel([shaderMaterial]);
 	const packet = createPacket(model);
 	const frame = createFrame(packet);
-	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
+	const resources = new WebGPURenderResources(backend, createWebGPUComputeFacade(backend));
 
 	const frameResources = resources.prepareFrame(
 		createFrameContextWithFeatures(
@@ -759,7 +764,7 @@ async function testWebGPUOITTransparentPipelineUsesDualTargets() {
 	const frame = createFrame(packet);
 	frame.opaquePackets = [];
 	frame.transparentPackets = [packet];
-	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
+	const resources = new WebGPURenderResources(backend, createWebGPUComputeFacade(backend));
 
 	const frameResources = resources.prepareFrame(
 		createFrameContextWithFeatures(
@@ -833,7 +838,7 @@ async function testWebGPUOITTransmissionMaterialsStayLegacyPipeline() {
 	const frame = createFrame(packet);
 	frame.opaquePackets = [];
 	frame.transparentPackets = [packet];
-	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
+	const resources = new WebGPURenderResources(backend, createWebGPUComputeFacade(backend));
 
 	const frameResources = resources.prepareFrame(
 		createFrameContextWithFeatures(
@@ -889,7 +894,6 @@ async function testPlanarCompositeUsesReflectionOwnedPipelineAndSharedSnapshot()
 	const frame = createFrame(packet);
 	frame.reflectivePackets = [packet];
 	const owner = new WebGPURenderResources(
-		backend,
 		backend,
 		createWebGPUComputeFacade(backend),
 	);
@@ -1045,7 +1049,6 @@ async function testFeatureOwnedWarmupCompilesDeferredSceneVariants() {
 		},
 	);
 	const owner = new WebGPURenderResources(
-		backend,
 		backend,
 		createWebGPUComputeFacade(backend),
 	);
@@ -1224,8 +1227,11 @@ async function run() {
 		await testCustomCompileFallbackReusesPipelineAcrossShadowToggle();
 		await testOwnerDestroyRejectsPendingDeferredPipeline();
 		await testCustomShaderModuleRequestsCoalesce();
+		await testConcurrentFeatureShaderRequestsPreservePublishedFacades();
 		await testEarlyZInvalidationDiscardsLatePipeline();
 		testScenePipelineResourcesExplicitlyDestroyInvalidatedHandles();
+		testPipelineCleanupContinuesAfterReleaseFailures();
+		testFeaturePipelineOwnersPreserveCleanupWarnings();
 		console.log("WebGPU bridge material pipelines tests passed");
 	} finally {
 		ShaderSource.resetConfiguration();
@@ -1240,7 +1246,7 @@ async function run() {
 
 async function testBuiltinDepthUsesOnlyDepthResources() {
 	const backend = new FakeBackend();
-	const owner = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
+	const owner = new WebGPURenderResources(backend, createWebGPUComputeFacade(backend));
 	const model = createModel([new PBRMaterial()]);
 	const packets = [createPacket(model), createPacket(new MeshInstance({ mesh: model.mesh }))];
 	const frame = createFrame(packets[0]);
@@ -1323,7 +1329,7 @@ async function testDepthPreparationRejectsCoverageChangesDuringUpload() {
 
 async function testSharedStaticDrawPreparation() {
 	const backend = new FakeBackend();
-	const owner = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
+	const owner = new WebGPURenderResources(backend, createWebGPUComputeFacade(backend));
 	const material = new PBRMaterial();
 	const model = createModel([material]);
 	const packets = [createPacket(model), createPacket(new MeshInstance({ mesh: model.mesh }))];
@@ -1400,7 +1406,7 @@ async function testSharedStaticDrawPreparation() {
 
 async function testSharedStaticPreparationLifecycle() {
 	const backend = new FakeBackend();
-	const owner = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
+	const owner = new WebGPURenderResources(backend, createWebGPUComputeFacade(backend));
 	const material = new PBRMaterial();
 	const model = createModel([material]);
 	const packets = [createPacket(model), createPacket(new MeshInstance({ mesh: model.mesh })),
@@ -1512,7 +1518,7 @@ async function testSharedStaticPreparationLifecycle() {
 
 async function testSharedStaticPreparationGeometryReplacement() {
 	const backend = new FakeBackend();
-	const owner = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
+	const owner = new WebGPURenderResources(backend, createWebGPUComputeFacade(backend));
 	const model = createModel([new PBRMaterial()]);
 	const packets = [createPacket(model), createPacket(new MeshInstance({ mesh: model.mesh }))];
 	const frame = createFrame(packets[0]);
@@ -1569,7 +1575,7 @@ async function testSharedStaticPreparationGeometryReplacement() {
 
 function createStaticPreparationFixture(material = new PBRMaterial()) {
 	const backend = new FakeBackend();
-	const owner = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
+	const owner = new WebGPURenderResources(backend, createWebGPUComputeFacade(backend));
 	const packet = createPacket(createModel([material]));
 	const frame = createFrame(packet);
 	const context = createFrameContext(frame, resolveFeatureState({}, {}, "webgpu"));
@@ -1771,7 +1777,7 @@ async function testCustomCompileFallbackReusesPipelineAcrossShadowToggle() {
 
 async function testOwnerDestroyRejectsPendingDeferredPipeline() {
 	const backend = new FakeBackend();
-	const owner = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
+	const owner = new WebGPURenderResources(backend, createWebGPUComputeFacade(backend));
 	const create = backend.createPipeline.bind(backend);
 	let release;
 	let entered;
@@ -1888,44 +1894,219 @@ async function testEarlyZInvalidationDiscardsLatePipeline() {
 	assert.equal(backend.renderPipelineDestroyCalls, 1);
 }
 
+async function testConcurrentFeatureShaderRequestsPreservePublishedFacades() {
+	for (const kind of ["reflection", "environment"]) {
+		let shaderCreations = 0;
+		const nativePipelines = [];
+		const host = {
+			device: {
+				createShaderModule() { shaderCreations++; return {}; },
+				async createRenderPipelineAsync(desc) {
+					const pipeline = { desc };
+					nativePipelines.push(pipeline);
+					return pipeline;
+				},
+			},
+			queue: {},
+			assertDeviceOperational() {},
+			resolveSupportedSampleCount(value) { return value; },
+			createManagedDestroy(_target, options) { return options.dispose; },
+			runValidationScope(_label, operation) { return operation(); },
+			runValidationScopeAsync(_label, operation) { return operation(); },
+			objectIdentity: new WebGPUObjectIdentity(),
+			shaderModuleCompiler: {
+				async processShaderSource(desc) { return { code: desc.code, hasErrors: false }; },
+			},
+		};
+		const resourceManager = createWebGPUResourceManager(host);
+		const cache = new WebGPUPipelineCache({ ...host, resourceManager });
+		const backend = {
+			...host, resourceManager,
+			canvasFormat: TextureFormat.RGBA8Unorm,
+			canvasDepthFormat: TextureFormat.Depth24Plus,
+			createShaderModule: (desc) => cache.createShaderModule(desc),
+			createPipeline: (desc) => cache.createPipeline(desc),
+		};
+		const owner = kind === "environment" ?
+			new WebGPUEnvironmentResources(backend, { environmentPipelineLayout: {} }) :
+			new WebGPUPlanarReflectionDrawResources(backend,
+				{ planarReflectionPipelineLayouts: { pbr: {} } }, {});
+		const request = {
+			materialState: {
+				pipelineKey: "concurrent", shaderCacheKey: "concurrent", wireframe: false,
+				shadingFamily: "pbr", cullMode: "back",
+			},
+			pass: {
+				drawMode: "planar-reflection-composite", pipelineKeyPart: "concurrent",
+				sceneTargetMode: "color", frontFace: "ccw",
+			},
+			topology: "triangle-list", sampleCount: 1,
+			geometryLayout: { layoutKey: "concurrent", sceneVertexLayouts: [] },
+		};
+		const pipelines = await Promise.all(Array.from({ length: 16 }, () =>
+			kind === "environment" ? owner.getPipeline("color", 1) : owner.resolvePipeline(request)));
+		assert.equal(shaderCreations, 1, `${kind}: equivalent requests share native shader creation`);
+		assert.equal(nativePipelines.length, 1);
+		for (const pipeline of pipelines) assert.equal(pipeline, pipelines[0]);
+		const shader = resourceManager.getShaderModule(owner._shaderModule);
+		assert.equal(nativePipelines[0].desc.vertex.module, shader,
+			`${kind}: the shader published to pipeline callers must remain live`);
+		assert.deepEqual(cache.getDebugStats().shaderModuleRefCounts, [1],
+			`${kind}: redundant acquired shader facades must release their references`);
+		const published = owner._shaderModule;
+		owner.onShaderRuntimeChanged();
+		assert.throws(() => resourceManager.getShaderModule(published), /not live/);
+		assert.equal(cache.getDebugStats().shaderModuleEntries, 0);
+		assert.equal(cache.getDebugStats().renderPipelineEntries, 0);
+		resourceManager.reset();
+	}
+}
+
 function testScenePipelineResourcesExplicitlyDestroyInvalidatedHandles() {
+	const store = createWebGPUResourceManager();
+	const nativePipeline = {};
+	const nativeShader = {};
+	let pipelineReleases = 0;
+	let shaderReleases = 0;
+	const acquirePipeline = () => store.registerRenderPipeline(nativePipeline, undefined,
+		() => { pipelineReleases++; });
+	const acquireShader = () => store.registerShaderModule(nativeShader, undefined,
+		() => { shaderReleases++; });
 	const library = new WebGPUScenePipelineResources({}, {});
-	const pipeline = {
-		destroyCalls: 0,
-		destroy() {
-			this.destroyCalls++;
-		},
-	};
-	const shader = {
-		destroyCalls: 0,
-		destroy() {
-			this.destroyCalls++;
-		},
-	};
+	const pipeline = acquirePipeline();
+	const pipelineAlias = acquirePipeline();
+	const shader = acquireShader();
 	library._pipelineCache.set("scene", pipeline);
+	library._pipelineCache.set("scene-alias", pipelineAlias);
 	library._earlyZPrepassCache.set("early-z", pipeline);
 	library._customShaderModuleCache.set("custom", shader);
 	library._sceneShaderModule = shader;
 	library.invalidateShaderRuntimeCaches();
-	assert.equal(pipeline.destroyCalls, 1);
-	assert.equal(shader.destroyCalls, 1);
+	assert.equal(pipelineReleases, 2,
+		"independent facades sharing one native pipeline each release their own reference");
+	assert.equal(shaderReleases, 1,
+		"the same facade in multiple cache locations releases only once");
 	assert.equal(library._pipelineCache.size, 0);
 	assert.equal(library._earlyZPrepassCache.size, 0);
 	assert.equal(library._customShaderModuleCache.size, 0);
 
 	const environment = new WebGPUEnvironmentResources({}, {});
-	environment._pipelines.set("environment", pipeline);
-	environment._shaderModule = shader;
+	environment._pipelines.set("environment", acquirePipeline());
+	environment._shaderModule = acquireShader();
 	environment.onShaderRuntimeChanged();
-	assert.equal(pipeline.destroyCalls, 2);
-	assert.equal(shader.destroyCalls, 2);
+	assert.equal(pipelineReleases, 3);
+	assert.equal(shaderReleases, 2);
 	assert.equal(environment._pipelines.size, 0);
 
 	const deferred = new WebGPUDeferredResources({}, {});
-	deferred._deferredLightingPipeline = pipeline;
-	deferred._deferredLightingShaderModule = shader;
+	deferred._deferredLightingPipeline = acquirePipeline();
+	deferred._decalPipeline = deferred._deferredLightingPipeline;
+	deferred._deferredLightingShaderModule = acquireShader();
 	deferred.onShaderRuntimeChanged();
-	assert.equal(pipeline.destroyCalls, 3);
-	assert.equal(shader.destroyCalls, 3);
+	assert.equal(pipelineReleases, 4);
+	assert.equal(shaderReleases, 3);
 }
+
+function testPipelineCleanupContinuesAfterReleaseFailures() {
+	const store = createWebGPUResourceManager();
+	const library = new WebGPUScenePipelineResources({}, {});
+	const releases = [];
+	const warnings = [];
+	const pipeline = store.registerRenderPipeline({}, "FailingPipeline", () => {
+		releases.push("failing-pipeline");
+		throw new Error("pipeline release failed");
+	});
+	const shader = store.registerShaderModule({}, "FailingShader", () => {
+		releases.push("failing-shader");
+		throw "shader release failed";
+	});
+	library._pipelineCache.set("first", pipeline);
+	library._pipelineCache.set("second", store.registerRenderPipeline({}, "Second", () => {
+		releases.push("second-pipeline");
+	}));
+	library._earlyZPrepassCache.set("same-facade", pipeline);
+	library._customShaderModuleCache.set("first", shader);
+	library._customShaderModuleCache.set("second", store.registerShaderModule({}, "Second", () => {
+		releases.push("second-shader");
+	}));
+	library._sceneShaderModule = shader;
+	const previousWarn = Logger.warn;
+	Logger.warn = (message, options) => { warnings.push([message, options]); };
+	try {
+		assert.doesNotThrow(() => library.invalidateShaderRuntimeCaches());
+	} finally {
+		Logger.warn = previousWarn;
+	}
+	assert.deepEqual(releases, [
+		"failing-pipeline", "second-pipeline", "failing-shader", "second-shader",
+	]);
+	assert.deepEqual(warnings, [
+		[
+			"[webgpu-cache-resource-destroy-failed] Failed to destroy cached pipeline: " +
+				"Error: pipeline release failed",
+			{ scope: "WebGPUScenePipelineResources" },
+		],
+		[
+			"[webgpu-cache-resource-destroy-failed] Failed to destroy cached shader module: " +
+				"shader release failed",
+			{ scope: "WebGPUScenePipelineResources" },
+		],
+	]);
+	assert.equal(library._pipelineCache.size, 0);
+	assert.equal(library._earlyZPrepassCache.size, 0);
+	assert.equal(library._customShaderModuleCache.size, 0);
+	assert.equal(library._sceneShaderModule, null);
+	assert.throws(() => store.getRenderPipeline(pipeline), /not live/);
+}
+function testFeaturePipelineOwnersPreserveCleanupWarnings() {
+	const cases = [
+		[new WebGPUEnvironmentResources({}, {}), "WebGPUEnvironmentResources"],
+		[new WebGPUPlanarReflectionDrawResources({}, {}), "WebGPUPlanarReflectionDrawResources"],
+		[new WebGPUDeferredResources({}, {}), "WebGPUDeferredResources"],
+	];
+	for (const [owner, scope] of cases) {
+		const store = createWebGPUResourceManager();
+		const released = [];
+		const warnings = [];
+		const pipeline = store.registerRenderPipeline({}, "failed pipeline", () => {
+			released.push("pipeline");
+			throw new Error("pipeline release failed");
+		});
+		const module = store.registerShaderModule({}, "failed module", () => {
+			released.push("module");
+			throw "shader release failed";
+		});
+		if (owner instanceof WebGPUDeferredResources) {
+			owner._deferredLightingPipeline = pipeline;
+			owner._decalBatchPipeline = store.registerComputePipeline({}, "batch", () => {
+				released.push("batch");
+			});
+			owner._deferredLightingShaderModule = module;
+		} else {
+			owner._pipelines.set("failed", pipeline);
+			owner._shaderModule = module;
+		}
+		const previousWarn = Logger.warn;
+		Logger.warn = (message, options) => warnings.push([message, options]);
+		try {
+			assert.doesNotThrow(() => owner.onShaderRuntimeChanged());
+		} finally {
+			Logger.warn = previousWarn;
+		}
+		assert.deepEqual(released, owner instanceof WebGPUDeferredResources ?
+			["pipeline", "batch", "module"] : ["pipeline", "module"]);
+		assert.deepEqual(warnings, [
+			[
+				"[webgpu-cache-resource-destroy-failed] Failed to destroy cached pipeline: " +
+					"Error: pipeline release failed", { scope },
+			],
+			[
+				"[webgpu-cache-resource-destroy-failed] Failed to destroy cached shader module: " +
+					"shader release failed", { scope },
+			],
+		]);
+		assert.doesNotThrow(() => owner.destroy());
+	}
+}
+
 await run();

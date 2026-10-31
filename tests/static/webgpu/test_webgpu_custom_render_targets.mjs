@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+
+import { createWebGPUResourceManager } from "../../helpers/fakes.mjs";
 import { WebGPUCustomRenderTargetRuntime } from "../../../src/backends/webgpu/rendergraph/WebGPUCustomRenderTargetRuntime.ts";
 import { TextureFormat } from "../../../src/core/TextureFormat.ts";
 import {
@@ -24,6 +26,8 @@ class FakeEncoder {
 
 class FakeBackend {
 	constructor(options = {}) {
+		this.resourceManager = createWebGPUResourceManager();
+		this.bindingGroupCalls = 0;
 		this.createdTextures = [];
 		this.fallbackFormat = options.fallbackFormat ?? null;
 		this.failSampleCount = options.failSampleCount ?? null;
@@ -77,6 +81,7 @@ class FakeBackend {
 		return { label: desc.label };
 	}
 	createBindingGroup(desc = {}) {
+		this.bindingGroupCalls++;
 		return { label: desc.label };
 	}
 	writeBuffer() {}
@@ -87,6 +92,43 @@ class FakeBackend {
 	resolveTextureForSlot() {
 		return null;
 	}
+}
+
+async function testCustomPassBindingResourcesRequireOwner() {
+	const backend = new FakeBackend();
+	const foreign = createWebGPUResourceManager();
+	const native = { destroy() {} };
+	const buffer = backend.resourceManager.registerBuffer(native, { size: 16 });
+	const texture = backend.resourceManager.registerTexture({
+		texture: { createView() {} }, view: {},
+	}, { width: 1, height: 1 });
+	const sampler = backend.resourceManager.registerSampler({});
+	const foreignBuffer = foreign.registerBuffer({ destroy() {} }, { size: 16 });
+	const destroyed = backend.resourceManager.registerBuffer({ destroy() {} }, { size: 16 });
+	destroyed.destroy();
+	const runtime = new WebGPUCustomRenderTargetRuntime(backend, new FakeSampleCountResolver());
+	const context = createContext(({ resources }) => {
+		for (const resource of [
+			native, { buffer: native }, {}, foreignBuffer, { buffer: foreignBuffer },
+			destroyed, { ...buffer },
+		]) {
+			assert.throws(() => resources.createBindingGroup({
+				entries: [{ binding: 0, resource }],
+			}), /owned|not live|renderer resource/i);
+		}
+		assert.equal(backend.bindingGroupCalls, 0);
+		resources.createBindingGroup({ entries: [{ binding: 0, resource: buffer }] });
+		resources.createBindingGroup({ entries: [{ binding: 0, resource: { buffer, size: 8 } }] });
+		resources.createBindingGroup({ entries: [
+			{ binding: 0, resource: texture }, { binding: 1, resource: sampler },
+		] });
+		assert.equal(backend.bindingGroupCalls, 3);
+	});
+	runtime.syncFrame(context);
+	await runtime.executePass({ stage: "render-target-views" }, context, new FakeEncoder());
+	runtime.destroy();
+	backend.resourceManager.reset();
+	foreign.reset();
 }
 
 class FakeSampleCountResolver {
@@ -385,6 +427,7 @@ function testWebGPURejectsFormatFallbackTransactionally() {
 }
 
 await testWebGPUCustomTargetExecution();
+await testCustomPassBindingResourcesRequireOwner();
 await testWebGPUMultisampledTargetUsesResolveTextures();
 testWebGPUCustomTargetCapabilityDowngrade();
 testWebGPUCustomTargetAllocationFallbackIsDomainScoped();

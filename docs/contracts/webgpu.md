@@ -5,6 +5,61 @@ lighting, presentation configuration, reflections, and structured buffer packing
 
 ## Contract
 
+### Native resource ownership
+
+- Each `WebGPUBackend` must own one `WebGPUResourceManager`. Buffer, texture and view,
+  sampler, shader-module, pipeline, and bind-group state must remain in typed
+  private weak maps rather than properties on renderer resource facades.
+- `WebGPUResourceManager.createBuffer()` and `createTexture()` must allocate
+  native resources and return registered facades. Its `register*()` operations
+  must wrap existing native allocations without allocating replacement resources.
+  The same manager must own native resolution, uploads, invalidation, and reset.
+  Pipeline and binding caches must retain their cache and reference-count policy;
+  they must register acquired references with the manager.
+- Device release must retire resource records and dispose live resources before
+  publishing a replacement device. Old facades must remain unusable afterward.
+- Live resource records and disposal callbacks must not retain otherwise
+  unreachable facades, so forgotten-destroy diagnostics can still run. Native
+  allocations must remain available for explicit backend teardown after a
+  facade is collected.
+- Public resource operations and command recording must validate the owning
+  manager. Backend-private raw WebGPU bindings must not be accepted as shared
+  `BindingResource` values or inferred from arbitrary wrapper properties.
+- Backend owners that resolve renderer resources for native work must use their
+  own resource manager. The manager reference must come from the owner's existing
+  host and remain stable across device restoration. Encoding and upload paths
+  must not select a store by inspecting the resource being consumed.
+  The custom render-pass resource facade must validate every binding entry
+  against its backend's manager before calling the internal binding factory.
+- Canvas texture facades must borrow the current presentation texture. Retiring
+  such a facade must not destroy a browser-owned presentation allocation.
+- Native identity and view identity must remain available to backend caches
+  through private accessors. Sampler and pipeline cache aliases must retain
+  balanced releases, and released facades must not resolve live native handles.
+- Each cached bind-group acquisition must have its own independently
+  destroyable facade while equivalent acquisitions share native cache identity.
+- `ComputeRuntime` readback must validate the source against its own resource
+  manager before allocating staging buffers, including empty buffer reads.
+  Internal pass bindings that consume native mip views must use the private
+  compute bridge; the public compute facade must accept renderer resources only.
+- `ComputeRuntime` kernel schema bindings and `overrideEntries` must classify
+  renderer resources by their `kind` and validate them against the runtime's
+  own resource manager before creating a binding group or recording commands.
+  Native object tags, methods, and dimension-like fields must not determine
+  the resource type. Foreign, forged, destroyed, and retired resources must reject.
+- A buffer schema binding may accept `BufferBindingRange`. Its `buffer` must
+  resolve as a live buffer in the same manager. The range's `offset` and `size`
+  must be forwarded unchanged. Dispatch must retain the underlying runtime-owned
+  buffer until its completion ticket settles, once per buffer even when several
+  ranges refer to it.
+- Destroying a runtime-owned resource must immediately invalidate its facade
+  for all subsequent resource operations. If submitted dispatches retain it,
+  native disposal must wait until their completion tickets settle.
+- If a dispatch fails before submission, including command encoder creation,
+  recording, or finalization, it must release its transient binding group and
+  all acquired runtime-owned resource references. Binding-group cleanup failure
+  must not prevent release of those references.
+
 ### Shader directive profile lifecycle
 
 - `WebGPUBackend` must prepare its static directive profile assets during
@@ -548,12 +603,20 @@ lighting, presentation configuration, reflections, and structured buffer packing
   must not be evicted. Ready preparation reuse must refresh their usage.
   Inactive bindings must be preferred for eviction; any temporary active-frame
   overflow must be trimmed at the next frame boundary.
-- Shader-runtime invalidation and backend destruction must explicitly destroy
-  each unique managed shader-module and pipeline handle before clearing cache
-  maps. Alias caches must not cause duplicate destruction.
+- Shader-runtime invalidation and backend destruction must release every owned
+  shader-module and pipeline facade before clearing cache maps. Repeated entries
+  for one facade must rely on its idempotent `destroy()` behavior; distinct
+  facades sharing a native allocation must each release their own reference.
+- Cached shader-module and pipeline cleanup must preserve per-resource warning
+  diagnostics and continue releasing later resources after a failure. Cleanup
+  paths that propagate errors, add error context, or tolerate device-loss cleanup
+  failures must retain their respective error policy.
 - Concurrent requests for one Early-Z pipeline key must share one high-level
   in-flight promise. Cache population must not overwrite managed wrappers from
   other waiters without explicitly destroying the losing wrapper.
+- Concurrent environment and planar-reflection shader requests for one
+  directive tag must reuse the matching published shader facade. Redundant
+  acquired facades must be released without invalidating the published winner.
 - Render-pass recording must suppress redundant pipeline, bind-group, vertex
   buffer, and index-buffer commands when native state is unchanged.
 - Static built-in opaque and mask packets may be grouped into instanced draws

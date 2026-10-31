@@ -2,7 +2,7 @@ import type { ICommandEncoder } from "../ICommandEncoder";
 import type { IBindingGroup, IComputePipeline, IRenderTexture, IShaderModule } from "../types";
 import { ceilDiv } from "../../maths/Misc";
 import { ShaderSource } from "../../shaders/ShaderSource";
-import type { IWebGPUComputeFacade } from "./ComputeFacade";
+import { createWebGPUInternalBindingGroup, type IWebGPUComputeFacade } from "./ComputeFacade";
 import { WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE } from "./constants";
 
 export interface WebGPUHiZBuildRequest {
@@ -151,16 +151,16 @@ export class WebGPUHiZBuilder {
 	}
 
 	public invalidateBindings(): void {
-		for (const { group } of this._bindings.values()) this._destroy(group);
+		for (const { group } of this._bindings.values()) this._destroyResource(group);
 		this._bindings.clear();
 		this._lastBuild = null;
 	}
 
 	public invalidateShaderResources(): void {
 		this.invalidateBindings();
-		this._destroy(this._initPipeline);
-		this._destroy(this._reducePipeline);
-		this._destroy(this._module);
+		this._destroyResource(this._initPipeline);
+		this._destroyResource(this._reducePipeline);
+		this._destroyResource(this._module);
 		this._initPipeline = null;
 		this._reducePipeline = null;
 		this._module = null;
@@ -185,8 +185,8 @@ export class WebGPUHiZBuilder {
 			cached.resources.every((resource, index) => resource === resources[index])
 		)
 			return cached.group;
-		if (cached) this._destroy(cached.group);
-		const group = this._compute.createBindingGroup({
+		if (cached) this._destroyResource(cached.group);
+		const group = createWebGPUInternalBindingGroup(this._compute, {
 			pipeline,
 			layoutIndex: 0,
 			entries: entries as Array<{ binding: number; resource: any }>,
@@ -196,11 +196,11 @@ export class WebGPUHiZBuilder {
 		return group;
 	}
 
-	private _destroy(resource: unknown): void {
+	private _destroyResource(resource: { destroy(): void } | null | undefined): void {
 		try {
-			(resource as { destroy?: () => void } | null)?.destroy?.();
+			resource?.destroy();
 		} catch {
-			/* Device loss may already release resources. */
+			// Device loss or reset may already have released this owner's resource.
 		}
 	}
 }

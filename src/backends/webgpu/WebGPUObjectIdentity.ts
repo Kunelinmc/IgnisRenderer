@@ -1,4 +1,4 @@
-import { getWebGPUObjectResourceHandle } from "./WebGPUResourceHandle";
+import { getWebGPUResourceHandle } from "./WebGPUResourceHandle";
 
 const HASH64_OFFSET_BASIS = 0xcbf29ce484222325n;
 const HASH64_PRIME = 0x100000001b3n;
@@ -49,7 +49,7 @@ export class WebGPUObjectIdentity {
 			return `symbol:${String(value)}`;
 		}
 		if (type === "function" || type === "object") {
-			const backendHandle = getWebGPUObjectResourceHandle(value);
+			const backendHandle = getWebGPUResourceHandle(value);
 			if (backendHandle) {
 				return `obj:${this.getObjectId(backendHandle)}`;
 			}

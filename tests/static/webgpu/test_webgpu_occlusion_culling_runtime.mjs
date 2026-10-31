@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
+import { createWebGPUResourceManager } from "../../helpers/fakes.mjs";
 import { WebGPUOcclusionCullingRuntime } from "../../../src/backends/webgpu/WebGPUOcclusionCullingRuntime.ts";
 import { WebGPUCommandEncoder } from "../../../src/backends/webgpu/WebGPUCommandEncoder.ts";
 import { normalizeOcclusionCullingOptions } from "../../../src/pipeline/OcclusionCulling.ts";
@@ -127,6 +128,7 @@ async function testCompactDepthBiasUploadPreservesCandidateAlignment() {
 	const runtime = new WebGPUOcclusionCullingRuntime(backend);
 	const nativeEncoder = backend.createCommandEncoder();
 	const encoder = new WebGPUCommandEncoder(nativeEncoder, {
+		resourceManager: backend.resourceManager,
 		createPassTimestampWrites: () => undefined,
 	}, {});
 	const context = {
@@ -137,9 +139,12 @@ async function testCompactDepthBiasUploadPreservesCandidateAlignment() {
 		})] } },
 	};
 	runtime.beginFrame(context);
+	const hiZ = backend.createTexture({ width: 4, height: 4, format: "r32float", usage: 0 });
 	await runtime.recordVisibilityPass({
-		context, encoder, hiZ: {}, options: normalizeOcclusionCullingOptions({}),
+		context, encoder, hiZ, options: normalizeOcclusionCullingOptions({}),
 	});
+	assert.equal(backend.bindingGroupDestroyCalls, 1,
+		"occlusion recording releases its transient binding acquisition");
 	const params = backend.buffers.find((buffer) => buffer.label === "WebGPUOcclusionCullingParams");
 	assert.equal(params.size, 4);
 	assert.equal(params.lastWrite.data.byteLength, 4);

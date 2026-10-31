@@ -1,3 +1,4 @@
+import type { WebGPUResourceManager } from "./WebGPUResourceManager";
 import {
 	type ComputePassDesc,
 	type ICommandBuffer,
@@ -13,20 +14,13 @@ import type {
 	IRenderPipeline,
 	IndexFormat,
 } from "../types";
-import {
-	getWebGPUBindGroup,
-	getWebGPUBuffer,
-	getWebGPUComputePipeline,
-	getWebGPURenderPipeline,
-	getWebGPUTexture,
-	tryGetWebGPUTexture,
-} from "./WebGPUResourceAccess";
 import type { WebGPUCommandEncoderHost } from "./WebGPUBackendContracts";
 
 const WEBGPU_NATIVE_COMMAND_ENCODERS =
 	new WeakMap<WebGPUCommandEncoder, GPUCommandEncoder>();
 
 export class WebGPUCommandEncoder implements ICommandEncoder {
+	private readonly _resources: WebGPUResourceManager;
 	private _encoder: GPUCommandEncoder;
 	private _host: WebGPUCommandEncoderHost;
 	private _commandBufferOwnerToken: object;
@@ -42,6 +36,7 @@ export class WebGPUCommandEncoder implements ICommandEncoder {
 	) {
 		this._encoder = encoder;
 		this._host = host;
+		this._resources = host.resourceManager;
 		this._commandBufferOwnerToken = commandBufferOwnerToken;
 		WEBGPU_NATIVE_COMMAND_ENCODERS.set(this, encoder);
 	}
@@ -56,11 +51,11 @@ export class WebGPUCommandEncoder implements ICommandEncoder {
 		this._renderPass = this._encoder.beginRenderPass({
 			colorAttachments: desc.colorAttachments.map((attachment) => ({
 				view:
-					tryGetWebGPUTexture(attachment.view)?.view ??
+					attachment.view ? this._resources.getTexture(attachment.view).view :
 					this._host.getCurrentColorView(),
 				resolveTarget:
 					attachment.resolveTarget ? (
-						tryGetWebGPUTexture(attachment.resolveTarget)?.view
+						this._resources.getTexture(attachment.resolveTarget).view
 					) : undefined,
 				clearValue:
 					attachment.loadOp === "clear" ? attachment.clearValue : undefined,
@@ -71,8 +66,9 @@ export class WebGPUCommandEncoder implements ICommandEncoder {
 				desc.depthStencilAttachment ?
 					{
 						view:
-							tryGetWebGPUTexture(desc.depthStencilAttachment.view)?.view ??
-							this._host.getCurrentDepthView(),
+							desc.depthStencilAttachment.view ?
+								this._resources.getTexture(desc.depthStencilAttachment.view).view :
+								this._host.getCurrentDepthView(),
 						depthClearValue:
 							(desc.depthStencilAttachment.depthLoadOp ?? "clear") === "clear" ?
 								(desc.depthStencilAttachment.depthClearValue ?? 1)
@@ -97,7 +93,7 @@ export class WebGPUCommandEncoder implements ICommandEncoder {
 	}
 
 	public setComputePipeline(pipeline: IComputePipeline): void {
-		this._computePass?.setPipeline(getWebGPUComputePipeline(pipeline));
+		this._computePass?.setPipeline(this._resources.getComputePipeline(pipeline));
 	}
 
 	public dispatchWorkgroups(x: number, y: number = 1, z: number = 1): void {
@@ -110,7 +106,7 @@ export class WebGPUCommandEncoder implements ICommandEncoder {
 	}
 
 	public setPipeline(pipeline: IRenderPipeline): void {
-		this._renderPass?.setPipeline(getWebGPURenderPipeline(pipeline));
+		this._renderPass?.setPipeline(this._resources.getRenderPipeline(pipeline));
 	}
 
 	public setBindingGroup(
@@ -118,7 +114,7 @@ export class WebGPUCommandEncoder implements ICommandEncoder {
 		group: IBindingGroup,
 		dynamicOffsets?: readonly number[],
 	): void {
-		const groupResource = getWebGPUBindGroup(group);
+		const groupResource = this._resources.getBindingGroup(group);
 		const pass = this._renderPass ?? this._computePass;
 		if (!pass) return;
 		// Omit absent offsets so native bindings do not convert undefined to a sequence.
@@ -130,11 +126,11 @@ export class WebGPUCommandEncoder implements ICommandEncoder {
 	}
 
 	public setVertexBuffer(slot: number, buffer: IRenderBuffer): void {
-		this._renderPass?.setVertexBuffer(slot, getWebGPUBuffer(buffer));
+		this._renderPass?.setVertexBuffer(slot, this._resources.getBuffer(buffer));
 	}
 
 	public setIndexBuffer(buffer: IRenderBuffer, format: IndexFormat): void {
-		this._renderPass?.setIndexBuffer(getWebGPUBuffer(buffer), format);
+		this._renderPass?.setIndexBuffer(this._resources.getBuffer(buffer), format);
 	}
 
 	public drawIndexed(
@@ -168,11 +164,11 @@ export class WebGPUCommandEncoder implements ICommandEncoder {
 	}
 
 	public drawIndirect(buffer: IRenderBuffer, offset: number = 0): void {
-		this._renderPass?.drawIndirect(getWebGPUBuffer(buffer), offset);
+		this._renderPass?.drawIndirect(this._resources.getBuffer(buffer), offset);
 	}
 
 	public drawIndexedIndirect(buffer: IRenderBuffer, offset: number = 0): void {
-		this._renderPass?.drawIndexedIndirect(getWebGPUBuffer(buffer), offset);
+		this._renderPass?.drawIndexedIndirect(this._resources.getBuffer(buffer), offset);
 	}
 
 	public setScissorRect(
@@ -218,8 +214,8 @@ export class WebGPUCommandEncoder implements ICommandEncoder {
 				"Cannot copy textures while a render or compute pass is active."
 			);
 		}
-		const sourceTexture = getWebGPUTexture(source.texture).texture;
-		const destinationTexture = getWebGPUTexture(destination.texture).texture;
+		const sourceTexture = this._resources.getTexture(source.texture).texture;
+		const destinationTexture = this._resources.getTexture(destination.texture).texture;
 		this._encoder.copyTextureToTexture(
 			{
 				texture: sourceTexture,

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+
 import { readFileSync } from "node:fs";
 
+import { createWebGPUResourceManager } from "../../helpers/fakes.mjs";
 import { Material } from "../../../src/materials/Material.ts";
 import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
@@ -252,8 +254,8 @@ async function testMixedMaterialsFallBackInExactOrder() {
 		uniformBuffers.map((buffer) => buffer.label),
 		["WebGPUDecalUniform_0", "WebGPUDecalUniform_1"]
 	);
-	const firstUniform = uniformBuffers[0]._gpuResource.lastWrite.data;
-	const secondUniform = uniformBuffers[1]._gpuResource.lastWrite.data;
+	const firstUniform = backend.resourceManager.getBuffer(uniformBuffers[0]).lastWrite.data;
+	const secondUniform = backend.resourceManager.getBuffer(uniformBuffers[1]).lastWrite.data;
 	assert.deepEqual(Array.from(firstUniform.slice(32, 48)), [
 		2, 5, 8, 0,
 		3, 6, 9, 0,

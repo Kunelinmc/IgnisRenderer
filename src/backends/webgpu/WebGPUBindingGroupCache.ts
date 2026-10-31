@@ -4,21 +4,17 @@ import {
 	WEBGPU_BINDING_GROUP_CACHE_TTL_FRAMES,
 	WEBGPU_PIPELINE_LAYOUT_CACHE_LIMIT,
 } from "./constants";
-import {
-	getWebGPUPipeline,
-	tryGetWebGPUBuffer,
-	tryGetWebGPUTexture,
-} from "./WebGPUResourceAccess";
-import {
-	getWebGPUObjectResourceHandle,
-	getWebGPUResourceHandle,
-} from "./WebGPUResourceHandle";
+import type { WebGPUResourceManager } from "./WebGPUResourceManager";
 import type {
 	BindingGroupDesc,
+	BindingResource,
 	BufferBindingRange,
 	IBindingGroup,
 	IComputePipeline,
+	IRenderBuffer,
 	IRenderPipeline,
+	IRenderTexture,
+	ISampler,
 } from "../types";
 import {
 	createHash64,
@@ -26,9 +22,17 @@ import {
 	type WebGPUObjectIdentity,
 } from "./WebGPUObjectIdentity";
 
-interface InternalBindingGroup extends IBindingGroup {
-	destroy(): void;
-	_gpuResource: GPUBindGroup;
+/** @internal WebGPU binding inputs; applications use engine resource facades. */
+export type WebGPUBindingResource =
+	| BindingResource
+	| GPUBindingResource
+	| GPUTexture
+	| GPUBuffer;
+
+/** @internal WebGPU cache descriptor; applications use `BindingGroupDesc`. */
+export interface WebGPUBindingGroupDesc extends Omit<BindingGroupDesc, "entries" | "pipeline"> {
+	pipeline?: IRenderPipeline | IComputePipeline;
+	entries: { binding: number; resource: WebGPUBindingResource }[];
 }
 
 interface BindingResourceSignature {
@@ -44,16 +48,18 @@ interface CachedBindingGroupEntry {
 	hashKey: bigint;
 	layoutId: number;
 	signatures: BindingResourceSignature[];
-	group: InternalBindingGroup;
+	native: GPUBindGroup;
+	label?: string;
 	lastUsedFrame: number;
 	lastTouchedTick: number;
 	refCount: number;
 }
 
-type BindingResourceInput = BindingGroupDesc["entries"][number]["resource"];
+type BindingResourceInput = WebGPUBindingResource;
 
 export interface WebGPUBindingGroupCacheHost {
 	readonly device: GPUDevice | null;
+	readonly resourceManager: WebGPUResourceManager;
 	readonly frameSerial: number;
 	readonly objectIdentity: WebGPUObjectIdentity;
 	assertDeviceOperational(operation: string): void;
@@ -76,6 +82,7 @@ export interface WebGPUBindingGroupCacheDebugStats {
 }
 
 export class WebGPUBindingGroupCache {
+	private readonly _resources: WebGPUResourceManager;
 	private _bindingGroupCache = new Map<bigint, CachedBindingGroupEntry[]>();
 	private _bindingGroupLru = new Map<CachedBindingGroupEntry, true>();
 	private _bindingGroupCacheEntryCount = 0;
@@ -88,13 +95,17 @@ export class WebGPUBindingGroupCache {
 		  ) => bigint)
 		| null = null;
 
-	public constructor(private readonly _host: WebGPUBindingGroupCacheHost) {}
+	public constructor(private readonly _host: WebGPUBindingGroupCacheHost) {
+		this._resources = _host.resourceManager;
+	}
 
-	public createBindingGroup(desc: BindingGroupDesc): IBindingGroup {
+	public createBindingGroup(desc: WebGPUBindingGroupDesc): IBindingGroup {
 		this._host.assertDeviceOperational("create binding groups");
 		const device = this._requireDevice("create binding groups");
 		const pipeline = desc.pipeline
-			? getWebGPUPipeline(desc.pipeline as IRenderPipeline | IComputePipeline)
+			? desc.pipeline.kind === "compute-pipeline"
+				? this._resources.getComputePipeline(desc.pipeline)
+				: this._resources.getRenderPipeline(desc.pipeline)
 			: null;
 		const layout =
 			(desc.layout as GPUBindGroupLayout | undefined) ??
@@ -120,11 +131,7 @@ export class WebGPUBindingGroupCache {
 					label: desc.label,
 				}),
 			);
-			return {
-				label: desc.label,
-				destroy: () => {},
-				_gpuResource: gpuBindGroup,
-			} as InternalBindingGroup;
+			return this._resources.registerBindingGroup(gpuBindGroup, desc.label);
 		}
 
 		const layoutId = this._host.objectIdentity.getObjectId(layout);
@@ -137,7 +144,7 @@ export class WebGPUBindingGroupCache {
 			cached.lastUsedFrame = this._host.frameSerial;
 			cached.lastTouchedTick = ++this._bindingGroupTouchTick;
 			this._touchBindingGroupEntry(cached);
-			return cached.group;
+			return this._acquireBindingGroupHandle(cached);
 		}
 
 		const gpuBindGroup = this._host.runValidationScope(
@@ -153,25 +160,15 @@ export class WebGPUBindingGroupCache {
 				}),
 		);
 
-		const group = {
-			label: desc.label,
-			destroy: () => {},
-			_gpuResource: gpuBindGroup,
-		} as InternalBindingGroup;
-		group.destroy = this._host.createManagedDestroy(group, {
-			label: desc.label ?? "WebGPUBindGroup",
-			dispose: () => {
-				this._releaseBindingGroupCacheEntry(cacheKey, group as InternalBindingGroup);
-			},
-		});
 		const entry: CachedBindingGroupEntry = {
 			hashKey: cacheKey,
 			layoutId,
 			signatures: signatures.map((signature) => ({ ...signature })),
-			group,
+			native: gpuBindGroup,
+			label: desc.label,
 			lastUsedFrame: this._host.frameSerial,
 			lastTouchedTick: ++this._bindingGroupTouchTick,
-			refCount: 1,
+			refCount: 0,
 		};
 		const bucket = this._bindingGroupCache.get(cacheKey);
 		if (bucket) {
@@ -182,61 +179,38 @@ export class WebGPUBindingGroupCache {
 		this._bindingGroupCacheEntryCount++;
 		this._bindingGroupLru.set(entry, true);
 		this.trim();
-		return group;
+		return this._acquireBindingGroupHandle(entry);
 	}
 
 	public mapBindingResource(resource: BindingResourceInput): GPUBindingResource {
-		const texture = tryGetWebGPUTexture(resource);
-		if (texture) {
-			return texture.view;
+		this._assertBindingObject(resource);
+		const resources = this._resources;
+		const kind = (resource as { kind?: string }).kind;
+		if (kind === "texture") return resources.getTexture(resource as IRenderTexture).view;
+		if (kind === "buffer") return { buffer: resources.getBuffer(resource as IRenderBuffer) };
+		if (kind === "sampler") return resources.getSampler(resource as ISampler);
+		if (kind) throw new Error(`Unsupported WebGPU binding resource kind: ${kind}.`);
+		const range = resource as BufferBindingRange | GPUBufferBinding;
+		if (range.buffer) {
+			if (!(range.buffer as { kind?: string }).kind) {
+				return resource as GPUBufferBinding;
+			}
+			const buffer = resources.getBuffer(range.buffer as IRenderBuffer);
+			return { buffer, offset: range.offset ?? 0, size: range.size };
 		}
-
-		if (resource && typeof (resource as GPUTexture).createView === "function") {
+		if (typeof (resource as GPUTexture).createView === "function") {
 			return (resource as GPUTexture).createView();
 		}
-
-		const buffer = tryGetWebGPUBuffer(resource);
-		if (buffer) {
-			return { buffer };
+		if (typeof (resource as GPUBuffer).destroy === "function") {
+			return { buffer: resource as GPUBuffer };
 		}
+		return resource as GPUBindingResource;
+	}
 
-		const range = resource as BufferBindingRange;
-		const rangeBuffer = range?.buffer ? tryGetWebGPUBuffer(range.buffer) : null;
-		if (rangeBuffer) {
-			return {
-				buffer: rangeBuffer,
-				offset: range.offset ?? 0,
-				size: range.size,
-			};
+	private _assertBindingObject(resource: unknown): asserts resource is object {
+		if (!resource || typeof resource !== "object" || "_gpuResource" in resource) {
+			throw new Error("Unsupported WebGPU binding resource; expected an owned facade or native input.");
 		}
-
-		if (resource && typeof resource === "object") {
-			const bufferBinding = resource as GPUBufferBinding;
-			if (
-				bufferBinding.buffer &&
-				typeof (bufferBinding.buffer as GPUBuffer).destroy === "function"
-			) {
-				return bufferBinding;
-			}
-		}
-
-		if (resource && typeof resource === "object") {
-			const handle = getWebGPUResourceHandle(resource);
-			if (handle) {
-				if (typeof (handle as GPUTexture).createView === "function") {
-					return (handle as GPUTexture).createView();
-				}
-				if (typeof (handle as GPUBuffer).destroy === "function") {
-					return { buffer: handle as GPUBuffer };
-				}
-				return handle as GPUBindingResource;
-			}
-			return resource as GPUBindingResource;
-		}
-
-		throw new Error(
-			"Unsupported WebGPU binding resource: expected texture, buffer, sampler, or GPU-backed resource object.",
-		);
 	}
 
 	public evictStale(): void {
@@ -343,14 +317,33 @@ export class WebGPUBindingGroupCache {
 		return null;
 	}
 
-	private _releaseBindingGroupCacheEntry(hashKey: bigint, group: InternalBindingGroup): void {
+	private _acquireBindingGroupHandle(entry: CachedBindingGroupEntry): IBindingGroup {
+		entry.refCount++;
+		const native = entry.native;
+		const hashKey = entry.hashKey;
+		// Each acquisition owns a reference; native cache reuse must not share destruction.
+		let managedDispose = () => {};
+		const group = this._resources.registerBindingGroup(
+			native,
+			entry.label,
+			() => managedDispose(),
+		);
+		// Manager-driven device reset must also unregister managed lifetime diagnostics.
+		managedDispose = this._host.createManagedDestroy(group, {
+			label: entry.label ?? "WebGPUBindGroup",
+			dispose: () => this._releaseBindingGroupCacheEntry(hashKey, native),
+		});
+		return group;
+	}
+
+	private _releaseBindingGroupCacheEntry(hashKey: bigint, native: GPUBindGroup): void {
 		const bucket = this._bindingGroupCache.get(hashKey);
 		if (!bucket) {
 			return;
 		}
 		for (let i = 0; i < bucket.length; i++) {
 			const candidate = bucket[i];
-			if (candidate.group === group) {
+			if (candidate.native === native) {
 				candidate.refCount = Math.max(0, candidate.refCount - 1);
 				if (candidate.refCount <= 0) {
 					this._removeBindingGroupCacheEntry(hashKey, candidate);
@@ -388,8 +381,11 @@ export class WebGPUBindingGroupCache {
 		binding: number,
 		resource: BindingResourceInput,
 	): BindingResourceSignature {
-		const texture = tryGetWebGPUTexture(resource);
-		if (texture) {
+		this._assertBindingObject(resource);
+		const resources = this._resources;
+		const kind = (resource as { kind?: string }).kind;
+		if (kind === "texture") {
+			const texture = resources.getTexture(resource as IRenderTexture);
 			return {
 				binding,
 				kind: 1,
@@ -400,8 +396,8 @@ export class WebGPUBindingGroupCache {
 			};
 		}
 
-		const buffer = tryGetWebGPUBuffer(resource);
-		if (buffer) {
+		if (kind === "buffer") {
+			const buffer = resources.getBuffer(resource as IRenderBuffer);
 			return {
 				binding,
 				kind: 2,
@@ -412,71 +408,50 @@ export class WebGPUBindingGroupCache {
 			};
 		}
 
-		const range = resource as BufferBindingRange;
-		const rangeBuffer = range?.buffer ? tryGetWebGPUBuffer(range.buffer) : null;
-		if (rangeBuffer) {
+		if (kind === "sampler") {
+			return {
+				binding,
+				kind: 5,
+				primaryId: this._host.objectIdentity.getObjectId(resources.getSampler(resource as ISampler)),
+				secondaryId: 0,
+				offset: 0,
+				size: -1,
+			};
+		}
+		if (kind) throw new Error(`Unsupported WebGPU binding resource kind: ${kind}.`);
+		const range = resource as BufferBindingRange | GPUBufferBinding;
+		if (range.buffer) {
+			const buffer = (range.buffer as { kind?: string }).kind
+				? resources.getBuffer(range.buffer as IRenderBuffer)
+				: range.buffer as GPUBuffer;
 			return {
 				binding,
 				kind: 3,
-				primaryId: this._host.objectIdentity.getObjectId(rangeBuffer),
+				primaryId: this._host.objectIdentity.getObjectId(buffer),
 				secondaryId: 0,
 				offset: Math.max(0, range.offset ?? 0),
 				size: Math.max(-1, range.size ?? -1),
 			};
 		}
 
-		if (resource && typeof resource === "object") {
-			const asBufferBinding = resource as GPUBufferBinding;
-			if (
-				asBufferBinding.buffer &&
-				typeof (asBufferBinding.buffer as GPUBuffer).destroy === "function"
-			) {
-				return {
-					binding,
-					kind: 3,
-					primaryId: this._host.objectIdentity.getObjectId(asBufferBinding.buffer),
-					secondaryId: 0,
-					offset: Math.max(0, asBufferBinding.offset ?? 0),
-					size: Math.max(-1, asBufferBinding.size ?? -1),
-				};
-			}
-
-			if (typeof (resource as GPUTexture).createView === "function") {
-				return {
-					binding,
-					kind: 4,
-					primaryId: this._host.objectIdentity.getObjectId(resource),
-					secondaryId: 0,
-					offset: 0,
-					size: -1,
-				};
-			}
-
-			const handle = getWebGPUObjectResourceHandle(resource);
-			if (handle) {
-				return {
-					binding,
-					kind: 5,
-					primaryId: this._host.objectIdentity.getObjectId(handle),
-					secondaryId: 0,
-					offset: 0,
-					size: -1,
-				};
-			}
-
+		if (typeof (resource as GPUTexture).createView === "function") {
 			return {
 				binding,
-				kind: 6,
+				kind: 4,
 				primaryId: this._host.objectIdentity.getObjectId(resource),
 				secondaryId: 0,
 				offset: 0,
 				size: -1,
 			};
 		}
-
-		throw new Error(
-			`Unsupported binding resource for binding ${binding}: expected object-backed WebGPU resource.`,
-		);
+		return {
+			binding,
+			kind: typeof (resource as GPUBuffer).destroy === "function" ? 2 : 6,
+			primaryId: this._host.objectIdentity.getObjectId(resource),
+			secondaryId: 0,
+			offset: 0,
+			size: -1,
+		};
 	}
 
 	private _getPipelineBindGroupLayout(

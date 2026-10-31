@@ -428,7 +428,12 @@ export class WebGPUCustomRenderTargetRuntime implements WebGPUFrameGraphModule {
 			createSampler: (desc) => host.createSampler(desc),
 			createShaderModule: (desc) => host.createShaderModule(desc) as any,
 			createRenderPipeline: (desc) => host.createPipeline(desc),
-			createBindingGroup: (desc) => host.createBindingGroup(desc),
+			createBindingGroup: (desc) => {
+				for (const entry of desc.entries) {
+					host.resourceManager.assertBindingResource(entry.resource);
+				}
+				return host.createBindingGroup(desc);
+			},
 		};
 	}
 }

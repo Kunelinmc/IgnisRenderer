@@ -24,6 +24,14 @@ A compute job usually follows this lifecycle:
 `ComputeRuntime` implements `IComputeRuntime`, so application code can depend
 on the interface while using the WebGPU implementation today.
 
+Buffers, textures, samplers, shader modules, pipelines, and binding groups are
+opaque renderer resources. Their readonly `kind` identifies the resource type;
+native handles and backing storage are private. Keep application source data
+separately, pass the original resource facades to bindings and commands, and
+call `destroy()` when finished. Repeated destruction is harmless. Resources
+from another backend or a retired device/context generation cannot be reused;
+create replacement resources after restoration.
+
 WebGL applications may use `WEBGL_AUXILIARY_RASTER_EXTENSION` for scheduled
 offscreen raster work. The facade supplies scope-owned resources and a safe
 encoder without exposing `WebGL2RenderingContext` or native WebGL resources.
@@ -110,8 +118,17 @@ Its binding schema describes the resources managed in bind group 0:
 - Every `key` and binding index is unique.
 - Each binding type is `"buffer"`, `"texture"`, or `"sampler"`.
 - The resources passed to `dispatch()` use the same keys and compatible types.
+- Resources and binding overrides must be live facades from the same backend.
+  Their `kind` determines the binding type; native objects and fabricated
+  resource-shaped objects are rejected.
 - The default WGSL entry point is `csMain`.
 - `workgroupSize` should match the shader's `@workgroup_size`.
+
+A `"buffer"` binding also accepts `{ buffer, offset, size }`, where `buffer`
+is an `IRenderBuffer` from the same backend and `offset` and `size` are optional.
+The range is forwarded to binding creation without changing those values. A
+range over a runtime-owned buffer retains that buffer while the dispatch is
+in flight, including when another range references the same buffer.
 
 Choose one dispatch form:
 
@@ -121,7 +138,8 @@ Choose one dispatch form:
   kernel's `workgroupSize`.
 
 `dispatch()` returns a `ComputeDispatchTicket`. Await `ticket.done` before
-reading results or releasing resources used by that dispatch.
+reading results. Calling `destroy()` on a runtime-owned resource immediately
+prevents further use; native disposal waits for dispatches that retain it.
 
 #### Readback and cleanup
 

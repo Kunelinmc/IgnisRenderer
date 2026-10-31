@@ -22,6 +22,7 @@ import {
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
 import { resolveMaterialShadowTransmittance } from "../../materials/transparency";
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
+import type { WebGPUResourceManager } from "./WebGPUResourceManager";
 import type { ICommandEncoder } from "../ICommandEncoder";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import {
@@ -29,11 +30,6 @@ import {
 	MAX_SPOT_LIGHTS,
 } from "../constants";
 import { WEBGPU_SHADOW_ATLAS_COLUMNS } from "./constants";
-import {
-	getWebGPUBuffer,
-	getWebGPURenderPipeline,
-	getWebGPUTexture,
-} from "./WebGPUResourceAccess";
 import { tryGetNativeWebGPUCommandEncoder } from "./WebGPUCommandEncoder";
 import { TextureFormat } from "../../core/TextureFormat";
 import {
@@ -104,6 +100,7 @@ const DRAW_INDEXED_INDIRECT_UINTS = 5;
  */
 export class WebGPUShadowCasterRenderer {
 	private _backend: WebGPUDeviceResourceHost;
+	private readonly _resources: WebGPUResourceManager;
 	private _geometryRegistry: WebGPUGeometryRegistry;
 	private _animationPayloads: WebGPUAnimationPayloadPool;
 	private _depthRemapMatrix = new Matrix4([
@@ -137,6 +134,7 @@ export class WebGPUShadowCasterRenderer {
 		animationPayloads: WebGPUAnimationPayloadPool
 	) {
 		this._backend = backend;
+		this._resources = backend.resourceManager;
 		this._geometryRegistry = geometryRegistry;
 		this._animationPayloads = animationPayloads;
 	}
@@ -160,10 +158,10 @@ export class WebGPUShadowCasterRenderer {
 			shadowAtlases.ensureAtlasForTileSize(requestedAtlasTileSize);
 		const transmittanceAtlasTexture = shadowAtlases.transmittanceAtlas;
 		const atlasTileSize = Math.max(1, shadowAtlases.tileSize);
-		const atlasView = getWebGPUTexture(atlasTexture).view;
+		const atlasView = this._resources.getTexture(atlasTexture).view;
 		const transmittanceAtlasView =
 			transmittanceAtlasTexture ?
-				getWebGPUTexture(transmittanceAtlasTexture).view
+				this._resources.getTexture(transmittanceAtlasTexture).view
 			:	null;
 		if (!atlasView || !transmittanceAtlasView) return;
 
@@ -321,12 +319,12 @@ export class WebGPUShadowCasterRenderer {
 	}
 
 	public onShaderRuntimeChanged(): void {
-		this._destroyManagedResource(this._shaderModule);
+		this._shaderModule?.destroy();
 		for (const pipeline of this._pipelines.values()) {
-			this._destroyManagedResource(pipeline);
+			pipeline?.destroy();
 		}
 		for (const pipeline of this._transmittancePipelines.values()) {
-			this._destroyManagedResource(pipeline);
+			pipeline?.destroy();
 		}
 		this._pipelines.clear();
 		this._transmittancePipelines.clear();
@@ -339,12 +337,12 @@ export class WebGPUShadowCasterRenderer {
 	}
 
 	public destroy(): void {
-		this._destroyManagedResource(this._shaderModule);
+		this._shaderModule?.destroy();
 		for (const pipeline of this._pipelines.values()) {
-			this._destroyManagedResource(pipeline);
+			pipeline?.destroy();
 		}
 		for (const pipeline of this._transmittancePipelines.values()) {
-			this._destroyManagedResource(pipeline);
+			pipeline?.destroy();
 		}
 		this._pipelines.clear();
 		this._transmittancePipelines.clear();
@@ -410,7 +408,7 @@ export class WebGPUShadowCasterRenderer {
 				batch.candidate.geometry.shadowLayoutKey
 			);
 			if (!pipeline) continue;
-			passEncoder.setPipeline(getWebGPURenderPipeline(pipeline));
+			passEncoder.setPipeline(this._resources.getRenderPipeline(pipeline));
 			bindShadowCandidate(passEncoder, batch.candidate);
 			passEncoder.setBindGroup(1, batch.animationBindGroup);
 			passEncoder.drawIndexed(
@@ -453,7 +451,7 @@ export class WebGPUShadowCasterRenderer {
 				batch.candidate.geometry.shadowLayoutKey
 			);
 			if (!pipeline) continue;
-			passEncoder.setPipeline(getWebGPURenderPipeline(pipeline));
+			passEncoder.setPipeline(this._resources.getRenderPipeline(pipeline));
 			bindShadowCandidate(passEncoder, batch.candidate);
 			passEncoder.setBindGroup(1, batch.animationBindGroup);
 			passEncoder.drawIndexed(
@@ -729,9 +727,9 @@ export class WebGPUShadowCasterRenderer {
 		);
 		const vertexBindings = geometry.shadowVertexBindings.map((binding) => ({
 			slot: binding.slot,
-			buffer: getWebGPUBuffer(binding.buffer),
+			buffer: this._resources.getBuffer(binding.buffer),
 		}));
-		const indexBuffer = getWebGPUBuffer(geometry.indexBuffer);
+		const indexBuffer = this._resources.getBuffer(geometry.indexBuffer);
 		return {
 			submission,
 			geometry,
@@ -809,8 +807,8 @@ export class WebGPUShadowCasterRenderer {
 
 		const morphPositionBuffer =
 			geometry.morphPositionBuffer ?
-				getWebGPUBuffer(geometry.morphPositionBuffer)
-			: getWebGPUBuffer(this._animationPayloads.getFallbackStorageBuffer());
+				this._resources.getBuffer(geometry.morphPositionBuffer)
+			: this._resources.getBuffer(this._animationPayloads.getFallbackStorageBuffer());
 		let needsRebind = entry.payloadGeneration !== payload.generation;
 		if (entry.morphPositionBuffer !== morphPositionBuffer) {
 			entry.morphPositionBuffer = morphPositionBuffer;
@@ -824,15 +822,15 @@ export class WebGPUShadowCasterRenderer {
 				entries: [
 					{
 						binding: 0,
-						resource: { buffer: getWebGPUBuffer(payload.paramsBuffer) },
+						resource: { buffer: this._resources.getBuffer(payload.paramsBuffer) },
 					},
 					{
 						binding: 1,
-						resource: { buffer: getWebGPUBuffer(payload.jointMatricesBuffer) },
+						resource: { buffer: this._resources.getBuffer(payload.jointMatricesBuffer) },
 					},
 					{
 						binding: 2,
-						resource: { buffer: getWebGPUBuffer(payload.morphWeightsBuffer) },
+						resource: { buffer: this._resources.getBuffer(payload.morphWeightsBuffer) },
 					},
 					{
 						binding: 3,
@@ -1177,14 +1175,14 @@ export class WebGPUShadowCasterRenderer {
 
 		if (!this._staticAnimationBindGroup && this._animationBindGroupLayout) {
 			const fallback = this._animationPayloads.getStaticShadowPayload();
-			const fallbackStorage = getWebGPUBuffer(fallback.jointMatricesBuffer);
+			const fallbackStorage = this._resources.getBuffer(fallback.jointMatricesBuffer);
 			this._staticAnimationBindGroup = device.createBindGroup({
 				label: "WebGPUShadowStaticAnimationBinding",
 				layout: this._animationBindGroupLayout,
 				entries: [
 					{
 						binding: 0,
-						resource: { buffer: getWebGPUBuffer(fallback.paramsBuffer) },
+						resource: { buffer: this._resources.getBuffer(fallback.paramsBuffer) },
 					},
 					{ binding: 1, resource: { buffer: fallbackStorage } },
 					{ binding: 2, resource: { buffer: fallbackStorage } },
@@ -1212,13 +1210,6 @@ export class WebGPUShadowCasterRenderer {
 			);
 		}
 		return queue;
-	}
-
-	private _destroyManagedResource(resource: unknown): void {
-		const destroyFn = (resource as { destroy?: () => void } | null)?.destroy;
-		if (typeof destroyFn === "function") {
-			destroyFn.call(resource);
-		}
 	}
 
 	private _trimAnimationResources(): void {

@@ -18,7 +18,6 @@ import {
 	createBaselineFramePacketSet,
 	type PreparedFramePacketSet,
 } from "../../pipeline/FramePackets";
-import type { WebGPUResourceManager } from "./WebGPUResourceManager";
 import type { IWebGPUComputeFacade } from "./ComputeFacade";
 import {
 	ANIMATION_JOINT_MATRICES_KEY,
@@ -136,7 +135,6 @@ class WebGPUFrameResourceScopeHandle implements WebGPUFrameResourceScopeContract
 /** @internal WebGPU backend-private composition and shared-resource owner. */
 export class WebGPUFrameServiceOwner {
 	private _backend: WebGPUDeviceResourceHost;
-	private _resourceManager: WebGPUResourceManager;
 	private _computeFacade: IWebGPUComputeFacade;
 	private _layouts: ReturnType<typeof createWebGPUPipelineLayouts>;
 	private readonly _drawResources: WebGPUDrawResourceCache;
@@ -164,11 +162,9 @@ export class WebGPUFrameServiceOwner {
 
 	constructor(
 		backend: WebGPUDeviceResourceHost,
-		resourceManager: WebGPUResourceManager,
 		computeFacade: IWebGPUComputeFacade,
 	) {
 		this._backend = backend;
-		this._resourceManager = resourceManager;
 		this._computeFacade = computeFacade;
 		const device = backend.device;
 		if (!device) {
@@ -176,7 +172,7 @@ export class WebGPUFrameServiceOwner {
 		}
 		this._layouts = createWebGPUPipelineLayouts(device);
 		this._geometryRegistry = new WebGPUGeometryRegistry(backend);
-		this._textureRegistry = new WebGPUTextureRegistry(backend, resourceManager);
+		this._textureRegistry = new WebGPUTextureRegistry(backend);
 		this._scenePipelines = new WebGPUScenePipelineResources(
 			backend,
 			this._layouts,
@@ -879,7 +875,6 @@ export class WebGPUFrameServiceOwner {
 		scope = {
 			frameBindings: new WebGPUFrameBindingCache(
 				this._backend,
-				this._resourceManager,
 				this._layouts,
 				this._textureRegistry,
 				this._shadowRuntime,

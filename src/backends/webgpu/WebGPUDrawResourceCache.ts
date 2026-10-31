@@ -1,3 +1,4 @@
+import type { WebGPUResourceManager } from "./WebGPUResourceManager";
 import { Matrix4 } from "../../maths/Matrix4";
 import type { Matrix3Arr, Matrix4Arr } from "../../maths/types";
 import type { Material } from "../../materials/Material";
@@ -115,6 +116,7 @@ const FALLBACK_UNIFORM_DATA: FloatBuffer = new Float32Array(4);
 
 /** @internal WebGPU frame services cache draw and material records; use Renderer for drawing. */
 export class WebGPUDrawResourceCache {
+	private readonly _resources: WebGPUResourceManager;
 	private readonly _draws = new Map<string | IRenderBuffer, DrawEntry>();
 	private _materials = new WeakMap<Material, MaterialState>();
 	// Track allocated records for teardown without a second material lookup cache.
@@ -139,6 +141,7 @@ export class WebGPUDrawResourceCache {
 		private readonly _animationPayloads: WebGPUAnimationPayloadPool,
 		private readonly _textures: WebGPUTextureRegistry,
 	) {
+		this._resources = _backend.resourceManager;
 		const alignment =
 			_backend.device?.limits?.minUniformBufferOffsetAlignment ?? 256;
 		this._objectSlotStride =
@@ -412,7 +415,7 @@ export class WebGPUDrawResourceCache {
 		];
 		const cached = draw.depth;
 		if (cached && resources.every(
-			(resource, index) => (resource._gpuResource ?? resource) === cached.handles[index] &&
+			(resource, index) => this._resources.getBuffer(resource) === cached.handles[index] &&
 				resource.size === cached.sizes[index],
 		)) return { group: cached.group, dynamicOffsets: objectOffsets };
 		const group = this._backend.createBindingGroup({
@@ -431,7 +434,7 @@ export class WebGPUDrawResourceCache {
 		if (cached) this._retiredBindings.push(cached);
 		draw.depth = {
 			group,
-			handles: resources.map((resource) => resource._gpuResource ?? resource),
+			handles: resources.map((resource) => this._resources.getBuffer(resource)),
 			sizes: resources.map((resource) => resource.size),
 		};
 		return { group, dynamicOffsets: objectOffsets };
@@ -476,7 +479,7 @@ export class WebGPUDrawResourceCache {
 	}
 
 	private _destroyBinding(entry: BindingEntry): void {
-		(entry.group as { destroy?: () => void }).destroy?.();
+		entry.group.destroy();
 		if ("material" in entry) this.releaseMaterial(entry.material);
 	}
 

@@ -11,7 +11,7 @@ import {
 } from "../types";
 import { ceilDiv, finiteOr } from "../../maths/Misc";
 import { ShaderSource } from "../../shaders/ShaderSource";
-import type { IWebGPUComputeFacade } from "./ComputeFacade";
+import { createWebGPUInternalBindingGroup, type IWebGPUComputeFacade } from "./ComputeFacade";
 import { WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE } from "./constants";
 
 const DENOISE_PARAM_FLOATS = 12;
@@ -358,7 +358,7 @@ export class WebGPUDenoiser {
 
 	public invalidateBindings(): void {
 		for (const binding of this._bindings.values()) {
-			this._destroy(binding.group);
+			this._destroyResource(binding.group);
 		}
 		this._bindings.clear();
 		for (const scope of this._scopes.values()) {
@@ -369,15 +369,15 @@ export class WebGPUDenoiser {
 
 	public invalidateShaderResources(): void {
 		this.invalidateBindings();
-		this._destroy(this._horizontalPipeline);
-		this._destroy(this._verticalPipeline);
-		this._destroy(this._module);
+		this._destroyResource(this._horizontalPipeline);
+		this._destroyResource(this._verticalPipeline);
+		this._destroyResource(this._module);
 		this._horizontalPipeline = null;
 		this._verticalPipeline = null;
 		this._module = null;
 		for (const scope of this._scopes.values()) {
 			for (const params of scope.params) {
-				this._destroy(params);
+				this._destroyResource(params);
 			}
 		}
 		this._scopes.clear();
@@ -480,9 +480,9 @@ export class WebGPUDenoiser {
 			return cached.group;
 		}
 		if (cached) {
-			this._destroy(cached.group);
+			this._destroyResource(cached.group);
 		}
-		const group = this._compute.createBindingGroup({
+		const group = createWebGPUInternalBindingGroup(this._compute, {
 			pipeline,
 			layoutIndex: 0,
 			entries: entries as Array<{ binding: number; resource: any }>,
@@ -540,11 +540,11 @@ export class WebGPUDenoiser {
 		}
 	}
 
-	private _destroy(resource: unknown): void {
+	private _destroyResource(resource: { destroy(): void } | null | undefined): void {
 		try {
-			(resource as { destroy?: () => void } | null)?.destroy?.();
+			resource?.destroy();
 		} catch {
-			/* Device loss may already release resources. */
+			// Device loss or reset may already have released this owner's resource.
 		}
 	}
 }

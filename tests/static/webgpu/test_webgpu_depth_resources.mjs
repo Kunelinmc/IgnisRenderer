@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+
+import { createWebGPUResourceManager } from "../../helpers/fakes.mjs";
 import { AlphaMode } from "../../../src/materials/Material.ts";
 import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
 import { Texture } from "../../../src/core/Texture.ts";
@@ -13,10 +15,12 @@ import { WebGPUDepthMaterialResources } from "../../../src/backends/webgpu/WebGP
 
 function backendStub() {
 	return {
+		resourceManager: createWebGPUResourceManager(),
 		buffers: [], groups: [], writes: [],
 		createBuffer(desc) {
-			const buffer = { ...desc, _gpuResource: {}, destroys: 0,
-				destroy() { this.destroys++; } };
+			const buffer = this.resourceManager.registerBuffer({}, { size: desc.size },
+				() => buffer.destroys++);
+			Object.assign(buffer, { ...desc, destroys: 0 });
 			this.buffers.push(buffer);
 			return buffer;
 		},
@@ -24,26 +28,56 @@ function backendStub() {
 			this.writes.push({ buffer, data: new Float32Array(data), offset });
 		},
 		createBindingGroup(desc) {
-			const group = { desc, destroys: 0, destroy() { this.destroys++; } };
+			const group = this.resourceManager.registerBindingGroup({ desc }, desc.label,
+				() => group.destroys++);
+			Object.assign(group, { desc, destroys: 0 });
 			this.groups.push(group);
 			return group;
 		},
 	};
 }
+function bufferResource(store, size = 64, native = {}) {
+	return store.registerBuffer(native, { size });
+}
+function textureResource(store, metadata = {}) {
+	return store.registerTexture({ texture: {}, view: {} },
+		{ width: 1, height: 1, ...metadata });
+}
 const textures = {
-	async getTextureForSlotAsync() { return {}; },
-	getSamplerForTexture() { return {}; },
+	async getTextureForSlotAsync() { return textureResource(createWebGPUResourceManager()); },
+	getSamplerForTexture() { return createWebGPUResourceManager().registerSampler({}); },
 };
 const layouts = {
 	depthMaterialBindGroupLayout: {}, depthModelBindGroupLayout: {},
 	modelBindGroupLayouts: { pbr: {}, flat: {}, phong: {}, unlit: {} },
 };
 
+async function testDepthResourcesRejectForeignRegistryResources() {
+	for (const foreignKind of ["texture", "sampler"]) {
+		const backend = backendStub();
+		const foreign = createWebGPUResourceManager();
+		const texture = textureResource(foreignKind === "texture" ? foreign : backend.resourceManager);
+		const sampler = (foreignKind === "sampler" ? foreign : backend.resourceManager)
+			.registerSampler({});
+		const registry = {
+			async getTextureForSlotAsync() { return texture; },
+			getSamplerForTexture() { return sampler; },
+		};
+		const cache = new WebGPUDepthMaterialResources(backend, layouts, registry);
+		await assert.rejects(() => cache.resolve(new PBRMaterial({ alphaMode: AlphaMode.Mask })),
+			/owned|owner|backend/i, `foreign ${foreignKind} must not enter depth bindings`);
+		assert.equal(backend.buffers.length, 0, "reject before allocating the alpha uniform buffer");
+		assert.equal(backend.groups.length, 0);
+		assert.equal(backend.writes.length, 0);
+		cache.destroy();
+	}
+}
+
 async function testDepthProjectionAndRetirement() {
 	const backend = backendStub();
-	const white = { _gpuResource: {} };
-	let nativeTexture = { _gpuResource: {} };
-	let nativeSampler = { _gpuResource: {} };
+	const white = textureResource(backend.resourceManager);
+	let nativeTexture = textureResource(backend.resourceManager);
+	let nativeSampler = backend.resourceManager.registerSampler({});
 	const calls = [];
 	const registry = {
 		async getTextureForSlotAsync(map, slot) {
@@ -76,10 +110,10 @@ async function testDepthProjectionAndRetirement() {
 	const alphaEdit = await cache.resolve(material);
 	assert.notEqual(alphaEdit.binding, first.binding);
 	assert.equal(first.binding.destroys, 0, "prepared old binding remains alive in its frame");
-	nativeTexture._gpuResource = {};
+	nativeTexture = textureResource(backend.resourceManager);
 	const nativeEdit = await cache.resolve(material);
 	assert.notEqual(nativeEdit.binding, alphaEdit.binding);
-	nativeSampler = { _gpuResource: {} };
+	nativeSampler = backend.resourceManager.registerSampler({});
 	const samplerEdit = await cache.resolve(material);
 	assert.notEqual(samplerEdit.binding, nativeEdit.binding);
 	map.rotation = 0.8;
@@ -97,7 +131,7 @@ async function testDepthProjectionAndRetirement() {
 async function testObjectSharingAndDepthBindings() {
 	for (const depthFirst of [false, true]) {
 		const backend = backendStub();
-		const fallback = { _gpuResource: {} };
+		const fallback = bufferResource(backend.resourceManager);
 		const pool = { getFallbackStorageBuffer: () => fallback };
 		const animation = { generation: 1, paramsBuffer: fallback,
 			jointMatricesBuffer: fallback, morphWeightsBuffer: fallback };
@@ -133,7 +167,8 @@ async function testObjectSharingAndDepthBindings() {
 
 function testStaticBorrowingAndNativeInvalidation() {
 	const backend = backendStub();
-	const borrowed = { _gpuResource: {}, size: 64, destroy() { throw new Error("borrowed"); } };
+	const borrowed = bufferResource(backend.resourceManager);
+	borrowed.destroy = () => { throw new Error("borrowed"); };
 	const animation = { generation: 1, paramsBuffer: borrowed,
 		jointMatricesBuffer: borrowed, morphWeightsBuffer: borrowed };
 	const cache = new WebGPUDrawResourceCache(backend, layouts,
@@ -147,7 +182,8 @@ function testStaticBorrowingAndNativeInvalidation() {
 	animation.generation++;
 	assert.equal(cache.getDepthBinding({ submission: { id: "a" } }, animation, null, state).group,
 		first.group, "generation changes do not change the buffers bound by a depth draw");
-	borrowed._gpuResource = {};
+	// Replace the borrowed allocation through its owning resource facade.
+	state.objectBuffer = bufferResource(backend.resourceManager);
 	const next = cache.getDepthBinding({ submission: { id: "a" } }, animation, null, state);
 	assert.notEqual(next.group, first.group);
 	assert.equal(first.group.destroys, 0);
@@ -159,7 +195,7 @@ function testStaticBorrowingAndNativeInvalidation() {
 
 async function testSharedObjectFrameHistory() {
 	const backend = backendStub();
-	const fallback = {};
+	const fallback = bufferResource(backend.resourceManager);
 	const animation = { generation: 1, paramsBuffer: fallback,
 		jointMatricesBuffer: fallback, morphWeightsBuffer: fallback };
 	const cache = new WebGPUDrawResourceCache(backend, layouts,
@@ -209,7 +245,7 @@ async function testSharedObjectFrameHistory() {
 
 function testObjectUploadRetryPreservesFrameHistory() {
 	const backend = backendStub();
-	const fallback = {};
+	const fallback = bufferResource(backend.resourceManager);
 	const animation = { generation: 0, paramsBuffer: fallback,
 		jointMatricesBuffer: fallback, morphWeightsBuffer: fallback };
 	const cache = new WebGPUDrawResourceCache(backend, layouts,
@@ -235,8 +271,8 @@ function testObjectUploadRetryPreservesFrameHistory() {
 
 async function testConcurrentResolutionAndAsyncDestruction() {
 	const backend = backendStub();
-	const nativeTexture = { _gpuResource: {} };
-	const nativeSampler = { _gpuResource: {} };
+	const nativeTexture = textureResource(backend.resourceManager);
+	const nativeSampler = backend.resourceManager.registerSampler({});
 	let releaseTexture;
 	let uploaded = new Promise((resolve) => { releaseTexture = resolve; });
 	const registry = {
@@ -290,15 +326,17 @@ async function testConcurrentResolutionAndAsyncDestruction() {
 
 function testReadOnlyTextureBindingValidation() {
 	let allocations = 0;
+	const resourceManager = createWebGPUResourceManager({ queue: { writeTexture() {} } });
 	const backend = {
-		createSampler() { allocations++; return { _gpuResource: {} }; },
-		createTexture(desc) { allocations++; return { ...desc, _gpuResource: {}, destroy() {} }; },
+		resourceManager,
+		createSampler() { allocations++; return resourceManager.registerSampler({}); },
+		createTexture(desc) { allocations++; return textureResource(resourceManager, desc); },
 	};
-	const registry = new WebGPUTextureRegistry(backend, { writeTexture() {} });
+	const registry = new WebGPUTextureRegistry(backend);
 	const map = new Texture();
-	const resource = {
-		width: map.width, height: map.height, format: map.format, _gpuResource: {},
-	};
+	const resource = textureResource(resourceManager, {
+		width: map.width, height: map.height, format: map.format,
+	});
 	registry.registerExternalTexture(map, resource);
 	const sampler = registry.getSamplerForTexture(map);
 	const initialAllocations = allocations;
@@ -309,7 +347,9 @@ function testReadOnlyTextureBindingValidation() {
 	assert.equal(registry.isTextureBindingCurrent(map, resource, sampler), true);
 	map.version++;
 	assert.equal(registry.isTextureBindingCurrent(map, resource, sampler), false);
-	const replacement = { ...resource, _gpuResource: {} };
+	const replacement = textureResource(resourceManager, {
+		width: resource.width, height: resource.height, format: resource.format,
+	});
 	registry.registerExternalTexture(map, replacement);
 	assert.equal(registry.isTextureBindingCurrent(map, resource, sampler), false);
 	assert.equal(registry.isTextureBindingCurrent(map, replacement, sampler), true);
@@ -322,7 +362,7 @@ function testReadOnlyTextureBindingValidation() {
 
 async function testActiveFrameDrawRecordsSurviveBudgetOverflow() {
 	const backend = backendStub();
-	const fallback = {};
+	const fallback = bufferResource(backend.resourceManager);
 	const pool = { getFallbackStorageBuffer: () => fallback };
 	const cache = new WebGPUDrawResourceCache(backend, layouts, pool, textures);
 	const animation = { generation: 1, paramsBuffer: fallback,
@@ -355,7 +395,7 @@ async function testActiveFrameDrawRecordsSurviveBudgetOverflow() {
 async function testEitherPassRetainsTheWholeDrawRecord() {
 	for (const useDepth of [false, true]) {
 		const backend = backendStub();
-		const fallback = {};
+		const fallback = bufferResource(backend.resourceManager);
 		const animation = { generation: 1, paramsBuffer: fallback,
 			jointMatricesBuffer: fallback, morphWeightsBuffer: fallback };
 		const cache = new WebGPUDrawResourceCache(backend, layouts,
@@ -387,7 +427,7 @@ async function testEitherPassRetainsTheWholeDrawRecord() {
 
 async function testSceneSlotsReplaceObsoleteBindingsWithoutLosingObjectHistory() {
 	const backend = backendStub();
-	const fallback = {};
+	const fallback = bufferResource(backend.resourceManager);
 	const animation = { generation: 1, paramsBuffer: fallback,
 		jointMatricesBuffer: fallback, morphWeightsBuffer: fallback };
 	const cache = new WebGPUDrawResourceCache(backend, layouts,
@@ -430,9 +470,9 @@ async function testSceneSlotsReplaceObsoleteBindingsWithoutLosingObjectHistory()
 
 function testStaticArenaOwnsTheDepthBindingSlot() {
 	const backend = backendStub();
-	const arena = { size: 64, _gpuResource: {} };
-	const firstObject = { size: 208, _gpuResource: {} };
-	const secondObject = { size: 208, _gpuResource: {} };
+	const arena = bufferResource(backend.resourceManager);
+	const firstObject = bufferResource(backend.resourceManager, 208);
+	const secondObject = bufferResource(backend.resourceManager, 208);
 	const animation = { generation: 0, paramsBuffer: arena,
 		jointMatricesBuffer: arena, morphWeightsBuffer: arena };
 	const cache = new WebGPUDrawResourceCache(backend, layouts,
@@ -444,7 +484,9 @@ function testStaticArenaOwnsTheDepthBindingSlot() {
 	const replacement = cache.getDepthBinding(packet, animation, null,
 		{ instanceBuffer: arena, objectBuffer: secondObject });
 	assert.notEqual(first.group, replacement.group);
-	const alias = { ...secondObject };
+	const alias = bufferResource(
+		backend.resourceManager, 208, backend.resourceManager.getBuffer(secondObject),
+	);
 	assert.equal(cache.getDepthBinding(packet, animation, null,
 		{ instanceBuffer: arena, objectBuffer: alias }).group, replacement.group,
 		"another wrapper for the same native buffer does not change a binding");
@@ -459,7 +501,7 @@ function testStaticArenaOwnsTheDepthBindingSlot() {
 
 async function testObjectNonHistoricalFieldsUsePackedValues() {
 	const backend = backendStub();
-	const fallback = {};
+	const fallback = bufferResource(backend.resourceManager);
 	const animation = { generation: 0, paramsBuffer: fallback,
 		jointMatricesBuffer: fallback, morphWeightsBuffer: fallback };
 	const cache = new WebGPUDrawResourceCache(backend, layouts,
@@ -486,6 +528,7 @@ async function testObjectNonHistoricalFieldsUsePackedValues() {
 }
 
 await testDepthProjectionAndRetirement();
+await testDepthResourcesRejectForeignRegistryResources();
 testObjectUploadRetryPreservesFrameHistory();
 await testObjectSharingAndDepthBindings();
 testStaticBorrowingAndNativeInvalidation();

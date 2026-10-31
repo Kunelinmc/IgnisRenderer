@@ -4,6 +4,24 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
 
 ## Contract
 
+### Opaque renderer resources
+
+- `IRenderBuffer`, `IRenderTexture`, `ISampler`, `IShaderModule`,
+  `IRenderPipeline`, `IComputePipeline`, and `IBindingGroup` must expose only
+  backend-neutral metadata, a resource-specific readonly `kind`, and explicit
+  `destroy()` behavior. They must not carry native handles or CPU storage fields.
+- Native state must reside in typed, backend-instance-owned resource owners.
+  Resource resolution must reject foreign, destroyed, forged, and retired
+  device or context generation resources before recording native commands.
+- Resource `destroy()` must be idempotent. Backend teardown must explicitly
+  release live owned state; weak references must not replace resource disposal.
+  Shared native allocations must retain their existing cache ownership rules.
+- `BindingResource` and `BufferBindingRange` must accept renderer resource
+  facades only. Native binding inputs must remain in backend-private contracts.
+- Backend caches must track the actual native allocation and texture view where
+  relevant. Distinct facades that share one native allocation must preserve
+  native cache identity without exposing that allocation publicly.
+
 ### Renderer and backend lifecycle
 
 #### 1. Frame Scheduling & Loop (`Renderer`)

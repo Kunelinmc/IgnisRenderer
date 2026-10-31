@@ -87,6 +87,20 @@ Native handles, resource lifetime, device loss, context restoration, and
 presentation stay within the backend. Optional capabilities cross the boundary
 through typed extensions rather than native resource forwarding.
 
+Renderer resources are opaque facades with portable metadata and distinct
+resource kinds. Each backend keeps native allocations and binding state in its
+own typed weak maps. Command encoders, upload services, binding caches, and
+backend-native pass owners resolve facades through their own resource owner.
+Other callers pass facades through the existing renderer operations. Public
+resource objects do not transport native state. Existing allocation owners and
+caches retain responsibility for disposal and shared lifetimes.
+
+WebGPU uses one `WebGPUResourceManager` for native allocation, registration,
+resolution, uploads, and device-generation retirement. `create*()` operations
+allocate resources; `register*()` operations record existing native objects.
+Pipeline and binding caches register their acquired references with that manager
+while retaining their own cache policy and reference counts.
+
 ## Simulation and Workers
 
 `MeshAsset` holds shared primitive geometry and morph target deltas.

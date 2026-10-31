@@ -8,6 +8,7 @@ import {
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
 import type { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
+import type { WebGPUResourceManager } from "./WebGPUResourceManager";
 
 /** @internal Immutable alpha-only bindings owned by WebGPU depth preparation. */
 export interface WebGPUResolvedDepthMaterialSnapshot {
@@ -22,8 +23,8 @@ interface DepthMaterialEntry {
 	map: Texture | null;
 	texture: IRenderTexture;
 	sampler: ISampler;
-	textureHandle: unknown;
-	samplerHandle: unknown;
+	textureHandle: GPUTexture;
+	samplerHandle: GPUSampler;
 	lastUsedFrame: number;
 }
 
@@ -33,6 +34,7 @@ const NEUTRAL_PROJECTION = new Float32Array([1, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0]
 
 /** @internal Owns alpha coverage resources; scene materials remain application-owned. */
 export class WebGPUDepthMaterialResources {
+	private readonly _resources: WebGPUResourceManager;
 	private _entries = new Map<Material, DepthMaterialEntry>();
 	private _neutral: DepthMaterialEntry | null = null;
 	private _projections = new WeakMap<Material, Float32Array<ArrayBuffer>>();
@@ -46,7 +48,9 @@ export class WebGPUDepthMaterialResources {
 		private readonly _backend: WebGPUDeviceResourceHost,
 		private readonly _layouts: WebGPUPipelineLayouts,
 		private readonly _textures: WebGPUTextureRegistry,
-	) {}
+	) {
+		this._resources = _backend.resourceManager;
+	}
 
 	public beginFrame(): void {
 		if (this._destroyed) return;
@@ -69,8 +73,8 @@ export class WebGPUDepthMaterialResources {
 		const texture = await this._textures.getTextureForSlotAsync(map, 0);
 		if (this._destroyed) throw new Error("WebGPU depth material resources are destroyed.");
 		const sampler = this._textures.getSamplerForTexture(map);
-		const textureHandle = texture._gpuResource;
-		const samplerHandle = sampler._gpuResource;
+		const textureHandle = this._resources.getTexture(texture).texture;
+		const samplerHandle = this._resources.getSampler(sampler);
 		const cached = masked ? this._entries.get(material) : this._neutral;
 		if (cached && equalProjection(cached.projection, data) && cached.texture === texture &&
 			cached.map === map &&
@@ -132,8 +136,8 @@ export class WebGPUDepthMaterialResources {
 			this._fillProjectionScratch(material, map);
 			if (!equalProjection(entry.projection, this._projectionScratch)) return false;
 		}
-		return entry.textureHandle === entry.texture._gpuResource &&
-			entry.samplerHandle === entry.sampler._gpuResource &&
+		return entry.textureHandle === this._resources.tryGetTexture(entry.texture)?.texture &&
+			entry.samplerHandle === this._resources.tryGetSampler(entry.sampler) &&
 			this._textures.isTextureBindingCurrent(map, entry.texture, entry.sampler);
 	}
 
@@ -184,7 +188,7 @@ export class WebGPUDepthMaterialResources {
 	}
 
 	private _destroyEntry(entry: DepthMaterialEntry): void {
-		(entry.snapshot.binding as { destroy?: () => void }).destroy?.();
+		entry.snapshot.binding.destroy();
 		entry.buffer.destroy();
 	}
 }

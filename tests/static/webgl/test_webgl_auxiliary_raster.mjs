@@ -9,6 +9,7 @@ import {
 import {
 	WebGLScopedRasterEncoder,
 } from "../../../src/backends/webgl/WebGLCustomRenderTargetRuntime.ts";
+import { WebGLResourceStore } from "../../../src/backends/webgl/WebGLResourceStore.ts";
 
 function testTypedUniformArraysAndClosedScope() {
 	const calls = [];
@@ -21,8 +22,11 @@ function testTypedUniformArraysAndClosedScope() {
 		viewport: (...values) => calls.push(["viewport", ...values]),
 	};
 	const scope = { active: true };
-	const encoder = new WebGLScopedRasterEncoder(gl, scope);
-	encoder._pipeline = { _webglProgram: {}, _webglDesc: {} };
+	const resources = new WebGLResourceStore();
+	const encoder = new WebGLScopedRasterEncoder(gl, scope, resources);
+	encoder._pipeline = resources.markScope(
+		resources.createPipeline(undefined, { program: {}, desc: {} }, () => {}), scope,
+	);
 	encoder.setUniforms([
 		{ name: "uWeights", type: "f32", value: new Float32Array([1, 2]) },
 		{ name: "uPairs", type: "vec2i", value: new Int32Array([1, 2, 3, 4]) },
@@ -63,17 +67,92 @@ function testAuxiliaryUploadPreservesSrgbStorageAndAlpha() {
 	};
 	const runtime = new WebGLAuxiliaryRasterRuntime(gl, {}, {});
 	const source = new Uint8Array([128, 64, 32, 127]);
+	const texture = runtime._resources.createTexture({
+		width: 1, height: 1, format: TextureFormat.RGBA8UnormSrgb,
+	}, { texture: {}, maxMipLevel: 0 }, () => {});
 	runtime._writeTexture(
-		{ _gpuResource: {}, format: TextureFormat.RGBA8UnormSrgb },
+		texture,
 		source, {}, { width: 1, height: 1 }
 	);
 	assert.equal(uploads[0][2], gl.SRGB8_ALPHA8);
 	assert.deepEqual(Array.from(uploads[0][8]), [128, 64, 32, 127]);
 	delete gl.SRGB8_ALPHA8;
 	assert.throws(() => runtime._writeTexture(
-		{ _gpuResource: {}, format: TextureFormat.RGBA8UnormSrgb },
+		texture,
 		source, {}, { width: 1, height: 1 }
 	), /sRGB/);
+}
+
+async function testPrivateScopeOwnershipAndLifetime() {
+	const deleted = [];
+	const gl = {
+		ARRAY_BUFFER: 1, ELEMENT_ARRAY_BUFFER: 2, STATIC_DRAW: 3,
+		createBuffer: () => ({}), bindBuffer() {}, bufferData() {},
+		deleteBuffer: (buffer) => deleted.push(buffer),
+	};
+	const runtime = new WebGLAuxiliaryRasterRuntime(gl, {}, {});
+	const foreignRuntime = new WebGLAuxiliaryRasterRuntime(gl, {}, {});
+	const foreign = foreignRuntime._resources.createBuffer(4, {}, () => {});
+	let previous;
+	await runtime.execute(1, new AbortController().signal, ({ resources, encoder }) => {
+		previous = resources.createBuffer({ size: 4, usage: 1 });
+		assert.equal(previous.kind, "buffer");
+		assert.equal(Object.values(previous).some((value) => value === foreign), false);
+		assert.throws(() => encoder.setVertexBuffer(0, foreign), /another owner/);
+		assert.throws(() => encoder.setVertexBuffer(0, { ...previous }), /another owner/);
+		assert.throws(() => resources.createBindingGroup({
+			entries: [{ binding: 0, resource: foreign }],
+		}), /another owner/);
+		encoder.setVertexBuffer(0, previous);
+		resources.createBindingGroup({ entries: [{ binding: 0,
+			resource: { buffer: previous, offset: 0, size: 4 },
+		}] });
+		previous.destroy();
+		previous.destroy();
+		assert.throws(() => encoder.setVertexBuffer(0, previous), /destroyed|unavailable/);
+	});
+	assert.equal(deleted.length, 1, "scope cleanup must not delete an explicitly released buffer twice");
+	await runtime.execute(1, new AbortController().signal, ({ encoder }) => {
+		assert.throws(() => encoder.setVertexBuffer(0, previous), /destroyed|unavailable/);
+	});
+	runtime.destroy();
+	foreignRuntime.destroy();
+}
+
+async function testCachedProgramsUsePrivateShaderSourcesAndScopedAliases() {
+	let createdPrograms = 0;
+	let deletedPrograms = 0;
+	const gl = {
+		VERTEX_SHADER: 1, FRAGMENT_SHADER: 2, COMPILE_STATUS: 3, LINK_STATUS: 4,
+		createShader: () => ({}), shaderSource() {}, compileShader() {},
+		getShaderParameter: () => true, deleteShader() {},
+		createProgram: () => { createdPrograms++; return {}; },
+		attachShader() {}, linkProgram() {}, getProgramParameter: () => true,
+		deleteProgram: () => { deletedPrograms++; },
+	};
+	const compiler = { revision: 0, compile: (request) => request };
+	const runtime = new WebGLAuxiliaryRasterRuntime(gl, { revision: 0 }, compiler);
+	const handles = [];
+	const execute = (code) => runtime.execute(1, new AbortController().signal, ({ resources }) => {
+		const module = resources.createShaderModule({ language: "glsl", stage: "vertex", code });
+		const pipeline = resources.createRenderPipeline({ vertex: { module, entryPoint: "main" } });
+		handles.push(pipeline);
+		assert.deepEqual(Object.keys(pipeline).sort(), ["destroy", "kind", "label"]);
+	});
+	await execute("void main() { gl_Position = vec4(0.0); }");
+	await execute("void main() { gl_Position = vec4(0.0); }");
+	assert.equal(createdPrograms, 1, "equivalent private shader sources reuse the native program");
+	assert.notEqual(handles[0], handles[1], "each scope receives its own opaque pipeline handle");
+	assert.equal(deletedPrograms, 0, "scope alias cleanup must retain the cached native program");
+	await execute("void main() { gl_Position = vec4(1.0); }");
+	assert.equal(createdPrograms, 2, "changed private shader source must produce a new program");
+	compiler.revision++;
+	await execute("void main() { gl_Position = vec4(1.0); }");
+	assert.equal(createdPrograms, 3);
+	assert.equal(deletedPrograms, 2, "compiler invalidation releases each cached program once");
+	runtime.destroy();
+	runtime.destroy();
+	assert.equal(deletedPrograms, 3);
 }
 
 function createServices(id, calls, extensions) {
@@ -147,6 +226,8 @@ async function testRequestAwareAvailabilityAndRetainedExecution() {
 
 testAuxiliaryUploadPreservesSrgbStorageAndAlpha();
 testTypedUniformArraysAndClosedScope();
+await testPrivateScopeOwnershipAndLifetime();
+await testCachedProgramsUsePrivateShaderSourcesAndScopedAliases();
 await testRequestAwareAvailabilityAndRetainedExecution();
 
 console.log("WebGL auxiliary raster tests passed");

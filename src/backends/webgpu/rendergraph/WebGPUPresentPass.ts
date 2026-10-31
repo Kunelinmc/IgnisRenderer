@@ -69,7 +69,7 @@ export class WebGPUPresentPass {
 		this._host.writeBuffer(this._params, this._paramData);
 
 		if (!this._binding || this._bindingSource !== request.source) {
-			this._destroyBindingGroup(this._binding);
+			this._binding?.destroy();
 			this._binding = this._host.createBindingGroup({
 				pipeline: this._pipeline,
 				layoutIndex: 0,
@@ -123,16 +123,16 @@ export class WebGPUPresentPass {
 	}
 
 	public invalidateBindings(): void {
-		this._destroyBindingGroup(this._binding);
+		this._binding?.destroy();
 		this._binding = null;
 		this._bindingSource = null;
 	}
 
 	public onShaderRuntimeChanged(): void {
-		this._destroyManagedResource(this._shaderModule);
-		this._destroyManagedResource(this._pipeline);
-		this._destroyManagedResource(this._sampler);
-		this._destroyManagedResource(this._params);
+		this._shaderModule?.destroy();
+		this._pipeline?.destroy();
+		this._sampler?.destroy();
+		this._params?.destroy();
 		this._shaderModule = null;
 		this._pipeline = null;
 		this._sampler = null;
@@ -193,20 +193,6 @@ export class WebGPUPresentPass {
 				size: 8,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
 			});
-		}
-	}
-
-	private _destroyBindingGroup(group: IBindingGroup | null): void {
-		const destroyFn = (group as { destroy?: () => void } | null)?.destroy;
-		if (typeof destroyFn === "function") {
-			destroyFn.call(group);
-		}
-	}
-
-	private _destroyManagedResource(resource: unknown): void {
-		const destroyFn = (resource as { destroy?: () => void } | null)?.destroy;
-		if (typeof destroyFn === "function") {
-			destroyFn.call(resource);
 		}
 	}
 }

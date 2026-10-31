@@ -1,26 +1,23 @@
-/**
- * Gets the backend-private handle carried by a renderer resource.
- *
- * @internal WebGPU backend implementation detail. Shared renderer contracts
- * intentionally keep this handle opaque.
- */
-export function getWebGPUResourceHandle(resource: unknown): unknown {
-	if (
-		resource === null ||
-		(typeof resource !== "object" && typeof resource !== "function")
-	) {
-		return undefined;
-	}
-	return (resource as { _gpuResource?: unknown })._gpuResource;
-}
+import { WebGPUResourceManager } from "./WebGPUResourceManager";
 
 /**
- * Gets a backend-private handle when it is an object suitable for identity
- * tracking.
+ * Resolves a native identity through an authentic resource's private owner.
  *
- * @internal WebGPU backend implementation detail.
+ * @internal WebGPU backend implementation detail. Shared renderer contracts
+ * do not carry native handles; applications use renderer resource factories.
  */
-export function getWebGPUObjectResourceHandle(resource: unknown): object | null {
-	const handle = getWebGPUResourceHandle(resource);
-	return handle !== null && typeof handle === "object" ? handle : null;
+export function getWebGPUResourceHandle(resource: unknown): object | undefined {
+	const owner = WebGPUResourceManager.ownerOf(resource);
+	if (!owner) return undefined;
+	const kind = (resource as { kind: string }).kind;
+	switch (kind) {
+		case "buffer": return owner.getBuffer(resource);
+		case "texture": return owner.getTexture(resource).texture;
+		case "sampler": return owner.getSampler(resource);
+		case "shader-module": return owner.getShaderModule(resource);
+		case "render-pipeline": return owner.getRenderPipeline(resource);
+		case "compute-pipeline": return owner.getComputePipeline(resource);
+		case "binding-group": return owner.getBindingGroup(resource);
+		default: throw new Error("Unsupported WebGPU resource kind.");
+	}
 }

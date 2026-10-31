@@ -5,6 +5,27 @@ IgnisRenderer consumers and contributors. Completed implementation history that
 does not require an action is retained in Git rather than in the documentation
 tree.
 
+## Opaque Renderer Resources
+
+Remove reads and writes of `_gpuResource`, `_gpuTexture`, `_gpuView`,
+`_webgpuTexture`, `_cpuData`, and `_cpuPixels` on renderer resources. Native
+state is private to the backend. Keep application source data separately and
+use resource factories, upload operations, and command encoders for GPU work.
+
+Obtain resources from the owning renderer or backend extension instead of
+constructing wrapper-shaped objects, cloning facades, or proxying them. The
+resource-specific readonly `kind` distinguishes buffers, textures, samplers,
+shader modules, pipelines, and binding groups. Every resource now declares an
+idempotent `destroy()` operation; custom backend implementations must implement
+the corresponding resource kind and explicit lifetime.
+
+Shared binding entries accept renderer buffers, textures, samplers, or a
+`BufferBindingRange` whose `buffer` is an `IRenderBuffer`. Replace raw native
+binding entries with resources from the same owner. After device or context
+restoration, recreate resources instead of reusing retired facades.
+
+See the [renderer contract](../contracts/renderer.md).
+
 ## Fog Rendering
 
 Remove `FogOptions.application` from fog configuration. `FogPass` now always

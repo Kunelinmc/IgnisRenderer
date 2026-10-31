@@ -70,7 +70,6 @@ async function testBillboardPipelinesBindingsScissorAndLifecycle() {
 	const backend = new FakeWebGPUBackend();
 	const owner = new WebGPUFrameServiceOwner(
 		backend,
-		backend,
 		createWebGPUComputeFacade(backend),
 	);
 	const particles = owner.getParticleBillboardRenderer();
@@ -210,7 +209,6 @@ async function testGPUIndirectDrawAndFallback() {
 	const backend = new FakeWebGPUBackend();
 	const owner = new WebGPUFrameServiceOwner(
 		backend,
-		backend,
 		createWebGPUComputeFacade(backend),
 	);
 	const particles = owner.getParticleBillboardRenderer();
@@ -290,7 +288,6 @@ async function testParticlePipelinesUsePassTargetSampleCount() {
 	const backend = new FakeWebGPUBackend();
 	const owner = new WebGPUFrameServiceOwner(
 		backend,
-		backend,
 		createWebGPUComputeFacade(backend),
 	);
 	const transient = createTransientStore();
@@ -326,7 +323,6 @@ async function testParticlePipelinesUsePassTargetSampleCount() {
 async function testParticleBindingCacheEviction() {
 	const backend = new FakeWebGPUBackend();
 	const owner = new WebGPUFrameServiceOwner(
-		backend,
 		backend,
 		createWebGPUComputeFacade(backend),
 	);

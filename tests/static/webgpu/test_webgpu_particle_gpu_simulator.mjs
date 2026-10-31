@@ -276,7 +276,7 @@ async function testWebGPUParticleSimulatorMixesComputeAndCpuFallbackBatches() {
 
 async function testRenderResourcesPrefersGPUDrawBatches() {
 	const backend = new FakeBackend();
-	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
+	const resources = new WebGPURenderResources(backend, createWebGPUComputeFacade(backend));
 
 	const context = createContext([]);
 	const frameResources = resources.prepareFrame(context, createMainFrameOptions());

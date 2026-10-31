@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createWebGPUComputeFacade } from "../../../src/backends/webgpu/ComputeFacade.ts";
 import {
 	GammaPass,
 	ScreenSpaceGlobalIlluminationPass,
@@ -44,6 +45,7 @@ const singleSampleResolver = {
 };
 
 function createFrameExecutor(backend, resources) {
+	backend.computeFacade = createWebGPUComputeFacade(backend);
 	return new WebGPUFrameExecutor(
 		backend,
 		resources,

@@ -4,19 +4,7 @@ import {
 	type IRenderTexture,
 	type TextureDesc,
 } from "../types";
-import {
-	attachWebGPUTexture,
-	createWebGPUTexture,
-	getWebGPUTexture,
-	type WebGPUTexture,
-} from "./WebGPUResourceAccess";
-
-interface InternalTexture extends IRenderTexture {
-	_gpuResource: GPUTexture;
-	_gpuTexture: GPUTexture;
-	_gpuView: GPUTextureView;
-	_webgpuTexture: WebGPUTexture;
-}
+import type { WebGPUResourceManager, WebGPUTexture } from "./WebGPUResourceManager";
 
 function resolveGPUTextureExtent(
 	texture: GPUTexture,
@@ -44,10 +32,13 @@ function resolveGPUTextureExtent(
 }
 
 export class WebGPUCanvasTargetManager {
+	private _currentFacade: IRenderTexture | null = null;
 	private _depthTexture: IRenderTexture | null = null;
 	private _currentCanvasTexture: GPUTexture | null = null;
 	private _currentCanvasView: GPUTextureView | null = null;
 	private _canvasFormat: TextureFormat | null = null;
+
+	public constructor(private readonly _resources: WebGPUResourceManager) {}
 
 	public get depthTexture(): IRenderTexture | null {
 		return this._depthTexture;
@@ -86,6 +77,8 @@ export class WebGPUCanvasTargetManager {
 	}
 
 	public resetCurrentCanvasTargets(): void {
+		this._currentFacade?.destroy();
+		this._currentFacade = null;
 		this._currentCanvasTexture = null;
 		this._currentCanvasView = null;
 	}
@@ -100,20 +93,18 @@ export class WebGPUCanvasTargetManager {
 		context: GPUCanvasContext,
 		canvas: HTMLCanvasElement
 	): IRenderTexture {
+		if (this._currentFacade && this._resources.tryGetTexture(this._currentFacade)) {
+			return this._currentFacade;
+		}
 		const current = this._getCurrentCanvasTexture(context);
 		const size = resolveGPUTextureExtent(current.texture, canvas.width, canvas.height);
-		const texture: InternalTexture = {
+		const texture = this._resources.registerTexture(current, {
 			width: size.width,
 			height: size.height,
 			requestedFormat: this._canvasFormat ?? undefined,
 			format: this._canvasFormat ?? undefined,
-			destroy: () => {},
-			_gpuResource: current.texture,
-			_gpuTexture: current.texture,
-			_gpuView: current.view,
-			_webgpuTexture: current,
-		};
-		attachWebGPUTexture(texture, current);
+		});
+		this._currentFacade = texture;
 		return texture;
 	}
 
@@ -125,7 +116,7 @@ export class WebGPUCanvasTargetManager {
 		if (!this._depthTexture) {
 			throw new Error("WebGPU depth texture is not initialized.");
 		}
-		return getWebGPUTexture(this._depthTexture).view;
+		return this._resources.getTexture(this._depthTexture).view;
 	}
 
 	public getCanvasDepthTexture(): IRenderTexture {
@@ -140,6 +131,6 @@ export class WebGPUCanvasTargetManager {
 			this._currentCanvasTexture = context.getCurrentTexture();
 			this._currentCanvasView = this._currentCanvasTexture.createView();
 		}
-		return createWebGPUTexture(this._currentCanvasTexture, this._currentCanvasView);
+		return { texture: this._currentCanvasTexture, view: this._currentCanvasView };
 	}
 }

@@ -1,3 +1,4 @@
+import type { WebGPUResourceManager } from "./WebGPUResourceManager";
 import type { ICommandBuffer, ICommandEncoder } from "../ICommandEncoder";
 import type { IRenderTexture } from "../types";
 import { Logger } from "../../foundation/Logger";
@@ -5,7 +6,6 @@ import {
 	WEBGPU_COPY_BATCH_SIZE,
 	WEBGPU_TIMESTAMP_QUERY_CAPACITY,
 } from "./constants";
-import { getWebGPUTexture } from "./WebGPUResourceAccess";
 import { WebGPUCommandEncoder } from "./WebGPUCommandEncoder";
 import type {
 	WebGPUCommandBufferInternals,
@@ -20,6 +20,7 @@ interface TimestampPairEntry {
 }
 
 export class WebGPUCommandScheduler {
+	private readonly _resources: WebGPUResourceManager;
 	private _copyCommandEncoder: GPUCommandEncoder | null = null;
 	private _copyPendingCount = 0;
 	private _copyFlushScheduled = false;
@@ -34,7 +35,9 @@ export class WebGPUCommandScheduler {
 	private _timestampPeriodNs = 1;
 	private _timestampResults = new Map<string, number>();
 
-	constructor(private _host: WebGPUCommandSchedulerHost) {}
+	constructor(private _host: WebGPUCommandSchedulerHost) {
+		this._resources = _host.resourceManager;
+	}
 
 	public createCommandEncoder(): ICommandEncoder {
 		this._host.assertDeviceOperational("create command encoders");
@@ -61,8 +64,8 @@ export class WebGPUCommandScheduler {
 	): void {
 		this._host.assertDeviceOperational("copy textures");
 		const commandEncoder = this._getCopyCommandEncoder();
-		const sourceTexture = getWebGPUTexture(source.texture).texture;
-		const destinationTexture = getWebGPUTexture(destination.texture).texture;
+		const sourceTexture = this._resources.getTexture(source.texture).texture;
+		const destinationTexture = this._resources.getTexture(destination.texture).texture;
 
 		commandEncoder.copyTextureToTexture(
 			{

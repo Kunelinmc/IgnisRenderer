@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+
+import { createWebGPUResourceManager } from "../../helpers/fakes.mjs";
 import { Logger } from "../../../src/foundation/Logger.ts";
 import { WebGPUPresentPass } from "../../../src/backends/webgpu/rendergraph/WebGPUPresentPass.ts";
 
@@ -68,19 +70,23 @@ Logger.configure({ resetOnceKeys: true, sink: { warn: (...args) => warnings.push
 try {
 	const writes = [];
 	const buffers = [];
+	const store = createWebGPUResourceManager();
+	const released = [];
 	const pass = new WebGPUPresentPass({
 		displayOutputState: { activeDynamicRange: "hdr", requested: { exposure: 7, hdrHeadroom: 4 } },
 		writeBuffer: (_buffer, data) => writes.push(Array.from(data)),
-		createBindingGroup: () => ({}),
+		createBindingGroup: () => store.registerBindingGroup({}, "present binding", () => {
+			released.push("binding");
+		}),
 		getCanvasColorTexture: () => ({ width: 1, height: 1 }),
 		createBuffer: (descriptor) => {
 			buffers.push(descriptor);
-			return { ...descriptor };
+			return store.registerBuffer({}, { size: descriptor.size }, () => released.push("params"));
 		},
 	});
-	pass._shaderModule = {};
-	pass._pipeline = {};
-	pass._sampler = {};
+	pass._shaderModule = store.registerShaderModule({}, "present shader", () => released.push("shader"));
+	pass._pipeline = store.registerRenderPipeline({}, "present pipeline", () => released.push("pipeline"));
+	pass._sampler = store.registerSampler({}, "present sampler", () => released.push("sampler"));
 	const encoder = {
 		beginRenderPass() {}, setPipeline() {}, setBindingGroup() {},
 		draw() {}, endRenderPass() {},
@@ -112,8 +118,27 @@ try {
 	assert.doesNotMatch(shader, /acesFitted|hdrSoftShoulder|linearToSrgb|linearSrgbToDisplayP3|exposure/,
 		"presentation must not apply missing color conversions");
 	pass.destroy();
+	assert.deepEqual(released, ["shader", "pipeline", "sampler", "params", "binding"]);
+	pass.destroy();
+	assert.equal(released.length, 5, "repeated presentation cleanup must remain idempotent");
 } finally {
 	Logger.reset();
 }
+
+// Direct cleanup must propagate the original failure and retain its stop order.
+const failureStore = createWebGPUResourceManager();
+const failedPass = new WebGPUPresentPass({});
+const failure = new Error("shader release failed");
+let laterReleases = 0;
+failedPass._shaderModule = failureStore.registerShaderModule({}, "failed shader", () => {
+	throw failure;
+});
+failedPass._pipeline = failureStore.registerRenderPipeline({}, "later pipeline", () => {
+	laterReleases++;
+});
+assert.throws(() => failedPass.onShaderRuntimeChanged(), (error) => error === failure);
+assert.equal(laterReleases, 0, "direct cleanup must stop when its first release throws");
+failedPass.destroy();
+assert.equal(laterReleases, 1);
 
 console.log("WebGPU presentation runtime tests passed");

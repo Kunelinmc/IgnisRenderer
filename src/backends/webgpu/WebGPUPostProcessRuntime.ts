@@ -1,6 +1,6 @@
 import type { IBindingGroup, IComputePipeline, ISampler } from "../types";
 import { AddressMode, FilterMode } from "../types";
-import type { IWebGPUComputeFacade } from "./ComputeFacade";
+import { createWebGPUInternalBindingGroup, type IWebGPUComputeFacade } from "./ComputeFacade";
 import type { WebGPUPostProcessServices } from "./WebGPUPostProcessContracts";
 import { WebGPUDenoiser } from "./WebGPUDenoiser";
 import { WebGPUHiZBuilder } from "./WebGPUHiZBuilder";
@@ -119,7 +119,7 @@ export class WebGPUPostProcessRuntime implements WebGPUPostProcessServices {
 		if (cached) {
 			this.destroyBindingGroup(cached.group);
 		}
-		const group = this._compute.createBindingGroup({
+		const group = createWebGPUInternalBindingGroup(this._compute, {
 			pipeline,
 			layoutIndex: 0,
 			entries: entries as Array<{ binding: number; resource: any }>,
@@ -174,12 +174,10 @@ export class WebGPUPostProcessRuntime implements WebGPUPostProcessServices {
 		resource: unknown,
 		description = "post-process resource"
 	): void {
-		const destroyFn = (resource as { destroy?: () => void } | null)?.destroy;
-		if (typeof destroyFn !== "function") {
-			return;
-		}
+		const destroy = (resource as { destroy?: () => void } | null)?.destroy;
+		if (typeof destroy !== "function") return;
 		try {
-			destroyFn.call(resource);
+			destroy.call(resource);
 		} catch (error) {
 			const detail = error instanceof Error ? error.message : String(error);
 			throw new Error(`Failed to destroy ${description}: ${detail}`);
@@ -187,18 +185,7 @@ export class WebGPUPostProcessRuntime implements WebGPUPostProcessServices {
 	}
 
 	public destroyBindingGroup(group: IBindingGroup | null): void {
-		const destroyFn = (group as { destroy?: () => void } | null)?.destroy;
-		if (typeof destroyFn !== "function") {
-			return;
-		}
-		try {
-			destroyFn.call(group);
-		} catch (error) {
-			const detail = error instanceof Error ? error.message : String(error);
-			throw new Error(
-				`Failed to destroy post-process binding group: ${detail}`
-			);
-		}
+		this.destroyManagedResource(group, "post-process binding group");
 	}
 
 	private _destroyCachedBindGroups(): void {

@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+
+import { createWebGPUResourceManager } from "../../helpers/fakes.mjs";
 import { Logger } from "../../../src/foundation/Logger.ts";
 import { WebGPUBackend } from "../../../src/backends/webgpu/WebGPUBackend.ts";
 import {
@@ -392,7 +394,10 @@ async function testShaderModuleCacheUsesHashKey() {
 	});
 
 	assert.notEqual(moduleA, moduleB);
-	assert.equal(moduleA._gpuResource, moduleB._gpuResource);
+	assert.equal(
+		backend._resourceManager.getShaderModule(moduleA),
+		backend._resourceManager.getShaderModule(moduleB),
+	);
 	assert.equal(device.shaderModuleDescs.length, 1);
 	let stats = backend.getWebGPUCacheDebugStats().pipeline;
 	assert.equal(stats.shaderModuleEntries, 1);
@@ -552,7 +557,10 @@ async function testStaleShaderModulePromiseDoesNotClearRecoveredInFlight() {
 		backend.getWebGPUCacheDebugStats().pipeline.shaderModuleEntries,
 		1
 	);
-	assert.strictEqual(shader._gpuResource.desc, newDevice.shaderModuleDescs[0]);
+	assert.strictEqual(
+		backend._resourceManager.getShaderModule(shader).desc,
+		newDevice.shaderModuleDescs[0],
+	);
 }
 
 async function testSamplerReferenceCounting() {
@@ -561,7 +569,10 @@ async function testSamplerReferenceCounting() {
 	const samplerB = backend.createSampler({});
 
 	assert.notEqual(samplerA, samplerB);
-	assert.equal(samplerA._gpuResource, samplerB._gpuResource);
+	assert.equal(
+		backend._resourceManager.getSampler(samplerA),
+		backend._resourceManager.getSampler(samplerB),
+	);
 	let stats = backend.getWebGPUCacheDebugStats().pipeline;
 	assert.deepEqual(stats.samplerRefCounts, [2]);
 
@@ -594,8 +605,14 @@ async function testComputePipelineAutoLayoutCaching() {
 	const pipelineC = await backend.createComputePipeline(desc);
 
 	assert.notEqual(pipelineA, pipelineB);
-	assert.equal(pipelineA._gpuResource, pipelineB._gpuResource);
-	assert.equal(pipelineC._gpuResource, pipelineA._gpuResource);
+	assert.equal(
+		backend._resourceManager.getComputePipeline(pipelineA),
+		backend._resourceManager.getComputePipeline(pipelineB),
+	);
+	assert.equal(
+		backend._resourceManager.getComputePipeline(pipelineC),
+		backend._resourceManager.getComputePipeline(pipelineA),
+	);
 	assert.equal(device.pipelineLayouts.length, 0);
 	assert.equal(device.computePipelineDescs.length, 1);
 	assert.equal(device.computePipelineDescs[0].layout, "auto");
@@ -638,8 +655,14 @@ async function testRenderPipelineAutoLayoutCaching() {
 	const pipelineC = await backend.createPipeline(desc);
 
 	assert.notEqual(pipelineA, pipelineB);
-	assert.equal(pipelineA._gpuResource, pipelineB._gpuResource);
-	assert.equal(pipelineC._gpuResource, pipelineA._gpuResource);
+	assert.equal(
+		backend._resourceManager.getRenderPipeline(pipelineA),
+		backend._resourceManager.getRenderPipeline(pipelineB),
+	);
+	assert.equal(
+		backend._resourceManager.getRenderPipeline(pipelineC),
+		backend._resourceManager.getRenderPipeline(pipelineA),
+	);
 	assert.equal(device.pipelineLayouts.length, 0);
 	assert.equal(device.renderPipelineDescs.length, 1);
 	assert.equal(device.renderPipelineDescs[0].layout, "auto");
@@ -673,7 +696,7 @@ async function testComputePipelineFailureClearsInFlight() {
 	assert.equal(stats.computePipelineEntries, 0);
 
 	const pipeline = await backend.createComputePipeline(desc);
-	assert.ok(pipeline._gpuResource);
+	assert.ok(backend._resourceManager.getComputePipeline(pipeline));
 	assert.equal(device.computePipelineDescs.length, 2);
 	stats = backend.getWebGPUCacheDebugStats().pipeline;
 	assert.equal(stats.computePipelineEntries, 1);
@@ -730,11 +753,7 @@ async function testBindingGroupCacheUsesHashedKey() {
 	const { backend, device } = createBackend();
 	const layout = { id: "layout0" };
 	const gpuBuffer = { destroy() {} };
-	const renderBuffer = {
-		size: 16,
-		destroy() {},
-		_gpuResource: gpuBuffer,
-	};
+	const renderBuffer = backend._resourceManager.registerBuffer(gpuBuffer, { size: 16 });
 
 	const groupA = backend.createBindingGroup({
 		layout,
@@ -745,11 +764,22 @@ async function testBindingGroupCacheUsesHashedKey() {
 		entries: [{ binding: 0, resource: renderBuffer }],
 	});
 
-	assert.equal(groupA, groupB);
+	assert.notEqual(groupA, groupB, "each acquisition owns an independent lifetime");
+	const native = backend._resourceManager.getBindingGroup(groupA);
+	assert.equal(native, backend._resourceManager.getBindingGroup(groupB));
 	assert.equal(device.bindGroupDescs.length, 1);
 	const stats = backend.getWebGPUCacheDebugStats().bindingGroups;
 	assert.equal(stats.entryCount, 1);
 	assert.equal(stats.bucketCount, 1);
+	assert.deepEqual(stats.refCounts, [2]);
+	groupA.destroy();
+	groupA.destroy();
+	assert.throws(() => backend._resourceManager.getBindingGroup(groupA), /destroyed|invalid/i);
+	assert.equal(backend._resourceManager.getBindingGroup(groupB), native,
+		"disposing one acquisition cannot invalidate another live binding");
+	assert.deepEqual(backend.getWebGPUCacheDebugStats().bindingGroups.refCounts, [1]);
+	groupB.destroy();
+	assert.equal(backend.getWebGPUCacheDebugStats().bindingGroups.entryCount, 0);
 }
 
 async function testBindingGroupHashCollisionBucketSafety() {
@@ -759,16 +789,8 @@ async function testBindingGroupHashCollisionBucketSafety() {
 	const layout = { id: "layout0" };
 	const gpuBufferA = { destroy() {} };
 	const gpuBufferB = { destroy() {} };
-	const renderBufferA = {
-		size: 16,
-		destroy() {},
-		_gpuResource: gpuBufferA,
-	};
-	const renderBufferB = {
-		size: 16,
-		destroy() {},
-		_gpuResource: gpuBufferB,
-	};
+	const renderBufferA = backend._resourceManager.registerBuffer(gpuBufferA, { size: 16 });
+	const renderBufferB = backend._resourceManager.registerBuffer(gpuBufferB, { size: 16 });
 
 	const groupA = backend.createBindingGroup({
 		layout,
@@ -788,8 +810,20 @@ async function testBindingGroupHashCollisionBucketSafety() {
 	});
 
 	assert.notEqual(groupA, groupB);
-	assert.equal(groupA, groupA2);
-	assert.equal(groupB, groupB2);
+	assert.notEqual(groupA, groupA2);
+	assert.notEqual(groupB, groupB2);
+	assert.notEqual(
+		backend._resourceManager.getBindingGroup(groupA),
+		backend._resourceManager.getBindingGroup(groupB),
+	);
+	assert.equal(
+		backend._resourceManager.getBindingGroup(groupA),
+		backend._resourceManager.getBindingGroup(groupA2),
+	);
+	assert.equal(
+		backend._resourceManager.getBindingGroup(groupB),
+		backend._resourceManager.getBindingGroup(groupB2),
+	);
 	assert.equal(device.bindGroupDescs.length, 2);
 	const stats = backend.getWebGPUCacheDebugStats().bindingGroups;
 	assert.equal(stats.entryCount, 2);
@@ -859,11 +893,12 @@ async function testCreateBufferMappedAtCreationExposesUnmap() {
 		mappedAtCreation: true,
 	});
 	assert.equal(typeof buffer.unmap, "function");
-	assert.equal(buffer._gpuResource.mapState, "mapped");
+	const nativeBuffer = backend._resourceManager.getBuffer(buffer);
+	assert.equal(nativeBuffer.mapState, "mapped");
 	buffer.unmap();
-	assert.equal(buffer._gpuResource.mapState, "unmapped");
+	assert.equal(nativeBuffer.mapState, "unmapped");
 	buffer.destroy();
-	assert.equal(buffer._gpuResource.mapState, "destroyed");
+	assert.equal(nativeBuffer.mapState, "destroyed");
 }
 
 async function testResizeUsesProvidedDimensions() {
@@ -1143,7 +1178,7 @@ async function testMapBindingResourceRejectsPrimitive() {
 				layout: { id: "layout-invalid" },
 				entries: [{ binding: 0, resource: "invalid" }],
 			}),
-		/Unsupported binding resource/i
+		/Unsupported.*binding resource/i
 	);
 }
 
