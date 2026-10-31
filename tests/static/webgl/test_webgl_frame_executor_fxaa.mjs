@@ -671,6 +671,63 @@ function testWebGLContextRejectsUndeclaredResourceAccess() {
 	executor.abortPostProcessFrame();
 }
 
+function testPostProcessPublicationLifecycle() {
+	const gl = createFXAATestGL();
+	const executor = new WebGLFrameExecutor(gl);
+	const sceneColor = { id: "scene-color" };
+	const sourceColor = { id: "source-color" };
+	const postColor = { id: "post-color" };
+	executor._targets._sceneColorTexture = sceneColor;
+	executor._targets._presentSourceTexture = sourceColor;
+	executor._targets._postColorTexture = postColor;
+	const implementation = {
+		describeExecution: () => ({
+			color: { access: "read", output: "new-version" },
+		}),
+	};
+	const request = {
+		frameContext: { transient: new Map() },
+		postProcess: createResolvedPostProcess({}, "webgl"),
+		gBuffer: {},
+		histories: {},
+		transients: {},
+		pass: { id: "custom-pass" },
+		passId: "custom-pass",
+		options: {},
+	};
+
+	createExecutionContext(executor, request, implementation);
+	executor.abortPostProcessFrame();
+	assert.deepEqual(executor.completePostProcessPass(request, { ran: true }), {});
+	assert.equal(executor._targets._presentSourceTexture, sourceColor);
+
+	createExecutionContext(executor, request, implementation);
+	executor.endPostProcessFrame();
+	assert.deepEqual(executor.completePostProcessPass(request, { ran: true }), {});
+	assert.equal(executor._targets._presentSourceTexture, sourceColor);
+
+	createExecutionContext(executor, request, implementation);
+	const first = completeExecution(executor, request, { ran: true });
+	assert.equal(first.committed, true);
+	assert.equal(executor._targets._presentSourceTexture, postColor);
+
+	executor._targets._presentSourceTexture = sourceColor;
+	createExecutionContext(executor, request, implementation);
+	const second = completeExecution(executor, request, { ran: true });
+	assert.equal(second.physicalId, first.physicalId);
+
+	const warmup = executor._postProcess.getPassWarmupExecutionContext(
+		request.passId,
+		request.declaration,
+	);
+	const callCount = gl.calls.length;
+	assert.equal(warmup.getSourceTexture(), null);
+	assert.equal(warmup.resources.color.output, null);
+	warmup.drawFullscreen();
+	assert.equal(gl.calls.length, callCount);
+	assert.equal(executor._targets._presentSourceTexture, postColor);
+}
+
 function testGammaPassUsesScreenPostProcessFlow() {
 	const gl = createFXAATestGL();
 	const executor = new WebGLFrameExecutor(gl);
@@ -1590,6 +1647,7 @@ async function run() {
 	testToneMappingPassUsesLatestPostSourceAndRebindsPostTarget();
 	testWebGLContextUsesDeclarationForCustomPassId();
 	testWebGLContextRejectsUndeclaredResourceAccess();
+	testPostProcessPublicationLifecycle();
 	testGammaPassUsesScreenPostProcessFlow();
 	testFrameTargetsRejectMissingFloatExtension();
 	testFrameTargetsCreateOITResourcesWithFloatExtension();

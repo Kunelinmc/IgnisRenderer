@@ -100,7 +100,6 @@ for (const forbidden of [
 }
 
 for (const relativePath of [
-	"src/backends/webgl/WebGLPostProcessBridge.ts",
 	"src/backends/webgl/WebGLPostProcessServices.ts",
 ]) {
 	const source = readFileSync(join(ROOT, relativePath), "utf8");

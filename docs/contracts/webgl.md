@@ -196,6 +196,10 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   resources before invalidating WebGL frame targets.
 - WebGL context replacement must destroy the post-process resource pool before
   destroying the previous context-scoped WebGL frame services.
+- `WebGLPostProcessServices` must own WebGL post-process execution contexts,
+  controlled color publication, and per-frame publication state. Aborting or
+  ending a frame must clear pending publication state without publishing it.
+  Warmup contexts must not publish color or draw fullscreen.
 - `WebGLBackend.warmup(context, options)` must use
   `BackendPostProcessRuntime.planWarmup(context)` once and reuse that validated
   declaration plan while warming post-process implementations.
