@@ -266,6 +266,9 @@ export class FakeGPUTexture {
 		this.width = desc.width;
 		this.height = desc.height;
 		this.depthOrArrayLayers = desc.depthOrArrayLayers ?? 1;
+		this.dimension = desc.dimension ?? "2d";
+		this.mipLevelCount = desc.mipLevelCount ?? 1;
+		this.sampleCount = desc.sampleCount ?? 1;
 		this.format = desc.format;
 		this.usage = desc.usage;
 		this.label = desc.label;

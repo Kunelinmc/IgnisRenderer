@@ -13,10 +13,7 @@ import {
 import { Logger } from "../../foundation/Logger";
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
 import type { WebGPUResourceManager } from "./WebGPUResourceManager";
-import {
-	createTextureMipUploadLevels,
-	WEBGPU_TEXTURE_SLOT,
-} from "./";
+import { WEBGPU_TEXTURE_SLOT } from "./constants";
 import {
 	canGenerateWebGPUMipmaps,
 	resolveWebGPUMipmapLevelCount,
@@ -184,37 +181,11 @@ export class WebGPUTextureRegistry {
 
 		const uploadedVersion = versionCache.get(texture);
 		if (uploadedVersion !== texture.version) {
-			const usedExternalImageFastPath = this._tryUploadExternalSource(
-				texture,
-				cacheEntry.resource
-			);
-
-			if (!usedExternalImageFastPath) {
-				if (
-					getTextureFormatInfo(uploadFormat).isCompressed &&
-					cacheEntry.format !== uploadFormat
-				) {
-					return cacheEntry.resource;
-				}
-				const uploads = createTextureMipUploadLevels(texture, cacheEntry.format);
-				for (const upload of uploads) {
-					const uploadData = this._toArrayBufferBackedView(upload.data);
-					this._resources.writeTexture(
-						cacheEntry.resource,
-						uploadData,
-						{
-							bytesPerRow: upload.bytesPerRow,
-							rowsPerImage: upload.height,
-							mipLevel: upload.mipLevel,
-						},
-						{
-							width: upload.width,
-							height: upload.height,
-							depthOrArrayLayers: 1,
-						}
-					);
-				}
+			if (getTextureFormatInfo(uploadFormat).isCompressed &&
+				cacheEntry.format !== uploadFormat) {
+				return cacheEntry.resource;
 			}
+			this._resources.writeTexture(cacheEntry.resource, texture);
 			if (mipPolicy.autoGenerate) {
 				this._generateMipmaps(texture, cacheEntry);
 			}
@@ -499,13 +470,6 @@ export class WebGPUTextureRegistry {
 		].join("|");
 	}
 
-	private _toArrayBufferBackedView(data: Uint8Array): Uint8Array<ArrayBuffer> {
-		if (data.buffer instanceof ArrayBuffer) {
-			return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
-		}
-		return new Uint8Array(data);
-	}
-
 	private _generateMipmaps(texture: Texture, cacheEntry: TextureCacheEntry): void {
 		if (!this._mipmapGenerator) {
 			this._mipmapGenerator = new WebGPUMipmapGenerator(this._backend);
@@ -569,52 +533,6 @@ export class WebGPUTextureRegistry {
 			width > 0 &&
 			height > 0
 		);
-	}
-
-	private _tryUploadExternalSource(
-		texture: Texture,
-		target: IRenderTexture
-	): boolean {
-		if (texture.mipmaps.length > 1) {
-			return false;
-		}
-
-		const queue = this._backend.queue;
-		if (!queue || typeof queue.copyExternalImageToTexture !== "function") {
-			return false;
-		}
-
-		const source = resolveExternalTextureSource(texture);
-		if (
-			!source ||
-			texture.width <= 0 ||
-			texture.height <= 0
-		) {
-			return false;
-		}
-
-		try {
-			const gpuTexture = this._resources.tryGetTexture(target)?.texture;
-			if (!gpuTexture) {
-				return false;
-			}
-			queue.copyExternalImageToTexture(
-				{
-					source,
-				},
-				{
-					texture: gpuTexture,
-				},
-				{
-					width: texture.width,
-					height: texture.height,
-					depthOrArrayLayers: 1,
-				}
-			);
-			return true;
-		} catch {
-			return false;
-		}
 	}
 
 	private _ensureOwnedResources(texture: Texture): TextureOwnedResources {

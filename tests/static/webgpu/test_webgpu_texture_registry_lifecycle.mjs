@@ -15,6 +15,67 @@ function createTexture() {
 	});
 }
 
+function testUploadsPackedRowsOnlyWhenContentChanges() {
+	const backend = new FakeWebGPUBackend();
+	const registry = new WebGPUTextureRegistry(backend);
+	const backing = new Uint8Array(143).fill(199);
+	const data = backing.subarray(7);
+	data.fill(11, 0, 68);
+	data.fill(29, 68);
+	const texture = new Texture({
+		width: 17, height: 2, format: TextureFormat.RGBA8Unorm, data,
+	});
+	try {
+		const resource = registry.getTextureForSlot(texture, WEBGPU_TEXTURE_SLOT.BASE_COLOR);
+		let writes = backend.writeCalls.filter((call) => call[0] === "writeTexture");
+		assert.equal(writes.length, 1);
+		assert.equal(writes[0][2].buffer, data.buffer);
+		assert.equal(writes[0][2].byteOffset, 7);
+		assert.equal(writes[0][2].byteLength, 136);
+		assert.equal(writes[0][3].bytesPerRow, 68);
+		assert.equal(writes[0][3].rowsPerImage, 2);
+		assert.deepEqual(backend.resourceManager.getTexture(resource).texture._bytes, data);
+		assert.equal(registry.getTextureForSlot(texture, WEBGPU_TEXTURE_SLOT.BASE_COLOR), resource);
+		assert.equal(backend.writeCalls.filter((call) => call[0] === "writeTexture").length, 1);
+		data.fill(43, 68);
+		texture.markNeedsUpdate();
+		assert.equal(registry.getTextureForSlot(texture, WEBGPU_TEXTURE_SLOT.BASE_COLOR), resource);
+		writes = backend.writeCalls.filter((call) => call[0] === "writeTexture");
+		assert.equal(writes.length, 2);
+		assert.deepEqual(backend.resourceManager.getTexture(resource).texture._bytes, data);
+	} finally {
+		registry.destroy();
+	}
+}
+
+function testUploadsCompressedMipPhysicalExtents() {
+	const backend = new FakeWebGPUBackend();
+	const writes = [];
+	const writeTexture = backend.queue.writeTexture.bind(backend.queue);
+	backend.queue.writeTexture = (destination, data, layout, size) => {
+		writes.push({ mipLevel: destination.mipLevel, data, layout, size });
+		writeTexture(destination, data, layout, size);
+	};
+	const registry = new WebGPUTextureRegistry(backend);
+	const texture = new Texture({
+		format: TextureFormat.BC1RGBAUnorm,
+		levels: [
+			{ width: 8, height: 8, data: new Uint8Array(32).fill(11) },
+			{ width: 4, height: 4, data: new Uint8Array(8).fill(23) },
+			{ width: 2, height: 2, data: new Uint8Array(8).fill(37) },
+		],
+	});
+	try {
+		registry.getTextureForSlot(texture, WEBGPU_TEXTURE_SLOT.BASE_COLOR);
+		assert.deepEqual(writes.map(({ mipLevel, data, layout, size }) => [
+			mipLevel, layout.bytesPerRow, layout.rowsPerImage,
+			data.byteLength, size.width, size.height,
+		]), [[0, 16, 2, 32, 8, 8], [1, 8, 1, 8, 4, 4], [2, 8, 1, 8, 4, 4]]);
+	} finally {
+		registry.destroy();
+	}
+}
+
 function testColorAndDataSamplingKeepIndependentResources() {
 	const backend = new FakeWebGPUBackend();
 	const registry = new WebGPUTextureRegistry(backend);
@@ -345,6 +406,8 @@ function testFinalizerReleasesAbandonedResources() {
 }
 
 async function run() {
+	testUploadsPackedRowsOnlyWhenContentChanges();
+	testUploadsCompressedMipPhysicalExtents();
 	testFailedSamplingFormatReplacementPreservesPreviousResource();
 	testExternalTextureRequiresKnownCompatibleSamplingFormat();
 	testCustomDecodeOverrideUsesNativeFormat();

@@ -106,6 +106,43 @@ compute submission and readback require an active WebGPU device and queue.
 - `writeTexture()` uploads texture data. Supply a positive `bytesPerRow` that
   matches the uploaded layout.
 
+To upload an existing engine `Texture`, pass a source descriptor to the concrete
+WebGPU runtime's `createTexture()` method:
+
+```ts
+const inputTexture = runtime.createTexture({
+	source: sourceTexture,
+	label: "ComputeInput",
+	usage: TextureUsage.CopySrc,
+});
+```
+
+Here `sourceTexture` is an engine `Texture`, and `TextureUsage` is imported from
+`ignisrenderer`. The runtime derives the sampling format, dimensions, and authored
+mips, then uploads them using their source layout. Source descriptors accept only
+`source`, `usage`, and `label`; allocation fields such as `width` or `format`
+cannot be combined with `source`. Source initialization supports single-layer 2D
+textures.
+
+Omitting `usage` defaults to sampling. Explicit `usage` selects the requested
+uses instead; the example requests readback without sampling. Copy-destination
+usage is always added for initialization. External canvas and video sources also
+add render-attachment usage and use native image copying when available.
+Unsupported format/usage combinations throw before allocation. If the allocated
+format differs, tightly packed native raw float16 and float32 data can be
+converted between R, RG, and RGBA floating-point formats. Unsupported raw
+conversions, including cross-format conversions with explicit row strides,
+throw instead of reinterpreting the source bytes.
+Depth/stencil source initialization supports `depth16unorm` and `stencil8`;
+other depth/stencil formats throw before allocation. External sources targeting
+integer or signed-normalized formats use CPU pixel fallback.
+
+The result is an independent snapshot. Later source changes do not update it,
+and additional mips are not generated automatically. Destroy the resource or its
+runtime when finished. A failed upload releases the new allocation. This
+source descriptor is supported by concrete `ComputeRuntime`; `IComputeRuntime`
+continues to accept allocation descriptors with explicit dimensions and format.
+
 Choose usage flags for every operation you plan to perform. For example, a
 texture written by a kernel and later read by JavaScript needs both
 storage-binding and copy-source usage.

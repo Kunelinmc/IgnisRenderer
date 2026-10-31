@@ -1,11 +1,7 @@
 import { ShaderSource } from "../../shaders/ShaderSource";
 import { ComputeRuntime } from "../../backends/webgpu/ComputeRuntime";
-import {
-	createTextureMipUploadLevels,
-	resolveWebGPUTextureUploadFormat,
-} from "../../backends/webgpu/texture";
 import { WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE } from "../../backends/webgpu/constants";
-import { getTextureFormatInfo, TextureFormat } from "../../core/TextureFormat";
+import { TextureFormat } from "../../core/TextureFormat";
 import {
 	AddressMode,
 	BufferUsage,
@@ -36,7 +32,6 @@ interface WebGPUPrefilterResources {
 	sampler: ISampler;
 	kernel: IComputeKernel;
 	inputTexture: IRenderTexture;
-	inputTextureFormat: TextureFormat;
 }
 
 /** @internal Backend-owned WebGPU compute executor for IBL prefiltering. */
@@ -69,12 +64,6 @@ export class WebGPUPrefilterExecutor implements IBLPrefilterExecutorLike {
 		const resources = await createWebGPUResources(request.envMap, this._computeFacade);
 		const mipmaps: IBLPrefilterMipData[] = [];
 		try {
-			uploadSourceTexture(
-				resources.runtime,
-				resources.inputTexture,
-				request.envMap,
-				resources.inputTextureFormat,
-			);
 			for (const mipPlan of request.plan.mipLevels) {
 				assertIBLPrefilterNotAborted(request.signal);
 				const outputTexture = resources.runtime.createTexture({
@@ -155,53 +144,14 @@ async function createWebGPUResources(
 			minFilter: FilterMode.Linear,
 			mipmapFilter: FilterMode.Linear,
 		});
-		const inputTextureFormat = resolveWebGPUTextureUploadFormat(envMap);
 		const inputTexture = runtime.createTexture({
-			width: Math.max(1, envMap.width),
-			height: Math.max(1, envMap.height),
-			format: inputTextureFormat,
-			usage: TextureUsage.TextureBinding | TextureUsage.CopyDst,
-			mipLevelCount: Math.max(1, envMap.mipmaps.length || 1),
+			source: envMap,
 			label: "IBLPrefilterInputTexture",
 		});
-		if (getTextureFormatInfo(inputTextureFormat).isSRGB &&
-			inputTexture.format !== inputTextureFormat) {
-			inputTexture.destroy();
-			throw new Error("WebGPU IBL sRGB sampling format fallback would lose native decoding.");
-		}
-		return { runtime, sampler, kernel, inputTexture, inputTextureFormat };
+		return { runtime, sampler, kernel, inputTexture };
 	} catch (error) {
 		runtime.destroy();
 		throw error;
-	}
-}
-
-function uploadSourceTexture(
-	runtime: IComputeRuntime,
-	inputTexture: IRenderTexture,
-	envMap: Texture,
-	format: TextureFormat,
-): void {
-	for (const upload of createTextureMipUploadLevels(envMap, format)) {
-		const uploadData =
-			upload.data.buffer instanceof ArrayBuffer
-				? new Uint8Array(upload.data.buffer, upload.data.byteOffset, upload.data.byteLength)
-				: new Uint8Array(upload.data);
-		runtime.writeTexture(
-			inputTexture,
-			uploadData,
-			{
-				offset: 0,
-				bytesPerRow: upload.bytesPerRow,
-				rowsPerImage: upload.height,
-				mipLevel: upload.mipLevel,
-			},
-			{
-				width: upload.width,
-				height: upload.height,
-				depthOrArrayLayers: 1,
-			},
-		);
 	}
 }
 

@@ -246,6 +246,9 @@ The cached culling state and bindings must be invalidated when:
   `rgba8unorm`, `rgba8unorm-srgb`, `rgba16float`, and `rgba32float`; other source
   layouts must be rejected rather than interpreted as RGBA data. A native format
   fallback that changes the source sampling encoding must also be rejected.
+- WebGPU prefiltering must create its runtime-owned input snapshot through
+  `ComputeRuntime.createTexture({ source })`. Lighting code must not resolve
+  WebGPU upload formats or assemble mip row layouts.
 - If `acceleration` is `auto`, a ready backend executor must take priority over
   Worker and single-thread CPU execution.
 - Executor failures after execution starts must be surfaced and must not cause

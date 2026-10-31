@@ -1,6 +1,6 @@
 import { clamp } from "../../maths/Common";
 import { resolveTextureSamplingFormat, type Texture, type TextureData } from "../../core/Texture";
-import { float32ToFloat16Bits } from "../../foundation/Float16";
+import { float16BitsToFloat32, float32ToFloat16Bits } from "../../foundation/Float16";
 import {
 	getTextureFormatBytesPerRow,
 	getTextureFormatInfo,
@@ -9,43 +9,30 @@ import {
 	type TextureFormatInfo,
 } from "../../core/TextureFormat";
 
+/**
+ * @internal WebGPU resource uploads own this queue-write layout. Applications
+ * should supply texture data through `Texture` instead.
+ */
 export interface WebGPUTextureUploadLevel {
 	data: Uint8Array;
 	bytesPerRow: number;
+	rowsPerImage: number;
+	/** Logical mip dimensions, before rounding compressed copy extents. */
 	width: number;
 	height: number;
+	copyWidth: number;
+	copyHeight: number;
 	mipLevel: number;
 	format: TextureFormat;
 }
 
-export function createTextureUploadData(texture: Texture): {
-	data: Uint8Array;
-	bytesPerRow: number;
-	width: number;
-	height: number;
-} {
-	const baseLevel = createTextureMipUploadData(texture, 0);
-	return {
-		data: baseLevel.data,
-		bytesPerRow: baseLevel.bytesPerRow,
-		width: baseLevel.width,
-		height: baseLevel.height,
-	};
-}
-
 /**
- * Resolves the WebGPU color sampling format needed to preserve source encoding.
- *
- * @param texture - Texture metadata and mip data to upload.
- * @returns The compatible native format whose samples are linear RGB.
+ * @internal WebGPU resource uploads prepare authored mip layouts here;
+ * applications should use `ComputeRuntime.createTexture({ source })`.
  */
-export function resolveWebGPUTextureUploadFormat(texture: Texture): TextureFormat {
-	return resolveTextureSamplingFormat(texture);
-}
-
 export function createTextureMipUploadLevels(
 	texture: Texture,
-	format: TextureFormat = resolveWebGPUTextureUploadFormat(texture)
+	format: TextureFormat = resolveTextureSamplingFormat(texture)
 ): WebGPUTextureUploadLevel[] {
 	const mipCount = Math.max(
 		1,
@@ -60,10 +47,20 @@ export function createTextureMipUploadLevels(
 	return levels;
 }
 
+/**
+ * Prepares one 2D mip for queue upload without buffer-copy row padding.
+ *
+ * @internal Owned by WebGPU resource uploads; applications should use `Texture`.
+ * @param texture - Source texture, including optional native raw row metadata.
+ * @param mipLevel - Mip level to prepare.
+ * @param format - Native upload format, including resolved sampling encoding.
+ * @returns Source bytes and their matching queue-write layout and copy extent.
+ * @throws When an explicit raw layout is invalid or needs an unsupported conversion.
+ */
 export function createTextureMipUploadData(
 	texture: Texture,
 	mipLevel: number,
-	format: TextureFormat = resolveWebGPUTextureUploadFormat(texture)
+	format: TextureFormat = resolveTextureSamplingFormat(texture)
 ): WebGPUTextureUploadLevel {
 	const level = Math.max(0, mipLevel | 0);
 	const levelDescriptor = texture.getMipLevelDescriptor(level);
@@ -74,37 +71,61 @@ export function createTextureMipUploadData(
 	);
 	const sourceData =
 		levelDescriptor?.data ?? texture.readPixelData(level);
-	const pixelData = createTextureFormatUploadData(sourceData, width, height, format);
-	const unalignedBytesPerRow =
-		levelDescriptor?.bytesPerRow ?? getTextureFormatBytesPerRow(format, width);
-	const bytesPerRow = alignTo(unalignedBytesPerRow, 256);
+	const info = getTextureFormatInfo(format);
+	const blockRows = Math.ceil(height / info.blockHeight);
+	const minimumBytesPerRow = getTextureFormatBytesPerRow(format, width);
+	const storageCompatible = texture.format === format ||
+		texture.format.replace(/-srgb$/, "") === format.replace(/-srgb$/, "");
+	const explicitLayout = levelDescriptor?.bytesPerRow !== undefined ||
+		levelDescriptor?.rowsPerImage !== undefined;
+	let bytesPerRow = minimumBytesPerRow;
+	let rowsPerImage = blockRows;
+	let pixelData: Uint8Array;
 
-	if (bytesPerRow === unalignedBytesPerRow) {
-		return {
-			data: pixelData,
-			bytesPerRow,
-			width,
-			height,
-			mipLevel: level,
-			format,
-		};
-	}
-
-	const padded = new Uint8Array(bytesPerRow * height);
-	for (let y = 0; y < height; y++) {
-		const srcStart = y * unalignedBytesPerRow;
-		const dstStart = y * bytesPerRow;
-		padded.set(
-			pixelData.subarray(srcStart, srcStart + unalignedBytesPerRow),
-			dstStart
-		);
+	if (explicitLayout) {
+		if (!(sourceData instanceof Uint8Array)) {
+			throw new TypeError("WebGPU explicit texture layouts require Uint8Array raw bytes.");
+		}
+		if (!storageCompatible) {
+			throw new Error("WebGPU raw texture uploads require a storage-compatible format.");
+		}
+		bytesPerRow = levelDescriptor?.bytesPerRow ?? minimumBytesPerRow;
+		rowsPerImage = levelDescriptor?.rowsPerImage ?? blockRows;
+		if (!Number.isSafeInteger(bytesPerRow) || bytesPerRow < minimumBytesPerRow) {
+			throw new RangeError("WebGPU texture bytesPerRow must cover a complete block row.");
+		}
+		if (!Number.isSafeInteger(rowsPerImage) || rowsPerImage < blockRows) {
+			throw new RangeError("WebGPU texture rowsPerImage must cover all block rows.");
+		}
+		// A single 2D image needs no padding after its final block row.
+		const requiredBytes = bytesPerRow * (blockRows - 1) + minimumBytesPerRow;
+		if (!Number.isSafeInteger(requiredBytes) || sourceData.byteLength < requiredBytes) {
+			throw new RangeError("WebGPU raw texture payload is too short for its row layout.");
+		}
+		pixelData = sourceData.byteLength === requiredBytes ?
+			sourceData : sourceData.subarray(0, requiredBytes);
+	} else {
+		const nativeSource = sourceData instanceof Uint8Array && storageCompatible &&
+			sourceData.byteLength === minimumBytesPerRow * blockRows;
+		if (nativeSource) {
+			pixelData = sourceData;
+		} else if (sourceData instanceof Uint8Array && !storageCompatible &&
+			sourceData.byteLength === getTextureFormatLevelByteLength(texture.format, width, height)) {
+			pixelData = convertRawFloatTextureData(sourceData, width * height,
+				getTextureFormatInfo(texture.format), info);
+		} else {
+			pixelData = createTextureFormatUploadData(sourceData, width, height, format);
+		}
 	}
 
 	return {
-		data: padded,
+		data: pixelData,
 		bytesPerRow,
+		rowsPerImage,
 		width,
 		height,
+		copyWidth: Math.ceil(width / info.blockWidth) * info.blockWidth,
+		copyHeight: blockRows * info.blockHeight,
 		mipLevel: level,
 		format,
 	};
@@ -114,7 +135,48 @@ export function alignTo(value: number, alignment: number): number {
 	return Math.ceil(value / alignment) * alignment;
 }
 
-export function createTextureFormatUploadData(
+function convertRawFloatTextureData(
+	data: Uint8Array,
+	pixelCount: number,
+	sourceInfo: TextureFormatInfo,
+	targetInfo: TextureFormatInfo,
+): Uint8Array {
+	if (sourceInfo.formatClass !== "color" || sourceInfo.componentType !== "float" ||
+		targetInfo.formatClass !== "color" || targetInfo.componentType !== "float") {
+		throw new Error(
+			`Unsupported WebGPU raw texture conversion: ${sourceInfo.format} -> ${targetInfo.format}.`
+		);
+	}
+	const sourceComponentBytes = sourceInfo.bytesPerBlock / sourceInfo.channelCount;
+	const targetComponentBytes = targetInfo.bytesPerBlock / targetInfo.channelCount;
+	const sourceView = new DataView(data.buffer, data.byteOffset, data.byteLength);
+	const output = new Uint8Array(pixelCount * targetInfo.bytesPerBlock);
+	const targetView = new DataView(output.buffer);
+	for (let pixel = 0; pixel < pixelCount; pixel++) {
+		for (let channel = 0; channel < targetInfo.channelCount; channel++) {
+			let value = defaultChannelValue(channel);
+			if (channel < sourceInfo.channelCount) {
+				// Raw floating-point bytes encode components, not normalized byte channels.
+				const offset = (pixel * sourceInfo.channelCount + channel) * sourceComponentBytes;
+				value = sourceComponentBytes === 2 ?
+					float16BitsToFloat32(sourceView.getUint16(offset, true)) :
+					sourceView.getFloat32(offset, true);
+			}
+			const offset = (pixel * targetInfo.channelCount + channel) * targetComponentBytes;
+			if (targetComponentBytes === 2) {
+				// The numerical-source encoder sanitizes non-finite values; raw data preserves them.
+				const bits = Number.isFinite(value) ? float32ToFloat16Bits(value) :
+					Number.isNaN(value) ? 0x7e00 : value < 0 ? 0xfc00 : 0x7c00;
+				targetView.setUint16(offset, bits, true);
+			} else {
+				targetView.setFloat32(offset, value, true);
+			}
+		}
+	}
+	return output;
+}
+
+function createTextureFormatUploadData(
 	data: TextureData | null,
 	width: number,
 	height: number,

@@ -24,7 +24,9 @@ import {
 	getTextureFormatInfo,
 	TextureFormat,
 } from "../../core/TextureFormat";
+import { resolveTextureSamplingFormat, type Texture } from "../../core/Texture";
 import {
+	TextureUsage,
 	type BindingEntry,
 	type BindingResource,
 	type BufferDesc,
@@ -48,6 +50,11 @@ import {
 } from "./ComputeFacade";
 import { float16BitsToFloat32 } from "../../foundation/Float16";
 import { alignTo } from "./texture";
+import {
+	supportsWebGPURenderAttachmentFormat,
+	supportsWebGPUStorageTextureFormat,
+	supportsWebGPUTextureSourceUploadFormat,
+} from "./WebGPUTextureFormatInfo";
 import type { WebGPUResourceManager } from "./WebGPUResourceManager";
 
 export type {
@@ -177,20 +184,112 @@ export class ComputeRuntime implements IComputeRuntime {
 		);
 	}
 
-	public createTexture(desc: TextureDesc): IRenderTexture {
+	/**
+	 * Allocates a runtime-owned texture using explicit resource settings.
+	 *
+	 * @param desc - Dimensions, format, usage, and optional allocation settings.
+	 * @returns The texture, tracked for runtime cleanup or explicit `destroy()`.
+	 */
+	public createTexture(desc: TextureDesc): IRenderTexture;
+	/**
+	 * Creates and uploads an independent single-layer 2D source snapshot.
+	 *
+	 * Dimensions, format, and authored mips come from the source; allocation fields
+	 * cannot be combined with it. Omitted usage defaults to sampling. Explicit usage
+	 * replaces that default; required upload flags are always added. Source changes
+	 * do not update the result, and no mips are generated.
+	 * @param desc - Engine texture source, requested usages, and allocation label.
+	 * @returns The uploaded texture, tracked for runtime cleanup or `destroy()`.
+	 * @throws When source validation or upload fails; allocated resources are released.
+	 */
+	public createTexture(desc: {
+		source: Texture;
+		usage?: TextureUsage;
+		label?: string;
+	}): IRenderTexture;
+	public createTexture(
+		desc: TextureDesc | {
+			source: Texture;
+			usage?: TextureUsage;
+			label?: string;
+		},
+	): IRenderTexture {
 		this._assertAlive("create textures");
-		const resource = this._computeFacade.createTexture(desc);
-		const wrapped = this._wrapOwnedResource(
+		let source: Texture | null = null;
+		let allocation: TextureDesc;
+		if ("source" in desc) {
+			for (const field in desc) {
+				if (field !== "source" && field !== "usage" && field !== "label") {
+					throw new Error(`Texture source descriptor does not accept field "${field}".`);
+				}
+			}
+			source = desc.source;
+			if (!source || typeof source !== "object" ||
+				!Array.isArray(source.levels) || !Array.isArray(source.mipmaps) ||
+				typeof source.getUploadSource !== "function" ||
+				typeof source.getMipLevelDescriptor !== "function" ||
+				typeof source.readPixelData !== "function") {
+				throw new TypeError("Texture source descriptor requires an engine Texture source.");
+			}
+			const width = assertPositiveInteger(source.width, "source.width");
+			const height = assertPositiveInteger(source.height, "source.height");
+			for (const level of source.levels) {
+				if ((level?.depthOrArrayLayers ?? 1) !== 1) {
+					throw new Error("Texture source initialization requires single-layer 2D mips.");
+				}
+			}
+			const format = resolveTextureSamplingFormat(source);
+			if (!supportsWebGPUTextureSourceUploadFormat(format)) {
+				throw new Error(`Unsupported WebGPU texture source upload format "${format}".`);
+			}
+			const uploadSource = source.getUploadSource(0);
+			const external = !!uploadSource && !ArrayBuffer.isView(uploadSource);
+			const usage = (desc.usage ?? TextureUsage.TextureBinding) | TextureUsage.CopyDst |
+				(external ? TextureUsage.RenderAttachment : 0);
+			if ((usage & (TextureUsage.StorageBinding | TextureUsage.ComputeStorage)) &&
+				!supportsWebGPUStorageTextureFormat(format, this._computeFacade.device?.features)) {
+				throw new Error(`Texture source format "${format}" does not support storage usage.`);
+			}
+			if ((usage & TextureUsage.RenderAttachment) &&
+				!supportsWebGPURenderAttachmentFormat(format, this._computeFacade.device?.features)) {
+				throw new Error(`Texture source format "${format}" does not support attachment usage.`);
+			}
+			allocation = {
+				width,
+				height,
+				format,
+				mipLevelCount: Math.max(1, source.levels.length, source.mipmaps.length),
+				usage,
+				label: desc.label,
+			};
+		} else {
+			allocation = desc;
+		}
+
+		const resource = this._computeFacade.createTexture(allocation);
+		const texture = this._wrapOwnedResource(
 			resource,
-			desc.label ?? "ComputeRuntimeTexture",
-			"texture"
+			allocation.label ?? "ComputeRuntimeTexture",
+			"texture",
 		);
-		this._textureMetadata.set(wrapped as unknown as object, {
-			width: Math.max(1, Math.floor(desc.width)),
-			height: Math.max(1, Math.floor(desc.height)),
-			format: desc.format,
-		});
-		return wrapped;
+		try {
+			this._textureMetadata.set(texture, {
+				width: Math.max(1, Math.floor(allocation.width)),
+				height: Math.max(1, Math.floor(allocation.height)),
+				format: texture.format ?? allocation.format,
+			});
+			if (source) {
+				if (getTextureFormatInfo(allocation.format).isSRGB &&
+					texture.format !== allocation.format) {
+					throw new Error("ComputeRuntime sRGB source format fallback would lose native decoding.");
+				}
+				this._resourceManager.writeTexture(texture, source);
+			}
+			return texture;
+		} catch (error) {
+			texture.destroy();
+			throw error;
+		}
 	}
 
 	public createSampler(desc: SamplerDesc): ISampler {

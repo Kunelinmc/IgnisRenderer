@@ -60,6 +60,14 @@ const texture = new Texture({
 
 - `TextureMipLevel` must describe `data`, `width`, `height`, and optional row layout
   fields for raw or compressed payloads.
+- Explicit `bytesPerRow` or `rowsPerImage` metadata must describe a `Uint8Array`
+  payload already encoded in `Texture.format`. `bytesPerRow` is a byte stride;
+  `rowsPerImage` counts texel block rows, including for compressed formats.
+  WebGPU must preserve valid explicit raw layouts without inferring source
+  channel counts from padding. WebGPU format conversion must report the converted
+  payload's layout instead of retaining the source stride. These upload guarantees
+  are WebGPU-specific; explicit row-layout support is not guaranteed by WebGL or
+  Software.
 - `TextureFormat` must use WebGPU-compatible format names such as `r8unorm`,
   `rg8unorm`, `rgba8unorm-srgb`, `rgba16float`, `depth32float`, and
   `bc1-rgba-unorm`.

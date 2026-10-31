@@ -13,8 +13,19 @@ import {
 	type TextureDataLayout,
 	type TextureDesc,
 } from "../types";
-import { getTextureFormatFallback, textureFormatRequiresFeature } from "../../core/TextureFormat";
+import {
+	getTextureFormatFallback,
+	getTextureFormatInfo,
+	textureFormatRequiresFeature,
+	type TextureFormat,
+} from "../../core/TextureFormat";
+import type { Texture } from "../../core/Texture";
 import { Logger } from "../../foundation/Logger";
+import { createTextureMipUploadLevels } from "./texture";
+import { supportsWebGPUTextureSourceUploadFormat } from "./WebGPUTextureFormatInfo";
+
+const WEBGPU_TEXTURE_COPY_DST = globalThis.GPUTextureUsage?.COPY_DST ?? 0x02;
+const WEBGPU_TEXTURE_RENDER_ATTACHMENT = globalThis.GPUTextureUsage?.RENDER_ATTACHMENT ?? 0x10;
 
 /** @internal Device services for the WebGPU resource owner; applications use `Renderer`. */
 export interface WebGPUResourceManagerHost {
@@ -174,27 +185,108 @@ export class WebGPUResourceManager {
 		);
 	}
 
+	/**
+	 * Writes authored source mips at the target origin using its actual format.
+	 *
+	 * @internal Owned by WebGPU resource uploads. Applications should use
+	 * `ComputeRuntime.createTexture({ source })` for runtime-owned snapshots.
+	 * @param target - Live texture owned by this manager with sufficient copy usage.
+	 * @param source - Engine texture containing raw mips or an external image source.
+	 * @throws When ownership, usage, layout, range, or format conversion is invalid.
+	 * The existing target is never destroyed by this operation.
+	 */
+	public writeTexture(target: IRenderTexture, source: Texture): void;
+	/**
+	 * Writes bytes using an explicit layout and copy extent without conversion.
+	 *
+	 * @internal Owned by WebGPU resource uploads; applications use
+	 * `ComputeRuntime.writeTexture()` for explicit byte uploads.
+	 */
 	public writeTexture(
-		texture: IRenderTexture,
+		target: IRenderTexture,
 		data: BufferSource,
-		desc: TextureDataLayout,
+		layout: TextureDataLayout,
 		size: { width: number; height: number; depthOrArrayLayers?: number },
+	): void;
+	public writeTexture(
+		target: IRenderTexture,
+		input: BufferSource | Texture,
+		layout?: TextureDataLayout,
+		size?: { width: number; height: number; depthOrArrayLayers?: number },
 	): void {
 		this._host.assertDeviceOperational("write textures");
-		const gpuTexture = this.getTexture(texture).texture;
-		this._requireQueue("write textures").writeTexture(
-			{
+		const gpuTexture = this.getTexture(target).texture;
+		const source = input as Texture;
+		if (arguments.length !== 2) {
+			if (arguments.length !== 4 || !layout || !size ||
+				typeof source?.getUploadSource === "function") {
+				throw new TypeError("writeTexture requires bytes, layout and size, or a Texture alone.");
+			}
+			this._requireQueue("write textures").writeTexture({
 				texture: gpuTexture,
-				mipLevel: Math.max(0, desc.mipLevel ?? 0),
-			},
-			data,
-			{
-				offset: desc.offset ?? 0,
-				bytesPerRow: desc.bytesPerRow,
-				rowsPerImage: desc.rowsPerImage,
-			},
-			size,
-		);
+				mipLevel: Math.max(0, layout.mipLevel ?? 0),
+			}, input as BufferSource, {
+				offset: layout.offset ?? 0,
+				bytesPerRow: layout.bytesPerRow,
+				rowsPerImage: layout.rowsPerImage,
+			}, size);
+			return;
+		}
+		if (!source || typeof source !== "object" ||
+			!Array.isArray(source.levels) || !Array.isArray(source.mipmaps) ||
+			typeof source.getUploadSource !== "function" ||
+			typeof source.getMipLevelDescriptor !== "function" ||
+			typeof source.readPixelData !== "function") {
+			throw new TypeError("writeTexture requires a Texture source or bytes with layout and size.");
+		}
+		if (gpuTexture.sampleCount !== 1) {
+			throw new Error("Texture source writes require a single-sampled target.");
+		}
+		if (!(gpuTexture.usage & WEBGPU_TEXTURE_COPY_DST)) {
+			throw new Error("Texture source writes require target CopyDst usage.");
+		}
+		if (!Number.isInteger(source.width) || source.width <= 0 ||
+			!Number.isInteger(source.height) || source.height <= 0) {
+			throw new RangeError("Texture source dimensions must be positive integers.");
+		}
+		if (Math.max(1, source.levels.length, source.mipmaps.length) > gpuTexture.mipLevelCount) {
+			throw new RangeError("Texture source mip count exceeds the target mip range.");
+		}
+		for (const level of source.levels) {
+			if ((level?.depthOrArrayLayers ?? 1) !== 1) {
+				throw new Error("Texture source writes require single-layer 2D mips.");
+			}
+		}
+		const format = (gpuTexture.format ?? target.format) as TextureFormat;
+		if (!supportsWebGPUTextureSourceUploadFormat(format)) {
+			throw new Error(`Unsupported WebGPU texture source upload format "${format}".`);
+		}
+		if (getTextureFormatInfo(source.format).isCompressed &&
+			source.format.replace(/-srgb$/, "") !== format.replace(/-srgb$/, "")) {
+			throw new Error("WebGPU compressed source requires a storage-compatible texture format.");
+		}
+		if (this._tryUploadExternalSource(source, gpuTexture)) return;
+
+		// Validate every mip before any write can modify the existing target.
+		const uploads = createTextureMipUploadLevels(source, format);
+		for (const upload of uploads) {
+			assertTextureWriteRange(gpuTexture, format, upload.mipLevel,
+				upload.copyWidth, upload.copyHeight);
+		}
+		for (const upload of uploads) {
+			const data = upload.data.buffer instanceof ArrayBuffer ?
+				new Uint8Array(upload.data.buffer, upload.data.byteOffset, upload.data.byteLength) :
+				new Uint8Array(upload.data);
+			this.writeTexture(target, data, {
+				bytesPerRow: upload.bytesPerRow,
+				rowsPerImage: upload.rowsPerImage,
+				mipLevel: upload.mipLevel,
+			}, {
+				width: upload.copyWidth,
+				height: upload.copyHeight,
+				depthOrArrayLayers: 1,
+			});
+		}
 	}
 
 	public createTextureView(
@@ -362,6 +454,36 @@ export class WebGPUResourceManager {
 		if (failure) throw failure;
 	}
 
+	private _tryUploadExternalSource(source: Texture, target: GPUTexture): boolean {
+		if (Math.max(source.levels.length, source.mipmaps.length) > 1) return false;
+		if (target.dimension !== "2d" || !(target.usage & WEBGPU_TEXTURE_RENDER_ATTACHMENT)) {
+			return false;
+		}
+		const info = getTextureFormatInfo(target.format as TextureFormat);
+		// Unsupported native copies fail asynchronously, so catch cannot trigger fallback.
+		if (info.formatClass !== "color" || info.componentType === "uint" ||
+			info.componentType === "sint" || info.componentType === "snorm") {
+			return false;
+		}
+		const queue = this._host.queue;
+		if (!queue || typeof queue.copyExternalImageToTexture !== "function") return false;
+		const image = source.getUploadSource(0);
+		if (!image || ArrayBuffer.isView(image) || source.width <= 0 || source.height <= 0) {
+			return false;
+		}
+		assertTextureWriteRange(target, target.format as TextureFormat, 0, source.width, source.height);
+		try {
+			queue.copyExternalImageToTexture({ source: image }, { texture: target }, {
+				width: source.width,
+				height: source.height,
+				depthOrArrayLayers: 1,
+			});
+			return true;
+		} catch {
+			return false;
+		}
+	}
+
 	private _register<K extends ResourceKind, T extends object, M extends object>(
 		kind: K, records: WeakMap<object, ResourceRecord<T>>, native: T,
 		metadata: M, dispose: () => void,
@@ -405,6 +527,27 @@ export class WebGPUResourceManager {
 			throw new Error(`WebGPU ${kind} is not owned by this backend.`);
 		}
 		throw new Error(`WebGPU ${kind} is not live: wrong kind, destroyed or retired resource.`);
+	}
+}
+
+function assertTextureWriteRange(
+	target: GPUTexture,
+	format: TextureFormat,
+	mipLevel: number,
+	width: number,
+	height: number,
+): void {
+	if (!Number.isInteger(mipLevel) || mipLevel < 0 ||
+		!Number.isInteger(width) || width <= 0 || !Number.isInteger(height) || height <= 0) {
+		throw new RangeError("Texture source copy extents must be positive integers.");
+	}
+	const info = getTextureFormatInfo(format);
+	const mipWidth = Math.max(1, Math.floor(target.width / 2 ** mipLevel));
+	const mipHeight = Math.max(1, Math.floor(target.height / 2 ** mipLevel));
+	const physicalWidth = Math.ceil(mipWidth / info.blockWidth) * info.blockWidth;
+	const physicalHeight = Math.ceil(mipHeight / info.blockHeight) * info.blockHeight;
+	if (mipLevel >= target.mipLevelCount || width > physicalWidth || height > physicalHeight) {
+		throw new RangeError("Texture source copy extent exceeds the target mip range.");
 	}
 }
 

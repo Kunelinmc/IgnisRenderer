@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 import { createWebGPUResourceManager } from "../../helpers/fakes.mjs";
+import { Texture } from "../../../src/core/Texture.ts";
 import { TextureFormat } from "../../../src/core/TextureFormat.ts";
 import {
 	BufferUsage,
@@ -27,6 +28,336 @@ function toUint8Array(data) {
 
 function nearlyEqual(actual, expected, epsilon = 1e-6) {
 	assert.ok(Math.abs(actual - expected) <= epsilon, `${actual} != ${expected}`);
+}
+
+function testTextureCreationRejectsMixedSourceDescriptorsBeforeAllocation() {
+	const backend = new FakeWebGPUBackend();
+	const runtime = new ComputeRuntime(createWebGPUComputeFacade(backend));
+	const source = new Texture({ width: 1, height: 1, data: new Uint8Array(4) });
+	for (const fields of [
+		{ width: 1 }, { height: 1 }, { format: TextureFormat.RGBA8Unorm },
+		{ mipLevelCount: 1 }, { dimension: "2d" }, { depthOrArrayLayers: 1 },
+		{ sampleCount: 1 }, { viewFormats: [] }, { extra: true },
+	]) {
+		assert.throws(() => runtime.createTexture({ source, ...fields }), /source.*field|source.*descriptor/i);
+		assert.equal(backend.createTextureCalls.length, 0);
+	}
+	for (const invalid of [null, undefined, {
+		width: 1, height: 1, format: TextureFormat.RGBA8Unorm, colorSpace: "Linear",
+		levels: [], mipmaps: [], getUploadSource: () => null, readPixelData: () => null,
+	}]) {
+		assert.throws(() => runtime.createTexture({ source: invalid }), /source/i);
+		assert.equal(backend.createTextureCalls.length, 0);
+	}
+	runtime.destroy();
+}
+
+function testTextureSourceUsageSelectsRequestedCapabilities() {
+	const backend = new FakeWebGPUBackend();
+	const runtime = new ComputeRuntime(createWebGPUComputeFacade(backend));
+	const source = new Texture({
+		width: 1, height: 1, format: TextureFormat.RGBA16Float,
+		data: new Float32Array([4, 2, 1, 1]),
+	});
+	for (const [usage, expected] of [
+		[undefined, TextureUsage.TextureBinding | TextureUsage.CopyDst],
+		[0, TextureUsage.CopyDst],
+		[TextureUsage.CopySrc, TextureUsage.CopySrc | TextureUsage.CopyDst],
+		[TextureUsage.StorageBinding, TextureUsage.StorageBinding | TextureUsage.CopyDst],
+		[TextureUsage.ComputeStorage, TextureUsage.ComputeStorage | TextureUsage.CopyDst],
+	]) {
+		const texture = runtime.createTexture({ source, usage });
+		assert.equal(backend.createTextureCalls.at(-1).usage, expected);
+		texture.destroy();
+	}
+	runtime.destroy();
+}
+
+function testTextureSourceRejectsUnsupportedLayersAndUsageBeforeAllocation() {
+	const backend = new FakeWebGPUBackend();
+	const runtime = new ComputeRuntime(createWebGPUComputeFacade(backend));
+	for (const depthOrArrayLayers of [0, 2, Infinity]) {
+		const source = new Texture({
+			format: TextureFormat.RGBA8Unorm,
+			levels: [{ width: 1, height: 1, data: new Uint8Array(4), depthOrArrayLayers }],
+		});
+		source.levels[0].depthOrArrayLayers = depthOrArrayLayers;
+		assert.throws(() => runtime.createTexture({ source }), /single.layer|layer count/i);
+	}
+	for (const [format, usage] of [
+		[TextureFormat.RGBA8UnormSrgb, TextureUsage.StorageBinding],
+		[TextureFormat.RGB9E5UFloat, TextureUsage.StorageBinding],
+		[TextureFormat.RG11B10UFloat, TextureUsage.StorageBinding],
+		[TextureFormat.BGRA8Unorm, TextureUsage.StorageBinding],
+		[TextureFormat.BC1RGBAUnorm, TextureUsage.ComputeStorage],
+		[TextureFormat.BC1RGBAUnorm, TextureUsage.RenderAttachment],
+	]) {
+		const source = new Texture({ width: 4, height: 4, format, data: new Uint8Array(64) });
+		assert.throws(() => runtime.createTexture({ source, usage }), /format.*usage|usage.*format/i);
+	}
+	assert.equal(backend.createTextureCalls.length, 0);
+	runtime.destroy();
+}
+
+function testTextureSourceStorageUsesEnabledWebGPUCapabilities() {
+	for (const [format, features] of [
+		[TextureFormat.RGBA8Snorm, []],
+		[TextureFormat.BGRA8Unorm, ["bgra8unorm-storage"]],
+		[TextureFormat.RG11B10UFloat, ["texture-formats-tier1"]],
+		[TextureFormat.RG11B10UFloat, ["texture-formats-tier2"]],
+	]) {
+		const backend = new FakeWebGPUBackend();
+		backend.device.features = new Set(features);
+		const runtime = new ComputeRuntime(createWebGPUComputeFacade(backend));
+		const source = new Texture({ width: 1, height: 1, format, data: new Uint8Array(4) });
+		const texture = runtime.createTexture({ source, usage: TextureUsage.StorageBinding });
+		assert.equal(texture.format, format);
+		assert.equal(backend.createTextureCalls[0].usage,
+			TextureUsage.StorageBinding | TextureUsage.CopyDst);
+		assert.equal(backend.textureWrites[0].data.length, 4);
+		runtime.destroy();
+	}
+}
+
+function testTextureAllocationPreservesExplicitConfiguration() {
+	const backend = new FakeWebGPUBackend();
+	const runtime = new ComputeRuntime(createWebGPUComputeFacade(backend));
+	for (const desc of [
+		{ width: 4, height: 2, format: TextureFormat.RGBA16Float,
+			dimension: "3d", depthOrArrayLayers: 3, usage: TextureUsage.StorageBinding },
+		{ width: 4, height: 4, format: TextureFormat.RGBA8Unorm, sampleCount: 4,
+			mipLevelCount: 1, viewFormats: [TextureFormat.RGBA8UnormSrgb],
+			usage: TextureUsage.RenderAttachment, label: "ExplicitTexture" },
+	]) {
+		const texture = runtime.createTexture(desc);
+		assert.equal(backend.createTextureCalls.at(-1), desc);
+		assert.equal(backend.textureWrites.length, 0);
+		assert.equal(runtime.getResourceStats().byKind.texture, 1);
+		texture.destroy();
+		assert.equal(runtime.getResourceStats().ownedResourceCount, 0);
+	}
+	runtime.destroy();
+}
+
+function testTextureSourceAttachmentUsageValidatesBeforeAllocation() {
+	for (const external of [false, true]) {
+		for (const format of [TextureFormat.RGB9E5UFloat, TextureFormat.RGBA8Snorm,
+			TextureFormat.RG11B10UFloat, TextureFormat.R16Unorm]) {
+			const backend = new FakeWebGPUBackend();
+			backend.device.features = new Set();
+			const runtime = new ComputeRuntime(createWebGPUComputeFacade(backend));
+			const source = new Texture({ width: 1, height: 1, format, data: new Uint8Array(4) });
+			if (external) source.getUploadSource = () => ({ width: 1, height: 1 });
+			assert.throws(() => runtime.createTexture({ source,
+				usage: external ? TextureUsage.CopySrc : TextureUsage.RenderAttachment }),
+				/format.*attachment|attachment.*format/i);
+			assert.equal(backend.createTextureCalls.length, 0);
+			assert.equal(backend.textureWrites.length, 0);
+			assert.equal(backend.copyCalls.length, 0);
+			assert.equal(runtime.getResourceStats().ownedResourceCount, 0);
+			runtime.destroy();
+		}
+	}
+	for (const [format, features] of [
+		[TextureFormat.RGBA8Unorm, []],
+		[TextureFormat.RGBA8Snorm, ["texture-formats-tier1"]],
+		[TextureFormat.RG11B10UFloat, ["rg11b10ufloat-renderable"]],
+		[TextureFormat.RG11B10UFloat, ["texture-formats-tier2"]],
+		[TextureFormat.R16Unorm, ["texture-formats-tier1"]],
+	]) {
+		const backend = new FakeWebGPUBackend();
+		backend.device.features = new Set(features);
+		const runtime = new ComputeRuntime(createWebGPUComputeFacade(backend));
+		const source = new Texture({ width: 1, height: 1, format,
+			data: new Uint8Array(format === TextureFormat.R16Unorm ? 2 : 4) });
+		const texture = runtime.createTexture({ source, usage: TextureUsage.RenderAttachment });
+		assert.equal(texture.format, format);
+		assert.equal(backend.createTextureCalls[0].usage,
+			TextureUsage.RenderAttachment | TextureUsage.CopyDst);
+		assert.equal(backend.textureWrites.length, 1);
+		runtime.destroy();
+	}
+}
+
+function testTextureSourceRejectsUnsupportedDepthUploadsBeforeAllocation() {
+	const backend = new FakeWebGPUBackend();
+	const runtime = new ComputeRuntime(createWebGPUComputeFacade(backend));
+	for (const format of [TextureFormat.Depth24Plus, TextureFormat.Depth32Float,
+		TextureFormat.Depth24PlusStencil8, TextureFormat.Depth32FloatStencil8]) {
+		const source = new Texture({ width: 1, height: 1, format, data: new Uint8Array(8) });
+		source.getUploadSource = () => { throw new Error("must validate before reading pixels"); };
+		assert.throws(() => runtime.createTexture({ source }), /unsupported.*source.*upload/i);
+		assert.equal(backend.createTextureCalls.length, 0);
+		assert.equal(backend.textureWrites.length, 0);
+	}
+	runtime.destroy();
+}
+
+function testTextureSourceSnapshotsRejectInvalidDimensionsBeforeAllocation() {
+	const backend = new FakeWebGPUBackend();
+	const runtime = new ComputeRuntime(createWebGPUComputeFacade(backend));
+	for (const [width, height] of [[0, 1], [1, 0], [NaN, 1], [1, Infinity], [1.5, 1]]) {
+		const source = new Texture({ width: 1, height: 1, data: new Uint8Array(4) });
+		source.width = width;
+		source.height = height;
+		assert.throws(() => runtime.createTexture({ source }), /positive integer/i);
+		assert.equal(backend.createTextureCalls.length, 0);
+	}
+	runtime.destroy();
+}
+
+function testTextureSourceSnapshotsPreserveBytesAndRuntimeOwnership() {
+	const backend = new FakeWebGPUBackend();
+	const runtime = new ComputeRuntime(createWebGPUComputeFacade(backend));
+	const backing = new Uint8Array(143).fill(199);
+	const data = backing.subarray(7);
+	data.fill(17, 0, 68);
+	data.fill(31, 68);
+	const source = new Texture({
+		width: 17, height: 2, data, format: TextureFormat.RGBA8Unorm,
+	});
+	const snapshot = runtime.createTexture({
+		source, label: "Snapshot", usage: TextureUsage.CopySrc,
+	});
+	const native = backend.resourceManager.getTexture(snapshot).texture;
+	assert.deepEqual(backend.createTextureCalls[0], {
+		width: 17, height: 2, format: TextureFormat.RGBA8Unorm, mipLevelCount: 1,
+		usage: TextureUsage.CopyDst | TextureUsage.CopySrc,
+		label: "Snapshot",
+	});
+	const write = backend.writeCalls.find((call) => call[0] === "writeTexture");
+	assert.equal(write[2].buffer, data.buffer);
+	assert.equal(write[2].byteOffset, 7);
+	assert.equal(write[2].byteLength, 136);
+	assert.equal(write[3].bytesPerRow, 68);
+	assert.deepEqual(native._bytes, data);
+	data.fill(53);
+	source.markNeedsUpdate();
+	source.dispose();
+	assert.equal(native._bytes[0], 17);
+	assert.equal(native._bytes[68], 31);
+	assert.equal(snapshot.destroyed, false);
+	assert.equal(runtime.getResourceStats().byKind.texture, 1);
+	runtime.destroy();
+	assert.equal(snapshot.destroyed, true);
+	assert.equal(backend.textureDestroyCalls, 1);
+	const allocations = backend.createTextureCalls.length;
+	assert.throws(() => runtime.createTexture({ source }), /destroyed/i);
+	assert.equal(backend.createTextureCalls.length, allocations);
+}
+
+function testTextureSourceSnapshotsUploadAuthoredCompressedMips() {
+	const backend = new FakeWebGPUBackend();
+	const writes = [];
+	const writeTexture = backend.queue.writeTexture.bind(backend.queue);
+	backend.queue.writeTexture = (destination, data, layout, size) => {
+		writes.push([destination.mipLevel, layout.bytesPerRow, layout.rowsPerImage,
+			data.byteLength, size.width, size.height]);
+		writeTexture(destination, data, layout, size);
+	};
+	const runtime = new ComputeRuntime(createWebGPUComputeFacade(backend));
+	const source = new Texture({
+		format: TextureFormat.BC1RGBAUnorm,
+		levels: [
+			{ width: 8, height: 8, data: new Uint8Array(32).fill(11) },
+			{ width: 4, height: 4, data: new Uint8Array(8).fill(23) },
+			{ width: 2, height: 2, data: new Uint8Array(8).fill(37) },
+		],
+	});
+	source.minFilter = "LinearMipmapLinear";
+	runtime.createTexture({ source });
+	assert.equal(backend.createTextureCalls[0].mipLevelCount, 3);
+	assert.deepEqual(writes,
+		[[0, 16, 2, 32, 8, 8], [1, 8, 1, 8, 4, 4], [2, 8, 1, 8, 4, 4]]);
+	runtime.destroy();
+}
+
+function testTextureSourceSnapshotFailuresReleaseAllocations() {
+	for (const failure of ["allocation", "queue", "layout", "sRGB", "compressed"]) {
+		const backend = new FakeWebGPUBackend();
+		const runtime = new ComputeRuntime(createWebGPUComputeFacade(backend));
+		const source = new Texture({
+			format: failure === "compressed" ? TextureFormat.BC1RGBAUnorm :
+				failure === "sRGB" ? TextureFormat.RGBA8UnormSrgb : TextureFormat.RGBA8Unorm,
+			levels: [{ width: 4, height: 4, data: new Uint8Array(failure === "layout" ? 1 : 64),
+				...(failure === "layout" ? { bytesPerRow: 16 } : {}) }],
+		});
+		if (failure === "allocation") {
+			backend.failTextureAtCall = 1;
+		} else if (failure === "queue") {
+			backend.queue.writeTexture = () => { throw new Error("simulated upload failure"); };
+		} else if (failure === "sRGB" || failure === "compressed") {
+			const createTexture = backend.createTexture.bind(backend);
+			backend.createTexture = (desc) => createTexture({ ...desc, format: TextureFormat.RGBA8Unorm });
+		}
+		assert.throws(() => runtime.createTexture({ source }),
+			/allocation failure|upload failure|payload|sRGB.*format|compressed.*format/i);
+		assert.equal(runtime.getResourceStats().ownedResourceCount, 0, failure);
+		const expectedDestroyed = failure === "allocation" ? 0 : 1;
+		assert.equal(backend.textureDestroyCalls, expectedDestroyed, failure);
+		assert.equal(backend.textureWrites.length, 0, failure);
+		runtime.destroy();
+		assert.equal(backend.textureDestroyCalls, expectedDestroyed,
+			"failed snapshots must release only allocated resources, once");
+	}
+}
+
+async function testTextureSourceSnapshotConvertsToActualFallbackFormat() {
+	for (const data of [new Float32Array([4, 2, 1, 1]),
+		new Uint8Array(new Float32Array([4, 2, 1, 1]).buffer)]) {
+		const backend = new FakeWebGPUBackend();
+		const createTexture = backend.createTexture.bind(backend);
+		backend.createTexture = (desc) => createTexture({ ...desc, format: TextureFormat.RGBA16Float });
+		const runtime = new ComputeRuntime(createWebGPUComputeFacade(backend));
+		const source = new Texture({
+			width: 1, height: 1, format: TextureFormat.RGBA32Float,
+			data,
+		});
+		const snapshot = runtime.createTexture({ source, usage: TextureUsage.CopySrc });
+		assert.equal(snapshot.format, TextureFormat.RGBA16Float);
+		assert.equal(backend.textureWrites[0].layout.bytesPerRow, 8);
+		assert.equal(backend.textureWrites[0].data.length, 8);
+		const readback = await runtime.readTexture({ texture: snapshot });
+		assert.equal(readback.format, TextureFormat.RGBA16Float);
+		assert.deepEqual(Array.from(readback.toRGBAFloat32()), [4, 2, 1, 1]);
+		runtime.destroy();
+	}
+}
+
+function testUnsupportedRawSnapshotConversionReleasesAllocation() {
+	const backend = new FakeWebGPUBackend();
+	const createTexture = backend.createTexture.bind(backend);
+	backend.createTexture = (desc) => createTexture({ ...desc, format: TextureFormat.RGBA16Float });
+	const runtime = new ComputeRuntime(createWebGPUComputeFacade(backend));
+	const source = new Texture({ width: 1, height: 1, format: TextureFormat.RGBA8Unorm,
+		data: new Uint8Array([1, 2, 3, 4]) });
+	assert.throws(() => runtime.createTexture({ source }), /raw.*conversion|conversion.*raw/i);
+	assert.equal(backend.textureWrites.length, 0);
+	assert.equal(runtime.getResourceStats().ownedResourceCount, 0);
+	assert.equal(backend.textureDestroyCalls, 1);
+	runtime.destroy();
+	assert.equal(backend.textureDestroyCalls, 1);
+}
+
+function testTextureSourceSnapshotUsesExternalUploadSource() {
+	const backend = new FakeWebGPUBackend();
+	const runtime = new ComputeRuntime(createWebGPUComputeFacade(backend));
+	const external = { width: 2, height: 1 };
+	const source = new Texture({ width: 2, height: 1, format: TextureFormat.RGBA8UnormSrgb });
+	source.getUploadSource = () => external;
+	source.readPixelData = () => { throw new Error("native uploads must not read CPU pixels"); };
+	const snapshot = runtime.createTexture({ source });
+	assert.equal(backend.copyCalls.length, 1);
+	assert.equal(backend.copyCalls[0][0].source, external);
+	assert.equal(backend.copyCalls[0][1].texture,
+		backend.resourceManager.getTexture(snapshot).texture);
+	assert.ok(backend.createTextureCalls[0].usage & TextureUsage.RenderAttachment);
+	assert.equal(backend.textureWrites.length, 0);
+	const readbackOnly = runtime.createTexture({ source, usage: TextureUsage.CopySrc });
+	assert.equal(backend.createTextureCalls[1].usage,
+		TextureUsage.CopySrc | TextureUsage.CopyDst | TextureUsage.RenderAttachment);
+	readbackOnly.destroy();
+	runtime.destroy();
 }
 
 async function testReadTextureSkipsPaddingInNormalizedConversion() {
@@ -630,6 +961,20 @@ async function testGetResourceStatsForDebugging() {
 	assert.equal(afterRuntimeDestroy.ownedResourceCount, 0);
 }
 
+testTextureCreationRejectsMixedSourceDescriptorsBeforeAllocation();
+testTextureSourceUsageSelectsRequestedCapabilities();
+testTextureSourceRejectsUnsupportedLayersAndUsageBeforeAllocation();
+testTextureSourceStorageUsesEnabledWebGPUCapabilities();
+testTextureSourceAttachmentUsageValidatesBeforeAllocation();
+testTextureSourceRejectsUnsupportedDepthUploadsBeforeAllocation();
+testTextureAllocationPreservesExplicitConfiguration();
+testTextureSourceSnapshotsRejectInvalidDimensionsBeforeAllocation();
+testTextureSourceSnapshotsPreserveBytesAndRuntimeOwnership();
+testTextureSourceSnapshotsUploadAuthoredCompressedMips();
+testTextureSourceSnapshotFailuresReleaseAllocations();
+await testTextureSourceSnapshotConvertsToActualFallbackFormat();
+testUnsupportedRawSnapshotConversionReleasesAllocation();
+testTextureSourceSnapshotUsesExternalUploadSource();
 await testReadTextureSkipsPaddingInNormalizedConversion();
 await testReadTextureNormalizesBGRA8Unorm();
 await testReadTextureDecodesRGBA16FloatWithPadding();

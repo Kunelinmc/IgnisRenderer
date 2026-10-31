@@ -5,6 +5,81 @@ lighting, presentation configuration, reflections, and structured buffer packing
 
 ## Contract
 
+### Texture upload layout
+
+- Source texture storage usage must be checked against WebGPU format capabilities
+  and enabled device features, not the backend-neutral storage flag. BGRA storage
+  requires `bgra8unorm-storage`; tier-one storage formats require
+  `texture-formats-tier1` or its enabling `texture-formats-tier2` feature.
+- Source snapshot render-attachment usage must be validated before allocation,
+  including usage added for external image copies. Compressed formats and
+  `rgb9e5ufloat` must reject. The `r8snorm`, `rg8snorm`, `rgba8snorm`, and 16-bit
+  normalized formats must require `texture-formats-tier1` or `texture-formats-tier2`.
+  The `rg11b10ufloat` format must require `rg11b10ufloat-renderable` or either tier
+  feature. Validation must not use backend-neutral renderability metadata or
+  remove requested usage flags. The `depth32float-stencil8` format must require
+  the feature of the same name.
+- Texture-source uploads must reject depth/stencil destinations other than
+  `depth16unorm` and `stencil8` before reading pixels or submitting queue writes.
+  Source snapshots must reject those formats before allocation. Combined formats
+  require an explicit single aspect, which the source overload does not expose.
+  The explicit bytes overload must continue to delegate its supplied copy to WebGPU.
+- `WebGPUResourceManager.writeTexture()` must accept either `(target, source)`
+  with an engine `Texture`, or `(target, bytes, layout, size)` with a
+  `BufferSource`. Bytes must require both layout and size; a `Texture` source
+  must reject either override. Raw bytes must retain their supplied view, offset,
+  layout, and extent without source conversion or inferred dimensions.
+- The source overload must own preparation and submission for registry uploads
+  and compute source snapshots. It must validate target ownership, liveness,
+  single sampling, and `CopyDst` usage before reading source pixels. Source mips
+  must describe single-layer 2D data and fit the target's physical mip extents.
+  Every source mip must have positive integer copy extents and pass preparation
+  and range validation before the first queue write. Writes must not allocate
+  resources, resize the target, or generate mips. Sources write at the target
+  origin. Callers must not assemble upload layouts or access native texture handles.
+- A write failure must not destroy its existing target or alter its usage flags.
+  Newly allocated source snapshot cleanup must remain owned by
+  `ComputeRuntime.createTexture()`.
+- External image uploads must use `Texture.getUploadSource()` and attempt native
+  image copying before CPU pixel fallback. Native image copying must require a
+  2D render-attachment destination, a renderable unorm, sRGB, float, or ufloat color
+  format, and a valid copy extent. Integer, snorm, and depth/stencil destinations
+  must use CPU pixel fallback. Missing native copy
+  support, incompatible destination usage/dimension, or a synchronous copy error
+  must use the existing CPU pixel fallback. Source format and mip layout helpers
+  must remain backend-internal and must not be re-exported by the WebGPU barrel.
+- Registry and IBL source uploads through `GPUQueue.writeTexture()` must use
+  tightly packed converted data or preserve a valid explicit raw row layout.
+  They must not add row padding solely to reach a 256-byte stride.
+- Native-format, tightly packed `Uint8Array` sources must reuse their payload
+  buffer. Explicit raw layouts must bypass channel inference and data resizing;
+  their source format must equal the upload format or its sRGB encoding pair.
+  Unsupported raw format conversions must reject before queue submission.
+- Tightly packed native raw bytes must be identified by the source format and
+  payload byte length. Cross-format raw conversion must support `r16float`,
+  `rg16float`, `rgba16float`, `r32float`, `rg32float`, and `rgba32float` as source
+  and destination formats. It must decode little-endian source components before
+  encoding the destination; missing RGB channels must become zero and missing
+  alpha must become one. Channel reduction must retain leading components.
+  Raw conversion must preserve signed zero, infinities, and NaN values; finite
+  float16 encoding must use the existing rounding and overflow-clamping rules.
+  Other native raw cross-format conversions must reject. Explicit row layouts
+  must continue to reject cross-format conversion except for sRGB encoding pairs.
+  Existing numerical `Float32Array` source conversion behavior must be preserved.
+- Explicit strides must be positive integers large enough for each block row.
+  `rowsPerImage` must be an integer at least as large as the block row count.
+  For a single 2D image, the payload must contain at least
+  `bytesPerRow * (blockRows - 1) + minimumBytesPerRow` bytes. The last row's
+  trailing padding is optional. Invalid layouts must reject rather than truncate
+  source data or synthesize missing raw bytes.
+- Upload metadata must distinguish logical mip dimensions from physical copy
+  extents. Compressed mip copies must cover whole texel blocks, including tail
+  mips smaller than a block. `rowsPerImage` must count block rows.
+- Texture views into a source buffer must preserve its byte offset and range.
+  Upload preparation must not mutate source bytes.
+- Buffer-texture copy commands, including compute readback, must retain their
+  required 256-byte row alignment. Queue uploads must not change those paths.
+
 ### Native resource ownership
 
 - Each `WebGPUBackend` must own one `WebGPUResourceManager`. Buffer, texture and view,

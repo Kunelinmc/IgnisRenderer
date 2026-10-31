@@ -36,6 +36,13 @@ function createRequest(texture) {
 
 async function testExecutesRGBA16FloatPrefilter() {
 	const backend = new FakeWebGPUBackend();
+	const uploads = [];
+	const writeTexture = backend.queue.writeTexture.bind(backend.queue);
+	backend.queue.writeTexture = (destination, data, layout, size) => {
+		uploads.push([destination.mipLevel, layout.bytesPerRow, layout.rowsPerImage,
+			data.byteLength, size.width, size.height]);
+		writeTexture(destination, data, layout, size);
+	};
 	const executor = new WebGPUPrefilterExecutor(
 		createWebGPUComputeFacade(backend),
 	);
@@ -52,6 +59,8 @@ async function testExecutesRGBA16FloatPrefilter() {
 	const result = await executor.execute(request);
 	assert.equal(result.length, 1);
 	assert.ok(result[0].data instanceof Float32Array);
+	assert.deepEqual(uploads,
+		[[0, 32, 2, 64, 4, 2], [1, 16, 1, 16, 2, 1], [2, 8, 1, 8, 1, 1]]);
 	assert.equal(
 		backend.createTextureCalls.find(
 			(call) => call.label === "IBLPrefilterInputTexture",
