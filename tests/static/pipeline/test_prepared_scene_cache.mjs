@@ -22,7 +22,6 @@ function createFeatures(overrides = {}) {
 		enableLighting: true,
 		enableGamma: true,
 		enableSH: false,
-		enableShadows: true,
 		enableReflection: false,
 		enableEnvironment: false,
 		enableSSAO: false,

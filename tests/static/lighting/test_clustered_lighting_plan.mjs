@@ -43,7 +43,6 @@ function createCapabilities(clusteredLighting) {
 		taa: false,
 		ssr: false,
 		volumetric: false,
-		fog: false,
 		motionBlur: false,
 		dof: false,
 		bloom: false,

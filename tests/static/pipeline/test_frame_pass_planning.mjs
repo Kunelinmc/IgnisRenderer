@@ -353,26 +353,6 @@ function run() {
 		true,
 	);
 
-	const legacyFogPlan = createFramePlan(
-		createFrame(),
-		baseResolved,
-		createPostProcess({
-			fog: {
-				enabled: true,
-				options: {
-					application: "scene",
-				},
-			},
-		}),
-		{ backendType: "webgpu", backendCapabilities },
-	);
-	assert.ok(legacyFogPlan.stageOrder.some((stage) => stage.id === "postprocess"));
-	assert.equal(
-		legacyFogPlan.backendPasses.find((pass) => pass.stage === "postprocess")
-			?.enabled,
-		true
-	);
-
 	const registry = new RenderPipelineRegistry({
 		stages: DEFAULT_PIPELINE_STAGES,
 	});

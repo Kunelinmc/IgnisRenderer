@@ -29,7 +29,6 @@ function createContext(systems) {
 			enableLighting: true,
 			enableGamma: true,
 			enableSH: false,
-			enableShadows: false,
 			enableReflection: false,
 			enableEnvironment: false,
 			enableSSAO: false,

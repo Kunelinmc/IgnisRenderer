@@ -27,7 +27,6 @@ class StubBackend extends TestRenderBackend {
 			taa: false,
 			ssr: false,
 			volumetric: false,
-			fog: false,
 		};
 		installNoopPostProcessAdapter(
 			this,
