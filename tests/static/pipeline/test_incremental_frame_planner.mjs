@@ -210,7 +210,7 @@ function testBuiltInPostProcessStageUsesPassMetadata() {
 	assert.equal(plan.postProcessStartPass, "test-built-in");
 }
 
-function testPostFxStandardReasonStartsAtEarliestEnabledPostStage() {
+function testPostFxStartsAtEarliestEnabledScreenSpaceStage() {
 	const registered = createRegisteredPostProcess({
 		ssao: { enabled: true },
 		bloom: { enabled: true },
@@ -218,7 +218,7 @@ function testPostFxStandardReasonStartsAtEarliestEnabledPostStage() {
 	});
 	const plan = IncrementalFramePlanner.plan({
 		enabled: true,
-		reasonMask: renderDirtyReasonToMask("postfx-standard"),
+		reasonMask: renderDirtyReasonToMask("postfx"),
 		features: createFeatures(),
 		postProcess: registered.postProcess,
 		registry: registered.registry,
@@ -260,21 +260,98 @@ function testPostFxSkipsToneMappingWhenDisabled() {
 	assert.equal(plan.postProcessStartPass, "fxaa");
 }
 
-function testPostFxCinematicReasonResetsTemporalHistory() {
+function testPostFxWithTemporalPassPreservesPlannerResetPolicy() {
 	const registered = createRegisteredPostProcess({
 		taa: { enabled: true },
 		fxaa: { enabled: true },
 	});
 	const plan = IncrementalFramePlanner.plan({
 		enabled: true,
-		reasonMask: renderDirtyReasonToMask("postfx-cinematic"),
+		reasonMask: renderDirtyReasonToMask("postfx"),
 		features: createFeatures(),
 		postProcess: registered.postProcess,
 		registry: registered.registry,
 	});
 	assert.equal(plan.firstPass, "postprocess");
 	assert.equal(plan.postProcessStartPass, "taa");
-	assert.equal(plan.temporalHistoryReset, true);
+	assert.equal(plan.forceFullFrame, true);
+	assert.equal(plan.temporalHistoryReset, false);
+}
+
+function testRemovedPostFxReasonsUseConservativeUnknownFallback() {
+	const { registry, postProcess } = createRegisteredPostProcess({
+		bloom: { enabled: true },
+	});
+	for (const reason of [
+		"postfx-light",
+		"postfx-standard",
+		"postfx-cinematic",
+	]) {
+		const reasonMask = registry.getDirtyReasonMask(reason);
+		assert.equal(reasonMask, registry.getDirtyReasonMask("unknown"), reason);
+		const plan = IncrementalFramePlanner.plan({
+			enabled: true,
+			reasonMask,
+			features: createFeatures(),
+			postProcess,
+			registry,
+		});
+		assert.deepEqual(plan, {
+			firstPass: "main-opaque",
+			postProcessStartPass: null,
+			forceFullFrame: true,
+			temporalHistoryReset: true,
+			reasonMask,
+		}, `${reason} must trigger conservative replay`);
+	}
+}
+
+function testCompactDirtyMasksRetainPlanningSemantics() {
+	const registry = new IncrementalRegistry();
+	for (const [reasonMask, hasEnabledShadows, firstPass, forceFullFrame] of [
+		[1 << 12, false, "main-opaque", false],
+		[1 << 13, true, "shadow", true],
+		[1 << 14, true, "shadow", true],
+	]) {
+		const plan = IncrementalFramePlanner.plan({
+			enabled: true,
+			reasonMask,
+			features: createFeatures(),
+			hasEnabledShadows,
+			postProcess: createPostProcess(),
+			registry,
+		});
+		assert.deepEqual(plan, {
+			firstPass,
+			postProcessStartPass: null,
+			forceFullFrame,
+			temporalHistoryReset: true,
+			reasonMask,
+		});
+	}
+}
+
+function testCustomDirtyReasonCapacityRetainsIndependentPlanning() {
+	const registry = new IncrementalRegistry();
+	const passId = "custom-capacity-pass";
+	registry.registerFramePass({ id: passId, order: 3.5 });
+	for (let index = 0; index < 16; index++) {
+		const reasonMask = registry.registerDirtyReason({
+			id: `custom-capacity-${index}`,
+			firstPass: passId,
+		});
+		const plan = IncrementalFramePlanner.plan({
+			enabled: true,
+			reasonMask,
+			features: createFeatures(),
+			postProcess: createPostProcess(),
+			registry,
+		});
+		assert.equal(plan.firstPass, passId);
+		assert.equal(plan.forceFullFrame, false);
+		assert.equal(plan.temporalHistoryReset, false);
+	}
+	assert.throws(() => registry.registerDirtyReason({ id: "custom-over-capacity" }));
 }
 
 function testCameraForcesFullAndResetsTemporal() {
@@ -423,10 +500,13 @@ function run() {
 	testParticlesStartAtParticleSim();
 	testPostFxStartsAtFirstEnabledPostStage();
 	testBuiltInPostProcessStageUsesPassMetadata();
-	testPostFxStandardReasonStartsAtEarliestEnabledPostStage();
+	testPostFxStartsAtEarliestEnabledScreenSpaceStage();
 	testPostFxStartsAtFogWhenOnlyFogPostProcessEnabled();
 	testPostFxSkipsToneMappingWhenDisabled();
-	testPostFxCinematicReasonResetsTemporalHistory();
+	testPostFxWithTemporalPassPreservesPlannerResetPolicy();
+	testRemovedPostFxReasonsUseConservativeUnknownFallback();
+	testCompactDirtyMasksRetainPlanningSemantics();
+	testCustomDirtyReasonCapacityRetainsIndependentPlanning();
 	testCameraForcesFullAndResetsTemporal();
 	testGeometryFallsBackToMainWhenShadowsDisabled();
 	testDisabledIncrementalAlwaysFullFrame();

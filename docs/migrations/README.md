@@ -95,6 +95,42 @@ Replace the removed `reflection-probe` dirty reason and
 reflection capture writeback now share this reason. The removed name has no
 compatibility alias and follows the normal unknown-reason fallback.
 
+## Post-Process Dirty Reason
+
+Replace `postfx-light`, `postfx-standard`, and `postfx-cinematic` dirty reasons
+with `postfx`. Replace their `RENDER_DIRTY_REASON_MASK` entries with
+`RENDER_DIRTY_REASON_MASK.postfx`; `RENDER_DIRTY_GROUP.postfx` now contains only
+that mask. The remaining built-in reasons are packed contiguously:
+
+| Reason | Previous bit | Current bit |
+| --- | --- | --- |
+| `decal` | `16` | `12` |
+| `probe-capture` | `17` | `13` |
+| `render-target` | `18` | `14` |
+
+Custom allocation now starts at bit `15` instead of `19`, providing sixteen
+custom reason slots through bit `30`. Other built-in mask values retain their
+existing bit positions.
+
+The removed names have no compatibility aliases and follow unknown-reason
+fallback unless explicitly registered as custom reasons. Rebuild stored or
+cross-version masks from reason names using the current registry. Raw values
+cannot distinguish the old and current layouts: bits `12` through `14` now
+identify the three reasons above, and former high bits may identify custom
+reasons. Do not rely on unknown-reason fallback to migrate numeric masks.
+
+`Renderer` continues to replay the complete scene and post-process chain and
+reset temporal history for `postfx`. Standalone `IncrementalFramePlanner` calls
+retain the existing `postfx` policy: full-frame coverage without independently
+requesting a temporal-history reset. Callers that relied on the removed
+cinematic reason's planner reset can register a custom reason with
+`groups: ["postfx"]`, `forceFullFrame: true`, and `temporalHistoryReset: true`.
+Enabled pass metadata continues to determine `PostProcessGrade`, dirty-region
+inflation, and fallback scaling.
+
+See the [renderer contract](../contracts/renderer.md) and
+[post-process contract](../contracts/postprocess.md).
+
 ## Scene and ECS Projection
 
 Use scene nodes directly for rendering, interaction, animation, physics, and

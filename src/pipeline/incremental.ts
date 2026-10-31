@@ -24,23 +24,16 @@ export const RENDER_DIRTY_REASON_MASK = {
 	interaction: 1 << 9,
 	physics: 1 << 10,
 	particles: 1 << 11,
-	"postfx-light": 1 << 12,
-	"postfx-standard": 1 << 13,
-	"postfx-cinematic": 1 << 14,
-	decal: 1 << 16,
-	"probe-capture": 1 << 17,
-	"render-target": 1 << 18,
+	decal: 1 << 12,
+	"probe-capture": 1 << 13,
+	"render-target": 1 << 14,
 } as const;
 
 export type BuiltinRenderDirtyReason = keyof typeof RENDER_DIRTY_REASON_MASK;
 export type RenderDirtyReason = BuiltinRenderDirtyReason | (string & {});
 
 export const RENDER_DIRTY_GROUP = {
-	postfx:
-		RENDER_DIRTY_REASON_MASK.postfx |
-		RENDER_DIRTY_REASON_MASK["postfx-light"] |
-		RENDER_DIRTY_REASON_MASK["postfx-standard"] |
-		RENDER_DIRTY_REASON_MASK["postfx-cinematic"],
+	postfx: RENDER_DIRTY_REASON_MASK.postfx,
 	shading:
 		RENDER_DIRTY_REASON_MASK.material |
 		RENDER_DIRTY_REASON_MASK.texture |
@@ -455,25 +448,6 @@ const DIRTY_REASON_SEEDS: readonly DirtyReasonSeed[] = [
 		invalidatesSceneBounds: true,
 	},
 	{
-		id: "postfx-light",
-		mask: RENDER_DIRTY_REASON_MASK["postfx-light"],
-		groups: ["postfx"],
-		forceFullFrame: true,
-	},
-	{
-		id: "postfx-standard",
-		mask: RENDER_DIRTY_REASON_MASK["postfx-standard"],
-		groups: ["postfx"],
-		forceFullFrame: true,
-	},
-	{
-		id: "postfx-cinematic",
-		mask: RENDER_DIRTY_REASON_MASK["postfx-cinematic"],
-		groups: ["postfx"],
-		forceFullFrame: true,
-		temporalHistoryReset: true,
-	},
-	{
 		id: "decal",
 		mask: RENDER_DIRTY_REASON_MASK.decal,
 		firstPass: "main-opaque",
@@ -519,7 +493,7 @@ export class IncrementalRegistry {
 	private _framePasses = new Map<FramePassStage, RegisteredFramePassDescriptor>();
 	private _postProcessPasses =
 		new Map<string, RegisteredPostProcessIncrementalMetadata>();
-	private _nextCustomDirtyReasonBit = 19;
+	private _nextCustomDirtyReasonBit = 15;
 	private _nextFramePassOrder = 0;
 	private _nextPostProcessOrder = 0;
 

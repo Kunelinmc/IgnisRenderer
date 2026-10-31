@@ -43,6 +43,9 @@ This document defines logical post-process declarations, planning, backend execu
   used for metadata-based planning, grading, and dirty-region inflation.
 - Registered metadata must affect planning only while the corresponding pass
   is enabled in the current `ResolvedPostProcessState`.
+- Post-process grading, dirty-region inflation, and full-frame fallback scaling
+  must derive from enabled pass metadata. The `postfx` dirty reason must not
+  select a `PostProcessGrade` or filter execution to passes of a particular grade.
 - `PostProcessPassConfig.label` may provide a human-readable pass name for
   diagnostics and consumer-facing metadata. It defaults to `id`.
 - `PostProcessPassImplementation.describeExecution(request)` must return one

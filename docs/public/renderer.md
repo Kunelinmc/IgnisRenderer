@@ -105,6 +105,11 @@ Changes to post-process configuration or display exposure redraw the complete
 scene, including when an object also changes. Scene edits with active shadows
 or visible planar reflections conservatively redraw the full frame as well.
 
+Use `requestRender("postfx")` for application-owned post-process invalidation.
+It redraws the complete scene and post-process chain and resets temporal
+history. Post-process grades come from enabled pass metadata and do not require
+separate dirty reasons.
+
 Register renderer-specific dirty reasons and passes through `renderer.pipeline`.
 Each renderer owns its registration state; changing another renderer's pass
 metadata cannot change this renderer's dirty coverage. Standalone default

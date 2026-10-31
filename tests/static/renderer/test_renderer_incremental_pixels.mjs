@@ -54,7 +54,11 @@ async function testPostProcessReplayPreservesScenePixels() {
 		const initial = pixels();
 		assert.ok(initial.some((value, index) => index % 4 === 0 && value > 0));
 		renderer.requestRender("postfx");
-		await renderer.renderFrame(16);
+		const replay = await renderer.renderFrame(16);
+		assert.equal(replay.incremental.plan.forceFullFrame, true);
+		assert.equal(replay.incremental.plan.firstPass, null);
+		assert.equal(replay.incremental.plan.postProcessStartPass, null);
+		assert.equal(replay.incremental.plan.temporalHistoryReset, true);
 		assert.deepEqual(pixels(), initial,
 			"postprocess replay must reconstruct scene input rather than clear it or convert it twice");
 

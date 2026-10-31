@@ -420,6 +420,10 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
 - Renderer-local dirty reasons must retain their local meaning when scheduling
   a frame. Scene-originated reasons must be resolved by reason identity rather
   than assuming that independently allocated custom reason bits are equal.
+- Built-in dirty reasons must occupy bits `0` through `14`, with `decal`,
+  `probe-capture`, and `render-target` at bits `12`, `13`, and `14`. Custom
+  reasons must allocate bits `15` through `30` without reusing unregistered bits;
+  registration must reject after those sixteen slots have been allocated.
 - A failed frame must remain eligible for retry. Consumed requests and backend
   invalidations must not be lost, including requests received during the failed
   attempt. Preparation history from that attempt must be invalidated, and the
@@ -428,6 +432,14 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
   changes, must replay the complete scene and post-process chain. This remains
   required when local packet or backend dirty rectangles exist in the same frame;
   a previous display-domain result must not be reused as scene-linear input.
+- `postfx` must be the only built-in post-process dirty reason, and
+  `RENDER_DIRTY_GROUP.postfx` must contain only its mask. Removed graded reason
+  names must have no compatibility aliases and must follow unknown-reason
+  fallback when not explicitly registered as custom reasons.
+- Standalone `IncrementalFramePlanner` calls must force full-frame coverage for
+  `postfx` without requesting a temporal-history reset solely for that reason.
+  `Renderer` must reset temporal history when constructing the complete replay
+  frame context.
 - When scene work changes while shadows or visible planar-reflection surfaces
   are active, the renderer must conservatively rebuild full-frame coverage and
   execute the shadow and reflection producers before their scene consumers.
