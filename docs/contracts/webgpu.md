@@ -853,6 +853,11 @@ packing.
 - `ShaderTargetMode` must accept only `"single"` and `"mrt"`. WebGPU fragment
   chunks must explicitly set `backend: "webgpu"`, `stage: "fragment"`, and
   `mode: "single"` or `mode: "mrt"`.
+- Every WebGPU `ShaderMaterial` chunk, including vertex and depth fragments,
+  must set `language: "wgsl"`. Non-WGSL chunks must be rejected when configured.
+  Missing required stages must report missing WebGPU WGSL source. An absent
+  optional depth fragment must resolve to no custom depth program even when
+  the vertex chunk is absent; a depth fragment requires a vertex chunk.
 - When an MRT `ShaderMaterial` uses a `fragment-single` fallback because no
   `fragment-mrt` chunk exists, the program must use `fragmentSingleEntryPoint`.
   The pipeline must retain the MRT layout with zero write masks after location

@@ -13,17 +13,13 @@ export type ShaderChunkBackend = "webgpu" | "webgl";
 export type ShaderChunkStage = "vertex" | "fragment" | "fragment-depth";
 
 export type ShaderChunk = {
-	backend: ShaderChunkBackend;
-	language: ShaderChunkLanguage;
 	stage: ShaderChunkStage;
 	code: string;
 	mode?: ShaderTargetMode;
-};
-
-export type ShaderMaterialGLSLToWGSL = (
-	source: string,
-	stage: ShaderStageKind
-) => string;
+} & (
+	| { backend: "webgpu"; language: "wgsl" }
+	| { backend: "webgl"; language: "glsl" }
+);
 
 export interface ShaderMaterialTextureBinding {
 	name: string;
@@ -103,7 +99,6 @@ export interface ShaderMaterialParams extends MaterialParams {
 	depthFragmentCode?: string;
 	/** Declares that custom fragment outputs obey transparent presentation rules. */
 	transparentOutputCompatible?: boolean;
-	glslToWgsl?: ShaderMaterialGLSLToWGSL;
 	chunks?: ShaderChunk[];
 	textureBindings?: ShaderMaterialTextureBinding[];
 	uniformBindings?: ShaderMaterialUniformBinding[];
@@ -144,10 +139,6 @@ type ShaderChunkKey =
 	| "webgpu:wgsl:fragment-single"
 	| "webgpu:wgsl:fragment-mrt"
 	| "webgpu:wgsl:fragment-depth"
-	| "webgpu:glsl:vertex"
-	| "webgpu:glsl:fragment-single"
-	| "webgpu:glsl:fragment-mrt"
-	| "webgpu:glsl:fragment-depth"
 	| "webgl:glsl:vertex"
 	| "webgl:glsl:fragment-single"
 	| "webgl:glsl:fragment-mrt"
@@ -187,10 +178,6 @@ const SHADER_CHUNK_ORDER: readonly ShaderChunkKey[] = [
 	"webgpu:wgsl:fragment-single",
 	"webgpu:wgsl:fragment-mrt",
 	"webgpu:wgsl:fragment-depth",
-	"webgpu:glsl:vertex",
-	"webgpu:glsl:fragment-single",
-	"webgpu:glsl:fragment-mrt",
-	"webgpu:glsl:fragment-depth",
 	"webgl:glsl:vertex",
 	"webgl:glsl:fragment-single",
 	"webgl:glsl:fragment-mrt",
@@ -231,7 +218,6 @@ export class ShaderMaterial extends Material {
 	private _chunks: Map<ShaderChunkKey, string>;
 	private _textureBindings: Map<string, ShaderMaterialTextureBindingRecord>;
 	private _uniformBindings: Map<string, ShaderMaterialUniformBindingRecord>;
-	private _glslToWgsl: ShaderMaterialGLSLToWGSL | null;
 	private _shaderRevision: number;
 	private _uniformValueRevision: number;
 
@@ -249,7 +235,6 @@ export class ShaderMaterial extends Material {
 		this._chunks = new Map<ShaderChunkKey, string>();
 		this._textureBindings = new Map();
 		this._uniformBindings = new Map();
-		this._glslToWgsl = params.glslToWgsl ?? null;
 		this._shaderRevision = 0;
 		this._uniformValueRevision = 0;
 
@@ -300,10 +285,6 @@ export class ShaderMaterial extends Material {
 		return chunks;
 	}
 
-	public get glslToWgsl(): ShaderMaterialGLSLToWGSL | null {
-		return this._glslToWgsl;
-	}
-
 	public setChunks(chunks: ShaderChunk[]): void {
 		const nextChunks = new Map<ShaderChunkKey, string>();
 		for (const chunk of chunks) {
@@ -343,14 +324,6 @@ export class ShaderMaterial extends Material {
 			this._touchShaderRevision();
 		}
 		return removed;
-	}
-
-	public setGLSLToWGSL(transpiler: ShaderMaterialGLSLToWGSL | null): void {
-		if (this._glslToWgsl === transpiler) {
-			return;
-		}
-		this._glslToWgsl = transpiler;
-		this._touchShaderRevision();
 	}
 
 	public setTextureBindings(bindings: ShaderMaterialTextureBinding[]): void {
@@ -572,12 +545,12 @@ export class ShaderMaterial extends Material {
 	public resolveWebGPUDepthPrepassProgram(
 		mode: ShaderTargetMode
 	): ResolvedWebGPUDepthPrepassProgram | null {
-		const vertexSource = this._resolveWebGPUStageCode("vertex", mode);
-		const vertexCode = vertexSource.code;
-		const rawDepthCode = this._resolveWebGPUDepthStageCode(mode);
+		const rawDepthCode = this._getWebGPUStageSource("fragment-depth", mode)?.code;
 		if (!rawDepthCode) {
 			return null;
 		}
+		const vertexSource = this._resolveWebGPUStageCode("vertex", mode);
+		const vertexCode = vertexSource.code;
 		return {
 			vertexCode,
 			fragmentCode: rawDepthCode,
@@ -590,10 +563,7 @@ export class ShaderMaterial extends Material {
 		mode: ShaderTargetMode = "single"
 	): ResolvedWebGLShaderProgram {
 		this._assertWebGLTargetMode(mode);
-		const vertexCode =
-			this._chunks.get("webgl:glsl:vertex") ??
-			this._chunks.get("webgpu:glsl:vertex") ??
-			null;
+		const vertexCode = this._chunks.get("webgl:glsl:vertex") ?? null;
 		const rawFragmentCode = this._resolveWebGLStageCode(mode);
 
 		if (
@@ -605,8 +575,7 @@ export class ShaderMaterial extends Material {
 			throw new Error(
 				`ShaderMaterial ${this.name} is missing WebGL GLSL source; ` +
 					"provide webgl GLSL vertex and fragment-single chunks " +
-					"(optionally fragment-mrt for MRT), or webgpu GLSL " +
-					"vertex/fragment-single chunks as fallback"
+					"(optionally fragment-mrt for MRT)"
 			);
 		}
 
@@ -628,14 +597,8 @@ export class ShaderMaterial extends Material {
 		mode: ShaderTargetMode = "single"
 	): ResolvedWebGLDepthPrepassProgram | null {
 		this._assertWebGLTargetMode(mode);
-		const vertexCode =
-			this._chunks.get("webgl:glsl:vertex") ??
-			this._chunks.get("webgpu:glsl:vertex") ??
-			null;
-		const rawDepthCode =
-			this._chunks.get("webgl:glsl:fragment-depth") ??
-			this._chunks.get("webgpu:glsl:fragment-depth") ??
-			null;
+		const vertexCode = this._chunks.get("webgl:glsl:vertex") ?? null;
+		const rawDepthCode = this._chunks.get("webgl:glsl:fragment-depth") ?? null;
 
 		if (
 			typeof vertexCode !== "string" ||
@@ -656,68 +619,14 @@ export class ShaderMaterial extends Material {
 		stage: ShaderStageKind,
 		mode: ShaderTargetMode
 	): ResolvedWebGPUStageSource {
-		const wgslSource = this._getChunkStageSource("wgsl", stage, mode);
-		if (wgslSource) {
-			return wgslSource;
-		}
-
-		const glslSource = this._getChunkStageSource("glsl", stage, mode);
-		if (!glslSource) {
+		const source = this._getWebGPUStageSource(stage, mode);
+		if (!source) {
 			throw new Error(
-				`ShaderMaterial ${this.name} is missing ${stage} shader source for ${mode} mode`
+				`ShaderMaterial ${this.name} is missing WebGPU WGSL ${stage} shader source ` +
+					`for ${mode} mode`
 			);
 		}
-
-		if (!this._glslToWgsl) {
-			throw new Error(
-				`ShaderMaterial ${this.name} has GLSL source but no glslToWgsl transpiler; provide webgpu WGSL chunks directly or call setGLSLToWGSL()`
-			);
-		}
-
-		const transpiled = this._glslToWgsl(glslSource.code, glslSource.stage);
-		if (typeof transpiled !== "string" || transpiled.trim().length === 0) {
-			throw new Error(
-				`ShaderMaterial ${this.name} glslToWgsl transpiler returned empty output for ${glslSource.stage}`
-			);
-		}
-		return {
-			code: transpiled,
-			stage: glslSource.stage,
-		};
-	}
-
-	private _resolveWebGPUDepthStageCode(mode: ShaderTargetMode): string | null {
-		const wgslSource = this._getChunkStageSource(
-			"wgsl",
-			"fragment-depth",
-			mode
-		);
-		if (wgslSource) {
-			return wgslSource.code;
-		}
-
-		const glslSource = this._getChunkStageSource(
-			"glsl",
-			"fragment-depth",
-			mode
-		);
-		if (!glslSource) {
-			return null;
-		}
-
-		if (!this._glslToWgsl) {
-			throw new Error(
-				`ShaderMaterial ${this.name} has GLSL depth fragment source but no glslToWgsl transpiler; provide webgpu WGSL depth fragment chunk or call setGLSLToWGSL()`
-			);
-		}
-
-		const transpiled = this._glslToWgsl(glslSource.code, "fragment-depth");
-		if (typeof transpiled !== "string" || transpiled.trim().length === 0) {
-			throw new Error(
-				`ShaderMaterial ${this.name} glslToWgsl transpiler returned empty output for fragment-depth`
-			);
-		}
-		return transpiled;
+		return source;
 	}
 
 	private _chunkFromKey(key: ShaderChunkKey, code: string): ShaderChunk {
@@ -749,36 +658,6 @@ export class ShaderMaterial extends Material {
 				return {
 					backend: "webgpu",
 					language: "wgsl",
-					stage: "fragment-depth",
-					code,
-				};
-			case "webgpu:glsl:vertex":
-				return {
-					backend: "webgpu",
-					language: "glsl",
-					stage: "vertex",
-					code,
-				};
-			case "webgpu:glsl:fragment-single":
-				return {
-					backend: "webgpu",
-					language: "glsl",
-					stage: "fragment",
-					mode: "single",
-					code,
-				};
-			case "webgpu:glsl:fragment-mrt":
-				return {
-					backend: "webgpu",
-					language: "glsl",
-					stage: "fragment",
-					mode: "mrt",
-					code,
-				};
-			case "webgpu:glsl:fragment-depth":
-				return {
-					backend: "webgpu",
-					language: "glsl",
 					stage: "fragment-depth",
 					code,
 				};
@@ -859,52 +738,51 @@ export class ShaderMaterial extends Material {
 			return `webgl:glsl:fragment-${mode}` as ShaderChunkKey;
 		}
 
-		if (language !== "wgsl" && language !== "glsl") {
-			throw new Error(`Unsupported shader chunk language "${language}".`);
+		if (language !== "wgsl") {
+			throw new Error("WebGPU shader chunks must use WGSL.");
 		}
 		if (stage === "vertex") {
-			return `webgpu:${language}:vertex` as ShaderChunkKey;
+			return "webgpu:wgsl:vertex";
 		}
 		if (stage === "fragment-depth") {
-			return `webgpu:${language}:fragment-depth` as ShaderChunkKey;
+			return "webgpu:wgsl:fragment-depth";
 		}
 		if (mode !== "single" && mode !== "mrt") {
 			throw new Error(`Unsupported shader chunk mode "${mode}".`);
 		}
-		return `webgpu:${language}:fragment-${mode}` as ShaderChunkKey;
+		return `webgpu:wgsl:fragment-${mode}`;
 	}
 
-	private _getChunkStageSource(
-		language: ShaderChunkLanguage,
+	private _getWebGPUStageSource(
 		stage: ShaderStageKind,
 		mode: ShaderTargetMode
 	): ResolvedWebGPUStageSource | null {
 		switch (stage) {
 			case "vertex": {
-				const code = this._chunks.get(`webgpu:${language}:vertex`);
+				const code = this._chunks.get("webgpu:wgsl:vertex");
 				return code ? { code, stage } : null;
 			}
 			case "fragment-single": {
-				const code = this._chunks.get(`webgpu:${language}:fragment-single`);
+				const code = this._chunks.get("webgpu:wgsl:fragment-single");
 				return code ? { code, stage } : null;
 			}
 			case "fragment-mrt": {
 				const mrtCode =
 					mode === "mrt" ?
-						this._chunks.get(`webgpu:${language}:fragment-mrt`)
+						this._chunks.get("webgpu:wgsl:fragment-mrt")
 					:	undefined;
 				if (mrtCode) {
 					return { code: mrtCode, stage };
 				}
 				const singleCode = this._chunks.get(
-					`webgpu:${language}:fragment-single`
+					"webgpu:wgsl:fragment-single"
 				);
 				return singleCode ?
 					{ code: singleCode, stage: "fragment-single" }
 				:	null;
 			}
 			case "fragment-depth": {
-				const code = this._chunks.get(`webgpu:${language}:fragment-depth`);
+				const code = this._chunks.get("webgpu:wgsl:fragment-depth");
 				return code ? { code, stage } : null;
 			}
 			default:
@@ -917,16 +795,10 @@ export class ShaderMaterial extends Material {
 			return (
 				this._chunks.get("webgl:glsl:fragment-mrt") ??
 				this._chunks.get("webgl:glsl:fragment-single") ??
-				this._chunks.get("webgpu:glsl:fragment-mrt") ??
-				this._chunks.get("webgpu:glsl:fragment-single") ??
 				null
 			);
 		}
-		return (
-			this._chunks.get("webgl:glsl:fragment-single") ??
-			this._chunks.get("webgpu:glsl:fragment-single") ??
-			null
-		);
+		return this._chunks.get("webgl:glsl:fragment-single") ?? null;
 	}
 
 	private _assertWebGLTargetMode(mode: ShaderTargetMode): void {

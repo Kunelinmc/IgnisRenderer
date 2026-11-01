@@ -491,6 +491,8 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   `fragment-mrt` for `mrt` mode and may fall back to `fragment-single` when
   `fragment-mrt` is absent.
 - Every WebGL shader chunk must explicitly set `backend: "webgl"`.
+- WebGL custom scene and depth programs must use only `webgl` GLSL chunks.
+  They must not borrow shader source declared for WebGPU.
 
 ### Internal frame graph
 

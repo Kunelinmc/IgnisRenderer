@@ -143,10 +143,12 @@ This document defines shader source ownership, composition, diagnostics, and cus
   `ShaderMaterial.setChunks()`, `ShaderMaterial.upsertChunk()`, or
   `ShaderMaterial.removeChunk()` must explicitly declare `backend` as
   `"webgpu"` or `"webgl"`. Missing or unsupported backend values must throw.
-- WebGPU chunks may provide WGSL directly or GLSL together with a
-  `ShaderMaterialGLSLToWGSL` transpiler. WebGPU must submit only the resolved
-  WGSL output to the native shader-module API.
-- WebGL chunks must use GLSL.
+- WebGPU chunks must use WGSL. WebGL chunks must use GLSL.
+- Chunk construction and updates must reject a language that does not match
+  the declared backend before changing material state.
+- WebGPU and WebGL program resolution must use only chunks declared for that
+  backend. Shader materials must not convert GLSL to WGSL or borrow source
+  from the other backend.
 
 ### ShaderMaterial custom textures
 

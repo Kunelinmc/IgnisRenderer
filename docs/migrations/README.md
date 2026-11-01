@@ -397,6 +397,14 @@ names are generated from the binding name: for example, `noise-map` becomes
 use the generated name or the corresponding `ignisSampleTexture_<token>`
 helper. Numeric uniform bindings retain their `webglUniform` option.
 
+Remove `ShaderMaterialParams.glslToWgsl`, the `glslToWgsl` getter,
+`setGLSLToWGSL()`, and imports of `ShaderMaterialGLSLToWGSL`. WebGPU chunks now
+require `backend: "webgpu"` and `language: "wgsl"` for every shader stage.
+Convert existing GLSL sources outside the material runtime or provide WGSL
+directly. WebGL requires separate chunks with `backend: "webgl"` and
+`language: "glsl"`; it no longer borrows `webgpu` GLSL chunks. Existing WGSL
+MRT-to-single fragment fallback and optional depth-fragment behavior remain.
+
 ## Software Backend Lifecycle
 
 `SoftwareBackend` participates in the same attach, initialize, frame
@@ -464,8 +472,7 @@ Remove `WebGPUBackendOptions.enableDeferredLighting` and the `ShaderMaterial`
 properties `deferredLighting`, `fragmentDeferredEntryPoint`,
 `fragmentDeferredBaseEntryPoint`, and `fragmentDeferredExtensionsEntryPoint`.
 Replace deferred fragment chunks with `stage: "fragment"` chunks whose `mode`
-is `"single"` or `"mrt"`. GLSL-to-WGSL callbacks must handle the corresponding
-`ShaderStageKind` values `"fragment-single"` and `"fragment-mrt"`.
+is `"single"` or `"mrt"`. WebGPU chunks must contain WGSL.
 
 MRT fragments write lit `sceneColor` at location `0`, followed by
 `gAlbedoAlpha`, `gNormalRoughMetal`, `gEmissiveOcclusion`, and `gMotionDepth`
