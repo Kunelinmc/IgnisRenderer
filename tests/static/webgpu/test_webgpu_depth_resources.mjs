@@ -128,6 +128,33 @@ async function testDepthProjectionAndRetirement() {
 	cache.destroy();
 }
 
+async function testUnavailableAlphaResourcesInvalidateSnapshots() {
+	for (const kind of ["texture", "sampler"]) {
+		for (const retirement of ["destroy", "invalidate", "reset"]) {
+			const backend = backendStub();
+			const texture = textureResource(backend.resourceManager);
+			const sampler = backend.resourceManager.registerSampler({});
+			const registry = {
+				async getTextureForSlotAsync() { return texture; },
+				getSamplerForTexture() { return sampler; },
+				isTextureBindingCurrent() { return true; },
+			};
+			const cache = new WebGPUDepthMaterialResources(backend, layouts, registry);
+			const material = new PBRMaterial({ alphaMode: AlphaMode.Mask });
+			const snapshot = await cache.resolve(material);
+			assert.equal(cache.isCurrent(material, snapshot), true);
+			const resource = kind === "texture" ? texture : sampler;
+			if (retirement === "invalidate") backend.resourceManager.invalidate(resource);
+			else if (retirement === "reset") backend.resourceManager.reset();
+			else resource.destroy();
+			assert.equal(cache.isCurrent(material, snapshot), false,
+				`${retirement} of an alpha ${kind} invalidates its prepared snapshot`);
+			cache.destroy();
+			backend.resourceManager.reset();
+		}
+	}
+}
+
 async function testObjectSharingAndDepthBindings() {
 	for (const depthFirst of [false, true]) {
 		const backend = backendStub();
@@ -529,6 +556,7 @@ async function testObjectNonHistoricalFieldsUsePackedValues() {
 
 await testDepthProjectionAndRetirement();
 await testDepthResourcesRejectForeignRegistryResources();
+await testUnavailableAlphaResourcesInvalidateSnapshots();
 testObjectUploadRetryPreservesFrameHistory();
 await testObjectSharingAndDepthBindings();
 testStaticBorrowingAndNativeInvalidation();

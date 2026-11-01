@@ -14,13 +14,12 @@ const native = { destroy() { releases++; } };
 const buffer = store.registerBuffer(native, { size: 256 }, () => native.destroy());
 assert.equal(buffer.kind, "buffer");
 assert.equal(store.getBuffer(buffer), native);
-assert.equal(foreign.tryGetBuffer(buffer), null);
 assert.throws(() => foreign.getBuffer(buffer), /owned|owner|foreign/i);
 assert.throws(() => store.getBuffer({ ...buffer }), /owned|owner|foreign/i);
 const prototypeForgery = Object.create(Object.getPrototypeOf(buffer));
-assert.equal(store.tryGetBuffer(prototypeForgery), null,
+assert.throws(() => store.getBuffer(prototypeForgery), /owned|owner|foreign/i,
 	"copying a facade prototype cannot forge private registration records");
-assert.equal(store.tryGetBuffer(new Proxy(buffer, {})), null,
+assert.throws(() => store.getBuffer(new Proxy(buffer, {})), /owned|owner|foreign/i,
 	"unregistered proxies cannot transfer private resource ownership");
 assert.throws(() => store.getBuffer({ _gpuResource: native }), /WebGPU|owned/i);
 assert.equal(Reflect.ownKeys(buffer).some((key) =>
@@ -29,7 +28,6 @@ assert.equal(Object.values(buffer).includes(native), false);
 buffer.destroy();
 buffer.destroy();
 assert.equal(releases, 1);
-assert.equal(store.tryGetBuffer(buffer), null);
 assert.throws(() => store.getBuffer(buffer), /live|destroyed|retired/i);
 
 let borrowedDestroyed = 0;
@@ -40,8 +38,8 @@ const live = store.registerBuffer(native, { size: 32 }, () => native.destroy());
 store.reset();
 assert.equal(releases, 2, "store retirement disposes each remaining allocation once");
 assert.equal(borrowedDestroyed, 0, "borrowed textures are never destroyed by the store");
-assert.equal(store.tryGetTexture(borrowed), null);
-assert.equal(store.tryGetBuffer(live), null);
+assert.throws(() => store.getTexture(borrowed), /live|destroyed|retired/i);
+assert.throws(() => store.getBuffer(live), /live|destroyed|retired/i);
 live.destroy();
 assert.equal(releases, 2);
 const restored = store.registerBuffer(native, { size: 64 });
@@ -109,7 +107,7 @@ manager.reset();
 assert.equal(registered.size, 0, "backend teardown clears managed finalization registrations");
 assert.equal(allocationsDestroyed, 2);
 assert.equal(borrowedAllocationsDestroyed, 0);
-assert.equal(manager.tryGetTexture(borrowedTexture), null);
+assert.throws(() => manager.getTexture(borrowedTexture), /live|destroyed|retired/i);
 managedBuffer.destroy();
 managedTexture.destroy();
 assert.equal(allocationsDestroyed, 2);
@@ -124,13 +122,29 @@ const firstPresentation = targets.getCanvasColorTexture(context, canvas);
 assert.equal(targets.getCanvasColorTexture(context, canvas), firstPresentation,
 	"presentation facades are stable while their acquired texture is current");
 targets.resetCurrentCanvasTargets();
-assert.equal(presentationStore.tryGetTexture(firstPresentation), null);
+assert.throws(() => presentationStore.getTexture(firstPresentation), /live|destroyed|retired/i);
 const nextPresentation = targets.getCanvasColorTexture(context, canvas);
 assert.notEqual(nextPresentation, firstPresentation);
 assert.equal(presentationStore.getTexture(nextPresentation).texture, presented);
 targets.release();
-assert.equal(presentationStore.tryGetTexture(nextPresentation), null);
+assert.throws(() => presentationStore.getTexture(nextPresentation), /live|destroyed|retired/i);
 assert.equal(presentedDestroyed, 0, "releasing presentation facades preserves browser ownership");
+
+for (const retire of [
+	(resource) => resource.destroy(),
+	(resource) => presentationStore.invalidate(resource),
+	() => presentationStore.reset(),
+]) {
+	const previous = targets.getCanvasColorTexture(context, canvas);
+	retire(previous);
+	const replacement = targets.getCanvasColorTexture(context, canvas);
+	assert.notEqual(replacement, previous, "an unavailable canvas facade is recreated");
+	assert.equal(presentationStore.getTexture(replacement).texture, presented);
+	assert.throws(() => presentationStore.getTexture(previous), /live|destroyed|retired/i);
+}
+targets.release();
+presentationStore.reset();
+assert.equal(presentedDestroyed, 0, "canvas facade recovery never destroys browser-owned textures");
 
 async function testManagedBufferCollectionPreservesExplicitTeardown() {
 	const registry = new FinalizationRegistry(() => {});

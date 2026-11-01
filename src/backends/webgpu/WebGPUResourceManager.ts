@@ -404,19 +404,6 @@ export class WebGPUResourceManager {
 		return this._require(resource, this._groups, "binding group");
 	}
 
-	/** @internal Returns null for foreign, forged, retired or destroyed buffers. */
-	public tryGetBuffer(resource: unknown): GPUBuffer | null {
-		return this._tryGet(resource, this._buffers);
-	}
-	/** @internal Returns null for foreign, forged, retired or destroyed textures. */
-	public tryGetTexture(resource: unknown): WebGPUTexture | null {
-		return this._tryGet(resource, this._textures);
-	}
-	/** @internal Returns null for foreign, forged, retired or destroyed samplers. */
-	public tryGetSampler(resource: unknown): GPUSampler | null {
-		return this._tryGet(resource, this._samplers);
-	}
-
 	/** @internal Validates the renderer-only input boundary of the compute extension. */
 	public assertBindingResource(resource: BindingResource): void {
 		if (!resource || typeof resource !== "object") {
@@ -509,20 +496,13 @@ export class WebGPUResourceManager {
 		dispose();
 	}
 
-	private _tryGet<T extends object>(
-		resource: unknown, records: WeakMap<object, ResourceRecord<T>>,
-	): T | null {
-		if (resource === null || typeof resource !== "object") return null;
-		// A record in this manager's typed table already proves resource provenance.
-		const record = records.get(resource);
-		return record?.available ? record.native : null;
-	}
-
 	private _require<T extends object>(
 		resource: unknown, records: WeakMap<object, ResourceRecord<T>>, kind: string,
 	): T {
-		const native = this._tryGet(resource, records);
-		if (native) return native;
+		// A record in this manager's typed table already proves resource provenance.
+		const record = resource !== null && typeof resource === "object" ?
+			records.get(resource) : undefined;
+		if (record?.available && record.native) return record.native;
 		if (!this.owns(resource)) {
 			throw new Error(`WebGPU ${kind} is not owned by this backend.`);
 		}

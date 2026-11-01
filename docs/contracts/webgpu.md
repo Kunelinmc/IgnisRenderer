@@ -91,6 +91,10 @@ lighting, presentation configuration, reflections, and structured buffer packing
   The same manager must own native resolution, uploads, invalidation, and reset.
   Pipeline and binding caches must retain their cache and reference-count policy;
   they must register acquired references with the manager.
+- Native resource resolution must use the manager's `get*()` operations. These
+  getters must throw for foreign, forged, wrong-kind, destroyed, invalidated, or
+  retired resources. Callers that tolerate an unavailable resource must handle
+  lookup failure at their own cache or optional-work boundary.
 - Device release must retire resource records and dispose live resources before
   publishing a replacement device. Old facades must remain unusable afterward.
 - Live resource records and disposal callbacks must not retain otherwise

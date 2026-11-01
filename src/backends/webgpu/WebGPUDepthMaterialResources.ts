@@ -136,9 +136,13 @@ export class WebGPUDepthMaterialResources {
 			this._fillProjectionScratch(material, map);
 			if (!equalProjection(entry.projection, this._projectionScratch)) return false;
 		}
-		return entry.textureHandle === this._resources.tryGetTexture(entry.texture)?.texture &&
-			entry.samplerHandle === this._resources.tryGetSampler(entry.sampler) &&
-			this._textures.isTextureBindingCurrent(map, entry.texture, entry.sampler);
+		try {
+			if (entry.textureHandle !== this._resources.getTexture(entry.texture).texture) return false;
+			if (entry.samplerHandle !== this._resources.getSampler(entry.sampler)) return false;
+		} catch {
+			return false;
+		}
+		return this._textures.isTextureBindingCurrent(map, entry.texture, entry.sampler);
 	}
 
 	public destroy(): void {

@@ -154,6 +154,8 @@ async function testCompactDepthBiasUploadPreservesCandidateAlignment() {
 	assert.deepEqual(Array.from(candidates.lastWrite.data),
 		[1, 2, 3, 4, Math.fround(0.2), Math.fround(0.8), 12, 0]);
 	assert.deepEqual(backend.dispatches, [[1, 1, 1]]);
+	assert.equal(nativeEncoder.calls.filter(([name]) => name === "copyBufferToBuffer").length, 1,
+		"live occlusion results schedule a GPU readback");
 	const shader = readFileSync(new URL(
 		"../../../src/shaders/webgpu/utility/occlusionCulling.wgsl", import.meta.url,
 	), "utf8");
@@ -162,12 +164,40 @@ async function testCompactDepthBiasUploadPreservesCandidateAlignment() {
 	runtime.destroy();
 }
 
+function testUnavailableResultBuffersSkipReadback() {
+	for (const retirement of ["destroy", "invalidate", "reset"]) {
+		const backend = new FakeWebGPUBackend();
+		const runtime = new WebGPUOcclusionCullingRuntime(backend);
+		const nativeEncoder = backend.createCommandEncoder();
+		const encoder = new WebGPUCommandEncoder(nativeEncoder, {
+			resourceManager: backend.resourceManager,
+			createPassTimestampWrites: () => undefined,
+		}, {});
+		const result = backend.createBuffer({ size: 4, usage: 0 });
+		runtime._resultBuffer = result;
+		if (retirement === "invalidate") backend.resourceManager.invalidate(result);
+		else if (retirement === "reset") backend.resourceManager.reset();
+		else result.destroy();
+		const bufferCount = backend.buffers.length;
+		const candidate = createCandidate();
+		const options = normalizeOcclusionCullingOptions({});
+		runtime._queueReadback(encoder, [candidate], options);
+		assert.equal(backend.buffers.length, bufferCount,
+			`${retirement} of results must skip staging allocation`);
+		assert.equal(nativeEncoder.calls.some(([name]) => name === "copyBufferToBuffer"), false);
+		assert.equal(runtime.getVisibilityProvider(options).isPacketVisible(candidate), true);
+		runtime.destroy();
+		backend.resourceManager.reset();
+	}
+}
+
 async function run() {
 	testVisibilityHysteresisAndRecovery();
 	testStaleAndSignatureFallbacksAreVisible();
 	testTemporalResetClearsVisibility();
 	testResetIgnoresLateReadback();
 	await testCompactDepthBiasUploadPreservesCandidateAlignment();
+	testUnavailableResultBuffersSkipReadback();
 	console.log("test_webgpu_occlusion_culling_runtime: ok");
 }
 

@@ -346,7 +346,12 @@ export class WebGPUOcclusionCullingRuntime {
 			return;
 		}
 		const nativeEncoder = tryGetNativeWebGPUCommandEncoder(encoder);
-		const sourceBuffer = this._resources.tryGetBuffer(this._resultBuffer);
+		let sourceBuffer: GPUBuffer | null = null;
+		try {
+			sourceBuffer = this._resources.getBuffer(this._resultBuffer);
+		} catch {
+			// Retired results cannot schedule readback; keep the current visibility snapshot.
+		}
 		if (!nativeEncoder || !sourceBuffer) {
 			this._warnOnce(
 				"webgpu-occlusion-readback-failed",

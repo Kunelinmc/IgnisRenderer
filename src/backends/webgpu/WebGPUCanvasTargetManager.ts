@@ -93,8 +93,13 @@ export class WebGPUCanvasTargetManager {
 		context: GPUCanvasContext,
 		canvas: HTMLCanvasElement
 	): IRenderTexture {
-		if (this._currentFacade && this._resources.tryGetTexture(this._currentFacade)) {
-			return this._currentFacade;
+		if (this._currentFacade) {
+			try {
+				this._resources.getTexture(this._currentFacade);
+				return this._currentFacade;
+			} catch {
+				// Re-register the borrowed canvas texture after its facade is retired.
+			}
 		}
 		const current = this._getCurrentCanvasTexture(context);
 		const size = resolveGPUTextureExtent(current.texture, canvas.width, canvas.height);
