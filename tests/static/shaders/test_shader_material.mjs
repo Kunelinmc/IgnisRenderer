@@ -991,6 +991,14 @@ function testTextureBindingAutoSlotAndUniformDefaults() {
 	assert.equal(bindings[0].webglUniform, "uShaderTex_noise_map");
 	assert.equal(bindings[0].linear, true);
 	assert.equal(bindings[1].linear, false);
+	const shaderRevision = material.shaderRevision;
+	material.setTextureBinding({
+		name: "noise-map",
+		texture: bindings[0].texture,
+		webglUniform: "uLegacyOverride",
+	});
+	assert.equal(material.getTextureBindings()[0].webglUniform, "uShaderTex_noise_map");
+	assert.equal(material.shaderRevision, shaderRevision);
 
 	assert.throws(
 		() =>
@@ -1039,7 +1047,6 @@ function testTextureBindingGeneratedSourceBlocks() {
 		slot: 13,
 		uvSet: 1,
 		linear: true,
-		webglUniform: "uNoiseTex",
 	});
 
 	const webgpu = material.resolveWebGPUProgram("single");
@@ -1063,7 +1070,8 @@ function testTextureBindingGeneratedSourceBlocks() {
 		webgl.fragmentCode,
 	);
 	const webglGenerated = webglBlocks.map((block) => block.code).join("\n");
-	assert.ok(webglGenerated.includes("uniform sampler2D uNoiseTex;"));
+	assert.ok(webglGenerated.includes("uniform sampler2D uShaderTex_noise_map;"));
+	assert.ok(webglGenerated.includes("texture(uShaderTex_noise_map, uv)"));
 	assert.ok(webglGenerated.includes("ignisSampleTexture_noise_map"));
 
 	material.setTextureBinding({
@@ -1072,7 +1080,6 @@ function testTextureBindingGeneratedSourceBlocks() {
 		slot: 13,
 		uvSet: 1,
 		linear: false,
-		webglUniform: "uNoiseTex",
 	});
 	assert.deepEqual(
 		createWebGPUShaderMaterialSourceBlocks(material, "fragment", webgpu.fragmentCode),
@@ -1294,7 +1301,7 @@ function webglGeneratedIncludesPadding(...sources) {
 function testGeneratedMaterialABIOwnershipRejectsRedeclarations() {
 	const material = new ShaderMaterial({
 		uniformBindings: [{ name: "time", type: "f32" }],
-		textureBindings: [{ name: "noise", texture: null, webglUniform: "uNoise" }],
+		textureBindings: [{ name: "noise", texture: null }],
 	});
 	assert.throws(
 		() => createWebGPUShaderMaterialSourceBlocks(

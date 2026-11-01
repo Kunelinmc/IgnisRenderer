@@ -35,7 +35,6 @@ export interface ShaderMaterialTextureBinding {
 	 * an sRGB format. Omission follows the texture's source color space.
 	 */
 	linear?: boolean;
-	webglUniform?: string;
 }
 
 export interface ResolvedShaderMaterialTextureBinding {
@@ -948,16 +947,13 @@ export class ShaderMaterial extends Material {
 		const uvSet = this._normalizeTextureBindingUVSet(binding.uvSet);
 		const linearOverride =
 			typeof binding.linear === "boolean" ? binding.linear : null;
-		const webglUniform =
-			this._normalizeWebGLUniformName(binding.webglUniform) ??
-			`uShaderTex_${this._toIdentifierToken(name)}`;
 		return {
 			name,
 			texture: binding.texture ?? null,
 			explicitSlot,
 			uvSet,
 			linearOverride,
-			webglUniform,
+			webglUniform: `uShaderTex_${this._toIdentifierToken(name)}`,
 		};
 	}
 
@@ -991,22 +987,6 @@ export class ShaderMaterial extends Material {
 			return 0;
 		}
 		return Math.max(0, Math.min(3, Math.floor(uvSet))) as 0 | 1 | 2 | 3;
-	}
-
-	private _normalizeWebGLUniformName(name: string | undefined): string | null {
-		if (typeof name !== "string") {
-			return null;
-		}
-		const trimmed = name.trim();
-		if (trimmed.length <= 0) {
-			return null;
-		}
-		if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(trimmed)) {
-			throw new Error(
-				`Invalid WebGL uniform name "${name}". Expected GLSL identifier.`
-			);
-		}
-		return trimmed;
 	}
 
 	private _normalizeUniformBinding(
@@ -1321,8 +1301,7 @@ export class ShaderMaterial extends Material {
 				current.texture !== value.texture ||
 				current.explicitSlot !== value.explicitSlot ||
 				current.uvSet !== value.uvSet ||
-				current.linearOverride !== value.linearOverride ||
-				current.webglUniform !== value.webglUniform
+				current.linearOverride !== value.linearOverride
 			) {
 				return true;
 			}

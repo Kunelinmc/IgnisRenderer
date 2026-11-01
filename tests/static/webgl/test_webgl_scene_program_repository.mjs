@@ -132,7 +132,6 @@ function testSceneProgramRepositoryPropagatesSamplerOverflowInWarnMode() {
 		textureBindings: Array.from({ length: 9 }, (_, index) => ({
 			name: `texture-${index}`,
 			texture: null,
-			webglUniform: `uTexture${index}`,
 		})),
 	});
 	const library = createSceneProgramRepository(

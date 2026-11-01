@@ -391,6 +391,12 @@ Custom chunks can use the existing per-binding `ignisSampleTexture_<token>`
 and `ignisSampleTextureLevel_<token>` functions with their existing parameters,
 or select their UV parameter explicitly.
 
+Remove `webglUniform` from `ShaderMaterial` texture bindings. WebGL sampler
+names are generated from the binding name: for example, `noise-map` becomes
+`uShaderTex_noise_map`. Update GLSL that uses a former custom sampler name to
+use the generated name or the corresponding `ignisSampleTexture_<token>`
+helper. Numeric uniform bindings retain their `webglUniform` option.
+
 ## Software Backend Lifecycle
 
 `SoftwareBackend` participates in the same attach, initialize, frame

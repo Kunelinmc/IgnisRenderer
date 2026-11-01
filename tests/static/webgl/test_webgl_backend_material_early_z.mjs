@@ -219,17 +219,17 @@ function testShaderMaterialCustomTextureBinding() {
 	const fakeTexture = { id: "test-tex", colorSpace: "Linear" };
 	const material = new ShaderMaterial({
 		textureBindings: [
-			{ name: "customTex", texture: fakeTexture, webglUniform: "uCustomTex" }
+			{ name: "customTex", texture: fakeTexture }
 		]
 	});
 	const customSamplers = {
-		uCustomTex: "uCustomTex"
+		uShaderTex_customTex: "uShaderTex_customTex"
 	};
 	const sceneProgram = {
 		uniforms: { customSamplers },
 		samplerLayout: {
-			units: { uCustomTex: 0 },
-			activeSamplerNames: ["uCustomTex"],
+			units: { uShaderTex_customTex: 0 },
+			activeSamplerNames: ["uShaderTex_customTex"],
 			required: 1,
 			available: 16,
 		},
@@ -247,7 +247,7 @@ function testShaderMaterialCustomTextureBinding() {
 	assert.deepEqual(gl.calls.boundTextures, [
 		{ target: gl.TEXTURE_2D, texture: fakeTexture },
 	]);
-	assert.deepEqual(gl.calls.uniform1i, [{ location: "uCustomTex", value: 0 }]);
+	assert.deepEqual(gl.calls.uniform1i, [{ location: "uShaderTex_customTex", value: 0 }]);
 }
 
 await runWebGLBackendFile([

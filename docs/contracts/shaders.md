@@ -150,6 +150,12 @@ This document defines shader source ownership, composition, diagnostics, and cus
 
 ### ShaderMaterial custom textures
 
+- WebGL sampler names must be generated as `uShaderTex_<token>` from each
+  texture binding's `name`. `<token>` must replace characters outside
+  `[A-Za-z0-9_]` with `_` and must be prefixed with `x_` if it does not start
+  with a letter or underscore. Texture bindings must not override this name.
+- Distinct texture names that resolve to the same token must be rejected during
+  shader source generation.
 - Fragment source augmentation must generate `ignisSampleTexture_<token>` and
   `ignisSampleTextureLevel_<token>` for every resolved texture binding.
 - Both sampling functions must accept `uv0`, `uv1`, `uv2`, and `uv3` in that
