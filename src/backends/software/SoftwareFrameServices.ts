@@ -10,9 +10,6 @@ import { createSoftwareFrameView } from "./SoftwareFrameView";
 import type { FrameContext } from "../../pipeline/types";
 import { SoftwareShadowResources } from "./SoftwareShadowResources";
 import { SoftwareReflectionResources } from "./SoftwareReflectionResources";
-import { Rasterizer } from "./Rasterizer";
-import type { SoftwareMaterialRuntime } from "./SoftwareMaterialRuntime";
-import { SoftwarePostProcessExecutor } from "./SoftwarePostProcessExecutor";
 
 export interface SoftwareShadowFrameService {
 	readonly runtimeMap: SoftwareShadowRuntimeMap;
@@ -23,9 +20,6 @@ export interface SoftwareShadowFrameService {
 
 /** @internal Explicit backend-owned services shared by Software passes. */
 export interface SoftwareFrameServices {
-	readonly rasterizer: Rasterizer;
-	readonly material: SoftwareMaterialRuntime;
-	readonly postProcess: SoftwarePostProcessExecutor;
 	readonly shadow: SoftwareShadowFrameService;
 	readonly reflection: SoftwareReflectionResources;
 	readonly particles: SoftwareParticleFrameState;
@@ -39,16 +33,9 @@ export interface SoftwarePassContext {
 
 const FULLY_LIT_SHADOW: SoftwareShadowSampler = () => ({ r: 1, g: 1, b: 1 });
 
-export function createSoftwareFrameServices(options: {
-	rasterizer?: Rasterizer;
-	postProcess?: SoftwarePostProcessExecutor;
-} = {}): SoftwareFrameServices {
+export function createSoftwareFrameServices(): SoftwareFrameServices {
 	const shadowRuntimeMap: SoftwareShadowRuntimeMap = new Map();
-	const rasterizer = options.rasterizer ?? new Rasterizer();
 	return {
-		rasterizer,
-		material: rasterizer.materialRuntime,
-		postProcess: options.postProcess ?? new SoftwarePostProcessExecutor(),
 		shadow: {
 			runtimeMap: shadowRuntimeMap,
 			resources: new SoftwareShadowResources(shadowRuntimeMap),

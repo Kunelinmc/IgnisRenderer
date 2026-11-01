@@ -69,11 +69,12 @@ state are committed.
 
 ## Execution Services
 
-Software render passes must receive explicit backend-owned services. Shadow,
-reflection, particle, raster/material, and post-process runtime objects must
-not be published through the shared transient store. The transient store may
-carry pipeline-owned animation and particle payloads only at the adapter
-boundary where the frame session imports them into Software-owned state.
+Software render passes must receive the backend-owned services they use. The
+pass context carries shadow, reflection, and particle state, while rasterization
+and post-processing are supplied to their owners directly. These runtime
+objects must not be published through the shared transient store. The transient
+store may carry pipeline-owned animation and particle payloads only at the
+adapter boundary where the frame session imports them into Software-owned state.
 
 The Software shader layer must not import Software backend implementation
 modules. CPU lighting evaluation used by Software shader strategies belongs to

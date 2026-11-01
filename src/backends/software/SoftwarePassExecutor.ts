@@ -56,10 +56,7 @@ export class SoftwarePassExecutor {
 			options.getSceneColor,
 			options.getDisplayOutputState,
 		);
-		this._services = createSoftwareFrameServices({
-			rasterizer: this._rasterizer,
-			postProcess: this._softwarePostProcessExecutor,
-		});
+		this._services = createSoftwareFrameServices();
 		this._reflectionPass = new SoftwareReflectionPass(
 			this._rasterizer,
 			this._services.reflection,

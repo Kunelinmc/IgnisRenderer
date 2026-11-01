@@ -106,11 +106,6 @@ export class Rasterizer implements RasterizerLike {
 	private _materialRuntime: SoftwareMaterialRuntime =
 		new SoftwareMaterialRuntime();
 
-	/** @internal Material evaluator owned by the Software raster service. */
-	public get materialRuntime(): SoftwareMaterialRuntime {
-		return this._materialRuntime;
-	}
-
 	// Pre-allocated objects for zero-allocation rendering
 	private _fragmentInput: FragmentInput = {
 		zCam: 0,
