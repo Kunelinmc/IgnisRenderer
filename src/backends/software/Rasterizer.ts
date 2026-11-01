@@ -66,7 +66,7 @@ export interface RasterizerLike {
  * CORE CONVENTIONS:
  * - Depth Buffer: Stores linear camera-space depth (z-distance) for standard Z-buffering.
  * - Perspective Correction: Attributes are multiplied by 1/w before interpolation and recovered per-pixel.
- * - Shading: Supports Flat, Gouraud, Phong, and PBR shading models.
+ * - Shading: Supports Flat, Phong, PBR, and Unlit shading models.
  */
 export interface RasterizerContext {
 	width: number;

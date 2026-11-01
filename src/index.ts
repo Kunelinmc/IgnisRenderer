@@ -321,7 +321,6 @@ export {
 	Material,
 	BasicMaterial,
 	PhongMaterial,
-	GouraudMaterial,
 	UnlitMaterial,
 	PBRMaterial,
 	ShaderMaterial,

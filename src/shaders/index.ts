@@ -26,4 +26,3 @@ export * from "./software/BaseShader";
 export * from "./software/UnlitShader";
 export * from "./software/LitShader";
 export * from "./software/FlatLitShader";
-export * from "./software/GouraudLitShader";

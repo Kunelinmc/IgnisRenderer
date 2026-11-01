@@ -4,7 +4,6 @@ export type TextureLike = Texture | null;
 
 export enum ShadingModel {
 	Flat = "Flat",
-	Gouraud = "Gouraud",
 	Phong = "Phong",
 	PBR = "PBR",
 	Unlit = "Unlit",

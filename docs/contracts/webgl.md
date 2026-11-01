@@ -378,7 +378,7 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   color RGB, clearcoat R, clearcoat roughness G, sheen roughness A,
   transmission R, thickness G, and anisotropy direction RG plus strength B.
 - Built-in WebGL scene materials must resolve to one of the `pbr`, `phong`,
-  `flat`, or `unlit` shading families. `Gouraud` must use the `phong` family.
+  `flat`, or `unlit` shading families.
   `flat` must retain a distinct shader-family identity while sharing the
   current Phong lighting-data layout and lighting behavior.
 - Built-in scene and built-in depth-prepass programs must consume immutable

@@ -153,7 +153,7 @@ frame boundary.
 | `40` | `staticInstances` | Read-only storage buffer |
 | `41` | `materialCommon` | Shared `MaterialCommonUniforms` uniform buffer |
 | `42` | `pbrMaterial` | PBR-layout-only `PBRMaterialUniforms` uniform buffer |
-| `43` | `phongMaterial` | Phong/Gouraud-layout-only `PhongMaterialUniforms` uniform buffer |
+| `43` | `phongMaterial` | Phong-layout-only `PhongMaterialUniforms` uniform buffer |
 | `44` | `flatMaterial` | Flat-layout-only `FlatMaterialUniforms` uniform buffer |
 
 Material texture slots are defined by `WEBGPU_TEXTURE_SLOT`. Texture bindings
@@ -168,7 +168,7 @@ binding `36` must migrate to binding `39`.
 
 Every model bind-group layout contains the common bindings through `41`,
 subject to the existing sparse sampler entries. It additionally contains
-exactly one of bindings `42..44` for PBR, Phong/Gouraud, or Flat. The Unlit
+exactly one of bindings `42..44` for PBR, Phong, or Flat. The Unlit
 layout contains no lighting-model binding. Scene, G-buffer, planar, and custom
 `ShaderMaterial` depth pipeline layouts select the same family layout as the
 draw binding they consume. Built-in Early-Z uses the independent layout below.

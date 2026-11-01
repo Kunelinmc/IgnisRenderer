@@ -33,9 +33,6 @@ function testMaterialFamiliesAreSeparated() {
 	assert.equal(resolveWebGLMaterialState(new PBRMaterial()).shadingFamily, "pbr");
 	assert.equal(resolveWebGLMaterialState(new PhongMaterial()).shadingFamily, "phong");
 	assert.equal(resolveWebGLMaterialState(new BasicMaterial()).shadingFamily, "flat");
-	const gouraud = new PhongMaterial();
-	gouraud.shading = ShadingModel.Gouraud;
-	assert.equal(resolveWebGLMaterialState(gouraud).shadingFamily, "phong");
 	const unlit = resolveWebGLMaterialState(new UnlitMaterial());
 	assert.equal(unlit.shadingFamily, "unlit");
 	assert.equal(unlit.lighting, null);

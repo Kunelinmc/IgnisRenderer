@@ -49,7 +49,7 @@ This document defines clustered lighting, environment IBL, irradiance grids, lig
 - Split-sum specular IBL must reconstruct ordinary material reflection as
   `F0 * A + B`. Iridescent material may replace F0 with the effective
   thin-film Fresnel approximation but must not apply Schlick Fresnel twice.
-- Legacy Phong and Gouraud shading must use energy-normalized Blinn-Phong.
+- Phong shading must use energy-normalized Blinn-Phong.
   Encoded diffuse, specular F0, and ambient reflectance must be decoded to
   linear light before evaluation. Direct lighting must use Schlick Fresnel,
   `(1 - F) * diffuse / PI`, and

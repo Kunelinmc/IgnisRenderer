@@ -328,6 +328,13 @@ and custom render-target readback share the backend context work queue.
 Applications must wait for an active renderer frame to finish before requesting
 custom render-target readback.
 
+## Material Shading
+
+Replace removed vertex-lit material instances with `PhongMaterial`. The
+`diffuse`, `specular`, `ambient`, and `shininess` parameters remain supported.
+Use `ShadingModel.Phong` for generic material authoring and `LitShader` with
+`BlinnPhongStrategy` for internal Software shader integrations.
+
 ## WebGL Physical Lighting
 
 Require WebGL2 with `EXT_color_buffer_float`, a successful `RGBA16F`
@@ -343,7 +350,7 @@ internal HDR support does not guarantee HDR presentation.
 - Remove compensating probe-capture intensity multipliers and application-side
   `PI` corrections for SH. Use the units in the
   [lighting contract](../contracts/lighting.md#units-and-world-scale).
-- Retune Phong and Gouraud highlights for energy-normalized Blinn-Phong.
+- Retune Phong highlights for energy-normalized Blinn-Phong.
   `PhongMaterial.specular` defaults to `{ r: 56, g: 56, b: 56 }` for roughly
   four-percent linear dielectric reflectance. Provide light, environment,
   probe, or emissive radiance where older scenes relied on an ambient floor.

@@ -1,8 +1,14 @@
 # Materials Contract
 
-This document defines texture formats, PBR material extensions, and depth-write behavior shared by rendering backends.
+This document defines shading models, texture formats, PBR material extensions,
+and depth-write behavior shared by rendering backends.
 
 ## Contract
+
+### Built-in shading models
+
+- `ShadingModel` must expose `Flat`, `Phong`, `PBR`, and `Unlit`.
+- Applications requiring Blinn-Phong shading should use `PhongMaterial`.
 
 ### Render-state revisions
 

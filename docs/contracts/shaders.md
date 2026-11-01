@@ -196,7 +196,7 @@ This document defines shader source ownership, composition, diagnostics, and cus
   Engine object data is `ObjectUniforms` at `group(1)` binding `0`, common
   material data is `MaterialCommonUniforms` at binding `41`, and the material's
   resolved shading family selects binding `42`, `43`, `44`, or no lighting
-  buffer for PBR, Phong/Gouraud, Flat, or Unlit respectively. The former
+  buffer for PBR, Phong, Flat, or Unlit respectively. The former
   combined `model: ModelUniforms` declaration is not supported.
 - Backend material source augmentation exclusively owns declarations generated
   from `uniformBindings` and `textureBindings`. Custom shader chunks must not

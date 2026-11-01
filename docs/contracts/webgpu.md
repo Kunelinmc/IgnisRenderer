@@ -637,9 +637,7 @@ lighting, presentation configuration, reflections, and structured buffer packing
   `MaterialCommonUniforms` and the active lighting-model uniform buffer must be
   shared by compatible dynamic and static draws.
 - WebGPU material shading families are `pbr`, `phong`, `flat`, and `unlit`.
-  `GouraudMaterial` must continue to use the `phong` family until Gouraud is
-  removed by a separate public API change. An unlit draw must not bind an
-  inactive lighting-model uniform buffer.
+  An unlit draw must not bind an inactive lighting-model uniform buffer.
 - Scene color, G-buffer, and reflection draws must use the model bind-group and
   pipeline layouts of their shading family. Their pipeline, shader-module,
   warmup, and binding cache identity must include the resolved shading family.
@@ -1257,7 +1255,7 @@ Scene material packing must use these `group(1)` uniform bindings:
 | `0` | `ObjectUniforms` | One dynamic-offset arena slot per draw, or one static-batch control buffer |
 | `41` | `MaterialCommonUniforms` | Shared immutable material snapshot |
 | `42` | `PBRMaterialUniforms` | Shared PBR snapshot only |
-| `43` | `PhongMaterialUniforms` | Shared Phong or Gouraud snapshot only |
+| `43` | `PhongMaterialUniforms` | Shared Phong snapshot only |
 | `44` | `FlatMaterialUniforms` | Shared Flat snapshot only |
 
 `ObjectUniforms` must contain current and previous model transforms, the normal
