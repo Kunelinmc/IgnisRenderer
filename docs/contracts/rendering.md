@@ -329,9 +329,9 @@ allocating decal resources or recording decal passes.
 executed as a decal source and must be skipped.
 
 `Decal.receiverLayerMask` must match receiver pixels through
-`MeshInstance.renderLayers & Decal.receiverLayerMask` on Software. Bits `0..10`
-are the supported receiver range. Higher bits may be used by CPU-side APIs but
-must not be relied on for decal receiver tests.
+`MeshInstance.renderLayers & Decal.receiverLayerMask` on Software. Both values
+must retain their unsigned 32-bit masks; all bits `0..31` must participate in
+receiver matching.
 
 `Decal.priority` must sort decals in ascending order. Decals with equal priority
 must retain scene traversal order.

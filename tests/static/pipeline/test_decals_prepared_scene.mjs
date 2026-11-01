@@ -205,6 +205,27 @@ function testPreparedSceneDecalPackets() {
 	}
 }
 
+function testPreparedDecalReceiverLayers() {
+	for (const receiverLayerMask of [0x800, 0x80000000, 0xffffffff]) {
+		const scene = new Scene();
+		const camera = scene.add(new Camera());
+		camera.position.set(0, 0, 5);
+		const material = new Material();
+		scene.add(new MeshInstance({
+			mesh: createTriangleMesh(material),
+			renderLayers: receiverLayerMask === 0xffffffff ? 0x80000000 : receiverLayerMask,
+		}));
+		const matching = scene.add(new Decal({ material, receiverLayerMask }));
+		scene.add(new Decal({ material, receiverLayerMask: 1 }));
+		scene.updateWorldMatrices();
+		camera.updateMatrices();
+
+		const frame = PreparedSceneBuilder.build(createRenderer(scene, camera));
+		assert.deepEqual(frame.decalPackets.map((packet) => packet.decal), [matching]);
+		assert.equal(frame.decalPackets[0].receiverLayerMask, receiverLayerMask);
+	}
+}
+
 function testDecalClonePreservesDecalProperties() {
 	const material = new Material({ name: "CloneSource" });
 	const decal = new Decal({
@@ -236,6 +257,7 @@ function testDecalClonePreservesDecalProperties() {
 }
 
 testPreparedSceneDecalPackets();
+testPreparedDecalReceiverLayers();
 testDecalClonePreservesDecalProperties();
 
 console.log("Prepared scene decal tests passed");

@@ -14,7 +14,6 @@ import type {
 	PrimitiveDeformationMap,
 	PrimitiveDeformationState,
 } from "../simulation/animation/types";
-import { resolveDecalReceiverLayerMask } from "../decals/evaluation";
 import { MeshInstance } from "../meshes";
 import {
 	buildOcclusionCandidate,
@@ -907,9 +906,7 @@ export class PreparedSceneBuilder {
 		if (!material || material instanceof ShaderMaterial) {
 			return null;
 		}
-		const receiverLayerMask = resolveDecalReceiverLayerMask(
-			decal.receiverLayerMask
-		);
+		const receiverLayerMask = decal.receiverLayerMask >>> 0;
 		if (receiverLayerMask === 0) {
 			return null;
 		}

@@ -1,21 +1,10 @@
 import type { IVector3 } from "../maths/types";
 import type { DecalBlendMode } from "./Decal";
 
-export const DECAL_SUPPORTED_RECEIVER_LAYER_MASK = 0x7ff;
-
 export interface DecalLocalPosition {
 	x: number;
 	y: number;
 	z: number;
-}
-
-/**
- * Returns the receiver bits guaranteed by every decal backend.
- *
- * @internal Owned by the decal preparation and backend runtimes.
- */
-export function resolveDecalReceiverLayerMask(mask: number): number {
-	return (mask >>> 0) & DECAL_SUPPORTED_RECEIVER_LAYER_MASK;
 }
 
 /**

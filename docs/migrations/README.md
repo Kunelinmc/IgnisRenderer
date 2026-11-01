@@ -470,6 +470,8 @@ and extension texture bindings. See the
 
 Projected `Decal` objects remain available for Software rendering. WebGPU and
 WebGL ignore them; select `SoftwareBackend` when projected decals are required.
+Software receiver matching uses the complete unsigned 32-bit `renderLayers`
+and `receiverLayerMask` masks. Higher layer bits are no longer truncated.
 
 ## Shadow Definitions and Planning
 
