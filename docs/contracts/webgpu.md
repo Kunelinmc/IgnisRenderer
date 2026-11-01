@@ -508,6 +508,11 @@ lighting, presentation configuration, reflections, and structured buffer packing
   must run after opaque depth is available and before `occlusion-test`.
 - `WebGPUHiZBuilder` owns Hi-Z shader, pipeline, mip-view, and binding caches.
   `WebGPUFrameTargetManager` owns the `frame:hiz` texture lifetime.
+- `WebGPUOcclusionCullingRuntime` must retain its compute binding while the
+  pipeline, Hi-Z texture and view, and bound buffers remain live and unchanged.
+  It must replace the binding when any of those native resources changes and
+  release it on shader runtime changes and destruction. Retired or invalid
+  resources must not be used to record a pass.
 
 ### Animation payload resources
 

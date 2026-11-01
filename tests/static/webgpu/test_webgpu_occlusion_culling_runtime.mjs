@@ -143,8 +143,8 @@ async function testCompactDepthBiasUploadPreservesCandidateAlignment() {
 	await runtime.recordVisibilityPass({
 		context, encoder, hiZ, options: normalizeOcclusionCullingOptions({}),
 	});
-	assert.equal(backend.bindingGroupDestroyCalls, 1,
-		"occlusion recording releases its transient binding acquisition");
+	assert.equal(backend.bindingGroupDestroyCalls, 0,
+		"occlusion retains its binding for reuse");
 	const params = backend.buffers.find((buffer) => buffer.label === "WebGPUOcclusionCullingParams");
 	assert.equal(params.size, 4);
 	assert.equal(params.lastWrite.data.byteLength, 4);
@@ -161,6 +161,91 @@ async function testCompactDepthBiasUploadPreservesCandidateAlignment() {
 	), "utf8");
 	assert.equal(shader.match(/struct OcclusionParams\s*\{([^}]+)\}/)[1]
 		.match(/:\s*f32\s*,/g).length * 4, 4);
+	runtime.destroy();
+}
+
+async function testOcclusionBindingReuseAndInvalidation() {
+	globalThis.GPUBufferUsage ??= { COPY_DST: 8, MAP_READ: 1 };
+	const backend = new FakeWebGPUBackend();
+	const runtime = new WebGPUOcclusionCullingRuntime(backend);
+	const nativeEncoder = backend.createCommandEncoder();
+	const encoder = new WebGPUCommandEncoder(nativeEncoder, {
+		resourceManager: backend.resourceManager,
+		createPassTimestampWrites: () => undefined,
+	}, {});
+	const candidate = createCandidate({
+		screenRect: { x: 1, y: 2, width: 3, height: 4 },
+		nearDepth: 0.2, farDepth: 0.8, screenAreaPx: 12,
+	});
+	const context = { ...createContext(), scene: { occlusion: { candidates: [candidate] } } };
+	const options = normalizeOcclusionCullingOptions({});
+	const firstHiZ = backend.createTexture({ width: 4, height: 4, format: "r32float", usage: 0 });
+	const record = (hiZ) => runtime.recordVisibilityPass({ context, encoder, hiZ, options });
+
+	await record(firstHiZ);
+	const first = backend.bindingGroups.at(-1);
+	runtime.beginFrame(context);
+	await record(firstHiZ);
+	assert.equal(backend.bindingGroups.length, 1, "unchanged resources reuse the binding");
+	assert.equal(first.destroyed, false);
+	assert.equal(backend.dispatches.length, 2);
+
+	const secondHiZ = backend.createTexture({ width: 8, height: 8, format: "r32float", usage: 0 });
+	await record(secondHiZ);
+	const second = backend.bindingGroups.at(-1);
+	assert.equal(backend.bindingGroups.length, 2);
+	assert.equal(first.destroyed, true, "a replacement texture releases the old binding");
+	assert.equal(second.desc.entries[0].resource, secondHiZ);
+
+	context.scene.occlusion.candidates.push(createCandidate({ ...candidate, packetId: "packet-B" }));
+	await record(secondHiZ);
+	const grown = backend.bindingGroups.at(-1);
+	assert.equal(backend.bindingGroups.length, 3);
+	assert.equal(second.destroyed, true, "buffer growth releases the previous binding");
+	assert.equal(grown.desc.entries[1].resource.size, 64);
+	assert.equal(grown.desc.entries[3].resource.size, 8);
+
+	runtime.onShaderRuntimeChanged();
+	assert.equal(grown.destroyed, true, "shader changes release the old binding");
+	await record(secondHiZ);
+	const rebuilt = backend.bindingGroups.at(-1);
+	assert.equal(backend.bindingGroups.length, 4);
+	assert.notEqual(rebuilt.desc.pipeline, grown.desc.pipeline);
+
+	secondHiZ.destroy();
+	const dispatchesBeforeInvalidTexture = backend.dispatches.length;
+	await record(secondHiZ);
+	assert.equal(backend.dispatches.length, dispatchesBeforeInvalidTexture,
+		"a destroyed texture must not record another pass");
+	assert.equal(rebuilt.destroyed, true, "invalid resources release the retained binding");
+	const thirdHiZ = backend.createTexture({ width: 8, height: 8, format: "r32float", usage: 0 });
+	await record(thirdHiZ);
+	const recovered = backend.bindingGroups.at(-1);
+	assert.equal(backend.bindingGroups.length, 5, "a live texture can recover after failure");
+
+	runtime.destroy();
+	assert.equal(recovered.destroyed, true, "runtime destruction releases the retained binding");
+}
+
+async function testRetiredCandidateReleasesBindingBeforeRecording() {
+	const backend = new FakeWebGPUBackend();
+	const runtime = new WebGPUOcclusionCullingRuntime(backend);
+	const encoder = new WebGPUCommandEncoder(backend.createCommandEncoder(), {
+		resourceManager: backend.resourceManager,
+		createPassTimestampWrites: () => undefined,
+	}, {});
+	const context = { ...createContext(), scene: { occlusion: { candidates: [createCandidate({
+		screenRect: { x: 1, y: 2, width: 3, height: 4 },
+		nearDepth: 0.2, farDepth: 0.8, screenAreaPx: 12,
+	})] } } };
+	const hiZ = backend.createTexture({ width: 4, height: 4, format: "r32float", usage: 0 });
+	const request = { context, encoder, hiZ, options: normalizeOcclusionCullingOptions({}) };
+	await runtime.recordVisibilityPass(request);
+	const binding = backend.bindingGroups.at(-1);
+	backend.resourceManager.invalidate(binding.desc.entries[1].resource);
+	await runtime.recordVisibilityPass(request);
+	assert.equal(backend.dispatches.length, 1, "retired candidates cannot be dispatched");
+	assert.equal(binding.destroyed, true, "upload failure releases the retained binding");
 	runtime.destroy();
 }
 
@@ -197,6 +282,8 @@ async function run() {
 	testTemporalResetClearsVisibility();
 	testResetIgnoresLateReadback();
 	await testCompactDepthBiasUploadPreservesCandidateAlignment();
+	await testOcclusionBindingReuseAndInvalidation();
+	await testRetiredCandidateReleasesBindingBeforeRecording();
 	testUnavailableResultBuffersSkipReadback();
 	console.log("test_webgpu_occlusion_culling_runtime: ok");
 }
