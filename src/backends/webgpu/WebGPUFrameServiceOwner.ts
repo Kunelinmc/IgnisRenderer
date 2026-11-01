@@ -8,8 +8,6 @@ import type { ICommandEncoder } from "../ICommandEncoder";
 import { TextureFormat } from "../../core/TextureFormat";
 import {
 	type IBindingGroup,
-	type IComputePipeline,
-	type IRenderPipeline,
 	type IRenderTexture,
 	type ISampler,
 } from "../types";
@@ -43,7 +41,6 @@ import { WebGPUGeometryRegistry } from "./WebGPUGeometryRegistry";
 import { WebGPUAnimationPayloadPool } from "./WebGPUAnimationPayloadPool";
 import { WebGPUStaticMeshBatcher } from "./WebGPUStaticMeshBatcher";
 import { WebGPUScenePipelineResources } from "./WebGPUScenePipelineResources";
-import { WebGPUDeferredResources } from "./WebGPUDeferredResources";
 import { WebGPUEnvironmentResources } from "./WebGPUEnvironmentResources";
 import { WebGPUDrawResourceAssembler } from "./WebGPUDrawResourceAssembler";
 import { WebGPUMaterialPipelineResolver } from "./WebGPUMaterialPipelineResolver";
@@ -73,20 +70,16 @@ import type {
 	WebGPUStaticBatchingStats,
 } from "./WebGPUResourceContracts";
 import { WebGPUParticleRenderResources } from "./WebGPUParticleRenderResources";
-import { materialSupportsWebGPUDeferredLighting } from "./material";
-import {
-	analyzeWebGPUDeferredFeatures,
-	resolveWebGPUDeferredConfiguration,
-} from "./rendergraph/WebGPUDeferredFrameModule";
 
 interface WebGPUFrameServicePrepareOptions extends WebGPUFrameScopePrepareOptions {
 	readonly scopeKey: string;
 }
 
+/** @internal Resolved WebGPU warmup policy; applications use `Renderer.warmup()`. */
 export interface WebGPUFrameServiceWarmupRuntimeOptions {
 	readonly enableEarlyZPrepass: boolean;
-	readonly enableDeferredLighting: boolean;
 	readonly sampleCount: number;
+	readonly sceneTargetMode?: WebGPUSceneTargetMode;
 }
 
 type WebGPUFrameServicePreparedResources = WebGPUPreparedFrameResourcesContract & {
@@ -152,7 +145,6 @@ export class WebGPUFrameServiceOwner {
 	private _shadowRuntimeDestroyed = false;
 	private _frameScopes = new Map<string, WebGPUFrameResourceScope>();
 	private _nextFrameScopeId = 0;
-	private _deferredResources: WebGPUDeferredResources;
 	private _environmentResources: WebGPUEnvironmentResources;
 	private _materialPipelineResolver: WebGPUMaterialPipelineResolver;
 	private _drawResourceAssembler: WebGPUDrawResourceAssembler;
@@ -182,7 +174,6 @@ export class WebGPUFrameServiceOwner {
 			this._layouts,
 			this._textureRegistry,
 		);
-		this._deferredResources = new WebGPUDeferredResources(backend, this._layouts);
 		this._environmentResources = new WebGPUEnvironmentResources(
 			backend,
 			this._layouts,
@@ -254,34 +245,12 @@ export class WebGPUFrameServiceOwner {
 		framePackets: PreparedFramePacketSet = createBaselineFramePacketSet(context),
 		runtimeOptions: WebGPUFrameServiceWarmupRuntimeOptions = {
 			enableEarlyZPrepass: true,
-			enableDeferredLighting: true,
 			sampleCount: 1,
 		},
 	): Promise<WarmupPhaseCounters[]> {
 		const phases: WarmupPhaseCounters[] = [];
 		const yieldController = createWarmupYieldController(options);
-		const deferredAnalysis = analyzeWebGPUDeferredFeatures(context, framePackets);
-		const deviceLimits = this._backend.device?.limits;
-		const deferredConfiguration = resolveWebGPUDeferredConfiguration(
-			deferredAnalysis,
-			{
-				capabilities: {
-					maxColorAttachments: deviceLimits?.maxColorAttachments ?? 8,
-					maxColorAttachmentBytesPerSample:
-						deviceLimits?.maxColorAttachmentBytesPerSample ?? 32,
-					maxStorageTexturesPerShaderStage:
-						deviceLimits?.maxStorageTexturesPerShaderStage ?? 4,
-				},
-				options: {
-					sampleCount: runtimeOptions.sampleCount,
-					enableDeferredLighting: runtimeOptions.enableDeferredLighting,
-					forceDeferredFallback: false,
-				},
-			},
-		);
-		const mainSceneTargetMode = deferredConfiguration.active
-			? "mrt"
-			: plan.sceneTargetMode;
+		const mainSceneTargetMode = runtimeOptions.sceneTargetMode ?? plan.sceneTargetMode;
 		const mainScope = this.createFrameScope();
 		let warmupResources: WebGPUPreparedFrameResourcesContract | null = null;
 		try {
@@ -309,16 +278,9 @@ export class WebGPUFrameServiceOwner {
 				...context.scene.opaquePackets,
 				...context.scene.transparentPackets,
 			];
-			const forwardPackets = deferredConfiguration.active
-				? [
-					...context.scene.opaquePackets.filter((packet) =>
-						!materialSupportsWebGPUDeferredLighting(packet.submission.material.effective)),
-					...context.scene.transparentPackets,
-				]
-				: drawPackets;
 			if (warmupResources) {
 				phases.push(await this._sceneDraws.warmup({
-					packets: forwardPackets,
+					packets: drawPackets,
 					frameResources: warmupResources,
 					sceneTargetMode: mainSceneTargetMode,
 					sampleCount: runtimeOptions.sampleCount,
@@ -328,43 +290,12 @@ export class WebGPUFrameServiceOwner {
 			}
 			if (plan.enableEnvironment) {
 				phases.push(await this._environmentResources.warmup({
-					modes: [
-						deferredConfiguration.active ? "gbuffer" : mainSceneTargetMode,
-					],
+					modes: [mainSceneTargetMode],
 					sampleCount: runtimeOptions.sampleCount,
 					yieldIfNeeded: () => yieldController.yieldIfNeeded(),
 				}));
 			}
 
-			if (deferredConfiguration.active) {
-				const deferredScope = this.createFrameScope();
-				try {
-					const deferredResources = deferredScope.prepare(context, {
-						sceneTargetMode: "gbuffer",
-						framePackets,
-						temporalStateMode: "disabled",
-					});
-					phases.push(await this._sceneDraws.warmup({
-						phase: "webgpu-deferred-scene",
-						packets: context.scene.opaquePackets.filter((packet) =>
-							materialSupportsWebGPUDeferredLighting(packet.submission.material.effective)),
-						frameResources: deferredResources,
-						sceneTargetMode: "gbuffer",
-						sampleCount: 1,
-						enableEarlyZPrepass: runtimeOptions.enableEarlyZPrepass,
-						deferredGBufferLayout:
-							deferredConfiguration.deferredGBufferLayout,
-						yieldIfNeeded: () => yieldController.yieldIfNeeded(),
-					}));
-				} finally {
-					deferredScope.destroy();
-				}
-			}
-			phases.push(await this._deferredResources.warmup({
-				active: deferredConfiguration.active,
-				hasDecals: (context.scene.decalPackets?.length ?? 0) > 0,
-				yieldIfNeeded: () => yieldController.yieldIfNeeded(),
-			}));
 		} finally {
 			mainScope.destroy();
 		}
@@ -403,7 +334,9 @@ export class WebGPUFrameServiceOwner {
 				errors: [],
 			};
 			try {
-				await this._particleRenderResources.warmup(plan.sceneTargetMode);
+				await this._particleRenderResources.warmup(
+					mainSceneTargetMode, runtimeOptions.sampleCount,
+				);
 				phase.compiled++;
 			} catch (error) {
 				phase.failed++;
@@ -547,7 +480,6 @@ export class WebGPUFrameServiceOwner {
 			frameBinding: scope.frameBindings.getSceneBinding(),
 			particleFrameBinding: scope.frameBindings.getParticleFrameBinding(),
 			depthFrameBinding: scope.frameBindings.getDepthFrameBinding(),
-			decalFrameBinding: scope.frameBindings.getDecalFrameBinding(),
 			environmentBinding: scope.frameBindings.getEnvironmentBinding(),
 			clusteredSceneBinding: scope.clusteredLighting.getSceneBinding(),
 			lightingState,
@@ -580,48 +512,6 @@ export class WebGPUFrameServiceOwner {
 	}
 
 	/**
-	 * Returns the bind group layout used by the deferred lighting shader to read
-	 * color and storage G-buffer payload textures.
-	 *
-	 * @returns The WebGPU bind group layout for deferred G-buffer reads.
-	 * @sideEffects None.
-	 */
-	public getGBufferReadLayout(): GPUBindGroupLayout {
-		return this._deferredResources.getGBufferReadLayout();
-	}
-
-	/**
-	 * Returns the bind group layout used by the WebGPU deferred decal pass.
-	 *
-	 * @returns The WebGPU bind group layout for decal material resources.
-	 * @sideEffects None.
-	 */
-	public getDecalBindGroupLayout(): GPUBindGroupLayout {
-		return this._deferredResources.getDecalBindGroupLayout();
-	}
-
-	/**
-	 * Returns the bind group layout used by fallback deferred decal draws to
-	 * write extended G-buffer storage payload textures.
-	 *
-	 * @returns The WebGPU bind group layout for decal storage outputs.
-	 * @sideEffects None.
-	 */
-	public getDecalOutputBindGroupLayout(): GPUBindGroupLayout {
-		return this._deferredResources.getDecalOutputBindGroupLayout();
-	}
-
-	/**
-	 * Returns the bind group layout used by WebGPU deferred decal batch data.
-	 *
-	 * @returns The WebGPU bind group layout for tile-binned decal resources.
-	 * @sideEffects None.
-	 */
-	public getDecalBatchBindGroupLayout(): GPUBindGroupLayout {
-		return this._deferredResources.getDecalBatchBindGroupLayout();
-	}
-
-	/**
 	 * Returns the bind group layout used by planar reflection composite draws.
 	 *
 	 * @returns The WebGPU bind group layout for reflection texture sampling.
@@ -629,61 +519,6 @@ export class WebGPUFrameServiceOwner {
 	 */
 	public getPlanarReflectionLayout(): GPUBindGroupLayout {
 		return this._layouts.planarReflectionBindGroupLayout;
-	}
-
-	/**
-	 * Returns the empty placeholder bind group used to preserve deferred shader
-	 * group indices without binding per-model material resources.
-	 *
-	 * Constraints: The returned bind group is only valid for the deferred
-	 * lighting layout's empty group index 1.
-	 *
-	 * @returns A bind group compatible with deferred layout group index 1.
-	 * @sideEffects May create and cache the placeholder bind group.
-	 */
-	public getDeferredUnusedBinding(): IBindingGroup {
-		return this._deferredResources.getDeferredUnusedBinding();
-	}
-
-	/** @internal Returns device-lifetime deferred placeholder textures. */
-	public getDeferredPlaceholderTextures(): {
-		readonly rgba16Float: IRenderTexture;
-		readonly rgba8Unorm: IRenderTexture;
-		readonly rgba16Uint: IRenderTexture;
-	} {
-		return this._deferredResources.getDeferredPlaceholderTextures();
-	}
-
-	/**
-	 * Resolves the fullscreen deferred lighting render pipeline.
-	 *
-	 * @internal WebGPU frame orchestration; applications use `Renderer.renderFrame()`.
-	 * @returns A pipeline that reads the G-buffer and writes `sceneColorMain`.
-	 * @sideEffects May compile and cache the deferred lighting pipeline.
-	 */
-	public async getDeferredLightingPipeline(): Promise<IRenderPipeline> {
-		return this._deferredResources.getDeferredLightingPipeline();
-	}
-
-	/**
-	 * Resolves the fullscreen deferred decal render pipeline.
-	 *
-	 * @returns A pipeline that reads G-buffer snapshots and writes updated
-	 * G-buffer channels.
-	 * @sideEffects May compile and cache the decal shader module and pipeline.
-	 */
-	public async getDecalPipeline(): Promise<IRenderPipeline> {
-		return this._deferredResources.getDecalPipeline();
-	}
-
-	/**
-	 * Resolves the tile-binned deferred decal compute pipeline.
-	 *
-	 * @returns A compute pipeline that applies compatible decal segments.
-	 * @sideEffects May compile and cache the decal shader module and pipeline.
-	 */
-	public async getDecalBatchPipeline(): Promise<IComputePipeline> {
-		return this._deferredResources.getDecalBatchPipeline();
 	}
 
 	public async buildClusteredLighting(
@@ -704,7 +539,6 @@ export class WebGPUFrameServiceOwner {
 		this._materialPipelineResolver.clear();
 		this._environmentResources.onShaderRuntimeChanged();
 		this._particleRenderResources.onShaderRuntimeChanged();
-		this._deferredResources.onShaderRuntimeChanged();
 		this.onShadowRuntimeShaderChanged();
 		for (const scope of this._frameScopes.values()) {
 			scope.clusteredLighting.onShaderRuntimeChanged();
@@ -736,7 +570,6 @@ export class WebGPUFrameServiceOwner {
 		this._drawResourceAssembler.clear();
 		this.destroyShadowRuntimeResources();
 		this._particleRenderResources.destroy();
-		this._deferredResources.destroy();
 		this._environmentResources.destroy();
 		for (const scope of this._frameScopes.values()) {
 			this._drawResourceAssembler.releaseFrameScope(scope);
@@ -914,7 +747,6 @@ export class WebGPUFrameServiceOwner {
 			typeof value === "object" &&
 			typeof (value as { scopeKey?: unknown }).scopeKey === "string" &&
 			"frameBinding" in value &&
-			"decalFrameBinding" in value &&
 			"clusteredSceneBinding" in value
 		);
 	}

@@ -5,13 +5,10 @@ import { WebGPUPlanarReflectionPass } from "../WebGPUPlanarReflectionPass";
 import { WebGPUPostProcessRuntime } from "../WebGPUPostProcessRuntime";
 import type { WebGPUSampleCountResolver } from "../WebGPUSampleCountResolver";
 import { WebGPUCustomRenderTargetRuntime } from "./WebGPUCustomRenderTargetRuntime";
-import { WebGPUFrameConfigurationModule } from "./WebGPUFrameConfigurationModule";
-import { WebGPUDeferredDecalPass } from "./WebGPUDeferredDecalPass";
 import {
-	WebGPUDeferredFrameModule,
-	WebGPUDeferredOpaqueStatePort,
-} from "./WebGPUDeferredFrameModule";
-import { WebGPUDeferredLightingPass } from "./WebGPUDeferredLightingPass";
+	resolveWebGPUFrameConfiguration,
+	WebGPUFrameConfigurationModule,
+} from "./WebGPUFrameConfigurationModule";
 import { WebGPUDepthDirtyClearPass } from "./WebGPUDepthDirtyClearPass";
 import { WebGPUColorDirtyClearPass } from "./WebGPUColorDirtyClearPass";
 import { WebGPUFrameGraphModuleRegistry } from "./WebGPUFrameGraphModuleRegistry";
@@ -38,6 +35,11 @@ import {
 } from "../../../pipeline/WarmupPlanner";
 import { createBaselineFramePacketSet } from "../../../pipeline/FramePackets";
 import { createWarmupYieldController } from "../../../pipeline/WarmupScheduler";
+import {
+	WEBGPU_FRAME_CONTEXT_MESSAGE,
+	WEBGPU_FRAME_PACKETS_MESSAGE,
+	WEBGPU_POST_PROCESS_PASSES_MESSAGE,
+} from "./WebGPUFrameMessages";
 
 /** @internal Sealed backend-private frame runtime composition. */
 export interface WebGPUFrameRuntimeComposition {
@@ -126,21 +128,12 @@ export function createWebGPUFrameRuntimeComposition(options: {
 	);
 	const depthDirtyClearPass = new WebGPUDepthDirtyClearPass(host);
 	const colorDirtyClearPass = new WebGPUColorDirtyClearPass(host);
-	const deferredOpaqueState = new WebGPUDeferredOpaqueStatePort();
-	const deferredLightingPass = new WebGPUDeferredLightingPass(host, frameServices);
-	const deferredDecalPass = new WebGPUDeferredDecalPass(host, frameServices);
 	const sceneRecorder = new WebGPUScenePassRecorder(
 		host,
 		frameServices,
 		particleRenderer,
 		depthDirtyClearPass,
 		colorDirtyClearPass,
-		{
-			preflightDeferredFrame: async (context) => {
-				await deferredLightingPass.preflight();
-				await deferredDecalPass.preflight(context);
-			},
-		},
 	);
 	const reflection = new WebGPUReflectionFrameModule(
 		host,
@@ -152,15 +145,8 @@ export function createWebGPUFrameRuntimeComposition(options: {
 			sceneRecorder,
 			depthDirtyClearPass,
 			colorDirtyClearPass,
-			deferredOpaqueState,
 		),
 		new WebGPUShadowFrameModule(options.shadowRenderer),
-		new WebGPUDeferredFrameModule(
-			deferredLightingPass,
-			deferredDecalPass,
-			sceneRecorder,
-			deferredOpaqueState,
-		),
 		new WebGPUTransparencyRuntime(
 			host,
 			frameServices,
@@ -194,6 +180,28 @@ export function createWebGPUFrameRuntimeComposition(options: {
 				descriptors: postProcessPlan.orderedPasses.map((pass) => pass.pass),
 			});
 			const framePackets = createBaselineFramePacketSet(context);
+			const analysisMessages = await modules.dispatchMessages("analysis", {
+				seeds: [
+					{ descriptor: WEBGPU_FRAME_CONTEXT_MESSAGE, value: context },
+					{ descriptor: WEBGPU_FRAME_PACKETS_MESSAGE, value: framePackets },
+					{
+						descriptor: WEBGPU_POST_PROCESS_PASSES_MESSAGE,
+						value: postProcessPlan.passes,
+					},
+				],
+			});
+			const { configuration } = await resolveWebGPUFrameConfiguration({
+				modules,
+				analysisMessages,
+				context,
+				device: host.device,
+				sampleCountResolver: options.sampleCountResolver,
+				requestedSampleCount: sampleCount,
+				enableEarlyZPrepass: host.enableEarlyZPrepass,
+				// Native WebGPU encoders always support in-frame texture copies.
+				supportsInFrameTextureCopy: true,
+			});
+			const effectiveSampleCount = configuration.samplePlan.sampleCount;
 			const reportPhase = (phase: WarmupPhaseCounters): void => {
 				addWarmupPhase(report, phase);
 				warmupOptions.onProgress?.({
@@ -216,8 +224,8 @@ export function createWebGPUFrameRuntimeComposition(options: {
 					framePackets,
 					{
 						enableEarlyZPrepass: host.enableEarlyZPrepass,
-						enableDeferredLighting: host.enableDeferredLighting,
-						sampleCount,
+						sampleCount: effectiveSampleCount,
+						sceneTargetMode: configuration.sceneTargetMode,
 					},
 				);
 				for (const phase of resourcePhases) reportPhase(phase);
@@ -225,7 +233,7 @@ export function createWebGPUFrameRuntimeComposition(options: {
 				reportPhase(await reflection.warmup(
 					context,
 					framePackets,
-					sampleCount,
+					effectiveSampleCount,
 					() => reflectionYield.yieldIfNeeded(),
 				));
 			} catch (error) {

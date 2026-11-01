@@ -1,7 +1,6 @@
 import type { DrawPacket, FrameContext, FramePass } from "../../../pipeline/types";
 import { prepareFramePackets } from "../../../pipeline/FramePackets";
 import type { ICommandEncoder } from "../../ICommandEncoder";
-import { TextureFormat } from "../../../core/TextureFormat";
 import { type IRenderTexture } from "../../types";
 import type { WebGPUFrameHost } from "./WebGPUFrameHost";
 import type { WebGPUSampleCountResolver } from "../WebGPUSampleCountResolver";
@@ -22,7 +21,6 @@ import {
 import {
 	type WebGPUFrameConfiguration,
 	type WebGPUFrameDiagnostic,
-	type WebGPUFrameSamplePlan,
 } from "./WebGPUFrameConfiguration";
 import { WebGPUFrameGraphCompiler } from "./WebGPUFrameGraphCompiler";
 import { WebGPUFrameGraphModuleRegistry } from "./WebGPUFrameGraphModuleRegistry";
@@ -35,8 +33,6 @@ import {
 import { WebGPUFrameCommandStream } from "./WebGPUFrameCommandStream";
 import type { WebGPUFrameDiagnosticsObserver } from "./WebGPUFrameDiagnostics";
 import {
-	WEBGPU_FRAME_CONFIGURATION_MESSAGE,
-	WEBGPU_FRAME_CONFIGURATION_REQUEST_MESSAGE,
 	WEBGPU_FRAME_CONTEXT_MESSAGE,
 	WEBGPU_FRAME_PACKETS_MESSAGE,
 } from "./WebGPUFrameMessages";
@@ -46,6 +42,7 @@ import {
 	WEBGPU_FRAME_GRAPH_RESOURCES,
 } from "./WebGPUFrameGraphResourceCatalog";
 import { WebGPUDirtyRectResolver } from "./WebGPUDirtyRectResolver";
+import { resolveWebGPUFrameConfiguration } from "./WebGPUFrameConfigurationModule";
 import type {
 	WebGPUCompiledFrameGraphStage,
 	WebGPUFrameGraphFramePlan,
@@ -54,13 +51,11 @@ import type {
 	WebGPUFrameGraphValidationMode,
 } from "./types";
 
-const WEBGPU_DEFERRED_RUNTIME_FALLBACK_KEY = "webgpu-deferred-runtime-fallback";
 const WEBGPU_MAIN_TARGET_SAMPLE_COUNT_RUNTIME_FALLBACK_KEY =
 	"webgpu-scene-sample-count-runtime-fallback-1x";
 
 export interface WebGPUFrameOrchestratorOptions {
 	readonly enableEarlyZPrepass: boolean;
-	readonly enableDeferredLighting: boolean;
 	readonly frameGraphValidationMode: WebGPUFrameGraphValidationMode;
 	readonly diagnosticsObserver?: WebGPUFrameDiagnosticsObserver | null;
 }
@@ -73,7 +68,6 @@ export class WebGPUFrameOrchestrator {
 	private _session: WebGPUFrameSession | null = null;
 	private _pendingFrameTargetInvalidation = false;
 	private _enableEarlyZPrepass = true;
-	private _enableDeferredLighting = true;
 	private readonly _frameGraphValidationMode: WebGPUFrameGraphValidationMode;
 	private readonly _diagnosticsObserver: WebGPUFrameDiagnosticsObserver | null;
 	private _frameTargetManager: WebGPUFrameTargetManager;
@@ -90,7 +84,6 @@ export class WebGPUFrameOrchestrator {
 		frameModules: WebGPUFrameGraphModuleRegistry,
 		options: WebGPUFrameOrchestratorOptions = {
 			enableEarlyZPrepass: host.enableEarlyZPrepass,
-			enableDeferredLighting: host.enableDeferredLighting,
 			frameGraphValidationMode: host.frameGraphValidationMode,
 		},
 	) {
@@ -99,7 +92,6 @@ export class WebGPUFrameOrchestrator {
 		this._sampleCountResolver = sampleCountResolver;
 		this._requestedSampleCount = requestedSampleCount;
 		this._enableEarlyZPrepass = options.enableEarlyZPrepass;
-		this._enableDeferredLighting = options.enableDeferredLighting;
 		this._frameGraphValidationMode = options.frameGraphValidationMode;
 		this._diagnosticsObserver = options.diagnosticsObserver ?? null;
 		this._frameTargetManager = new WebGPUFrameTargetManager(host);
@@ -246,15 +238,11 @@ export class WebGPUFrameOrchestrator {
 		readonly configuration: WebGPUFrameConfiguration;
 		readonly messages: WebGPUFrameMessageSnapshot;
 	}> {
-		let forceDeferredFallback = false;
-		let forceForwardMrt = false;
 		for (let attempts = 0; attempts < 8; attempts++) {
 			const configured = await this._resolveFrameConfiguration(
 				context,
 				analysisMessages,
 				encoder,
-				forceDeferredFallback,
-				forceForwardMrt,
 			);
 			const configuration = configured.configuration;
 			this._emitConfigurationDiagnostics(configuration.diagnostics);
@@ -269,12 +257,6 @@ export class WebGPUFrameOrchestrator {
 				requirements: configuration.targetRequirements,
 			});
 			if (result.status === "ready") return configured;
-			if (result.status === "retry-legacy-mrt") {
-				forceDeferredFallback = true;
-				forceForwardMrt = true;
-				this._warnFrameTargetRetry(WEBGPU_DEFERRED_RUNTIME_FALLBACK_KEY, result);
-				continue;
-			}
 			const failedSampleCount = configuration.samplePlan.sampleCount;
 			if (
 				!this._sampleCountResolver.fallbackToSingleSample(
@@ -293,114 +275,24 @@ export class WebGPUFrameOrchestrator {
 		throw new Error("WebGPU frame target allocation did not converge after fallback.");
 	}
 
-	private async _resolveFrameConfiguration(
+	private _resolveFrameConfiguration(
 		context: FrameContext,
 		analysisMessages: WebGPUFrameMessageSnapshot,
 		encoder: ICommandEncoder,
-		forceDeferredFallback: boolean,
-		forceForwardMrt: boolean,
 	): Promise<{
 		readonly configuration: WebGPUFrameConfiguration;
 		readonly messages: WebGPUFrameMessageSnapshot;
 	}> {
-		const device = this._host.device;
-		const capabilities = {
-			maxColorAttachments: device?.limits?.maxColorAttachments ?? 8,
-			maxColorAttachmentBytesPerSample:
-				device?.limits?.maxColorAttachmentBytesPerSample ?? 32,
-			maxStorageTexturesPerShaderStage: device?.limits?.maxStorageTexturesPerShaderStage ?? 4,
-		};
-		let samplePlan: WebGPUFrameSamplePlan = {
+		return resolveWebGPUFrameConfiguration({
+			modules: this._frameModules,
+			analysisMessages,
+			context,
+			device: this._host.device,
+			sampleCountResolver: this._sampleCountResolver,
 			requestedSampleCount: this._requestedSampleCount,
-			sampleCount: this._requestedSampleCount,
-			selectionSignature: "main-scene:pending",
-			runtimeFallbackActive: false,
-		};
-		const visited = new Set<string>();
-		for (let attempts = 0; attempts < 6; attempts++) {
-			const messages = await this._frameModules.dispatchMessages("configuration", {
-				prior: analysisMessages,
-				seeds: [{
-					descriptor: WEBGPU_FRAME_CONFIGURATION_REQUEST_MESSAGE,
-					value: {
-						context,
-						capabilities,
-						options: {
-					enableEarlyZPrepass: this._enableEarlyZPrepass,
-					enableDeferredLighting: this._enableDeferredLighting,
-					samplePlan,
-					supportsInFrameTextureCopy:
-						typeof encoder.copyTextureToTexture === "function",
-					forceDeferredFallback,
-					forceForwardMrt,
-						},
-					},
-				}],
-			});
-			const configuration = messages.get(WEBGPU_FRAME_CONFIGURATION_MESSAGE);
-			const formats = this._getSampleCountProbeFormats(configuration);
-			const nextPlan =
-				formats.length === 0
-					? {
-							requestedSampleCount: this._requestedSampleCount,
-							sampleCount: 1,
-							selectionSignature: "main-scene:single",
-							runtimeFallbackActive: false,
-						}
-					: this._toFrameSamplePlan(
-							this._sampleCountResolver.resolveDomainSampleCount(
-								"main-scene",
-								this._requestedSampleCount,
-								formats,
-							),
-							samplePlan.sampleCount,
-						);
-			if (
-				nextPlan.sampleCount === samplePlan.sampleCount &&
-				nextPlan.selectionSignature === samplePlan.selectionSignature
-			) {
-				return { configuration, messages };
-			}
-			const stateKey = `${nextPlan.sampleCount}|${nextPlan.selectionSignature}`;
-			if (visited.has(stateKey)) {
-				throw new Error("WebGPU scene sample-count planning did not converge.");
-			}
-			visited.add(stateKey);
-			samplePlan = nextPlan;
-		}
-		throw new Error("WebGPU scene sample-count planning exceeded its retry limit.");
-	}
-
-	private _toFrameSamplePlan(
-		selection: ReturnType<WebGPUSampleCountResolver["resolveDomainSampleCount"]>,
-		upperBound: number,
-	): WebGPUFrameSamplePlan {
-		return {
-			requestedSampleCount: selection.requestedSampleCount,
-			sampleCount: Math.min(upperBound, selection.sampleCount),
-			selectionSignature: selection.signature,
-			runtimeFallbackActive: selection.runtimeFallbackActive,
-		};
-	}
-
-	private _getSampleCountProbeFormats(
-		configuration: WebGPUFrameConfiguration,
-	): GPUTextureFormat[] {
-		const requirements = configuration.targetRequirements;
-		if (!requirements) {
-			return [];
-		}
-		const formats = new Set<GPUTextureFormat>([
-			TextureFormat.RGBA16Float as GPUTextureFormat,
-			TextureFormat.Depth32Float as GPUTextureFormat,
-		]);
-		if (requirements.sceneTargetMode === "mrt" || requirements.sceneTargetMode === "gbuffer") {
-			formats.add(TextureFormat.RGBA8Unorm as GPUTextureFormat);
-		}
-		if (requirements.needsPlanarReflectionMask) {
-			formats.add(TextureFormat.R8Unorm as GPUTextureFormat);
-		}
-		return Array.from(formats);
+			enableEarlyZPrepass: this._enableEarlyZPrepass,
+			supportsInFrameTextureCopy: typeof encoder.copyTextureToTexture === "function",
+		});
 	}
 
 	private _emitConfigurationDiagnostics(diagnostics: readonly WebGPUFrameDiagnostic[]): void {
@@ -418,9 +310,7 @@ export class WebGPUFrameOrchestrator {
 		failedSampleCount?: number,
 	): void {
 		const message =
-			key === WEBGPU_DEFERRED_RUNTIME_FALLBACK_KEY
-				? "WebGPU deferred frame target allocation failed; retrying with legacy MRT forward path."
-				: `WebGPU ${failedSampleCount ?? 1}x scene sample-count target allocation failed; retrying at 1x.`;
+			`WebGPU ${failedSampleCount ?? 1}x scene sample-count target allocation failed; retrying at 1x.`;
 		Logger.warn(`[${key}] ${message} ${String(result.error)}`, {
 			scope: "WebGPUFrameOrchestrator",
 			onceKey: key,
@@ -743,13 +633,10 @@ export class WebGPUFrameOrchestrator {
 		configuration: WebGPUFrameConfiguration | null,
 	): WebGPUFrameResourceAllocationSnapshot {
 		return {
-			deferredActive: configuration?.deferredActive ?? false,
 			oitActive: configuration?.oitActive ?? false,
 			sceneTargetMode: configuration?.mrtSupported
 				? this._frameTargetManager.targetSceneTargetMode
 				: "single",
-			deferredGBufferLayout:
-				configuration?.deferredGBufferLayout ?? "extended",
 			hasFrameTargets: !!this._frameTargetManager.frameTargets,
 			hasMSAATargets: !!this._frameTargetManager.msaaTargets,
 			needsTransmissionTargets:

@@ -43,7 +43,7 @@ export class WebGPUEnvironmentResources {
 
 		const shaderModule = await this._getShaderModule();
 		const targetFormat =
-			mode === "mrt" || mode === "gbuffer" || mode === "color"
+			mode === "mrt" || mode === "color"
 				? TextureFormat.RGBA16Float
 				: this._backend.canvasFormat;
 		const pipeline = await this._backend.createPipeline({
@@ -167,7 +167,7 @@ function resolveDepthFormat(
 	backend: WebGPUDeviceResourceHost,
 	mode: WebGPUSceneTargetMode,
 ): TextureFormat {
-	return mode === "mrt" || mode === "gbuffer" || mode === "color"
+	return mode === "mrt" || mode === "color"
 		? TextureFormat.Depth32Float
 		: backend.canvasDepthFormat;
 }

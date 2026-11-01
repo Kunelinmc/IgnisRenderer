@@ -168,7 +168,6 @@ async function createExecutorHarness(postProcessRequest = {
 		scopeKey: "main",
 		sceneTargetMode: "mrt",
 		frameBinding: { id: "frame-binding" },
-		decalFrameBinding: { id: "decal-frame-binding" },
 		environmentBinding: null,
 		clusteredSceneBinding: null,
 		lightingState: { id: "lighting-state" },
@@ -222,7 +221,6 @@ async function createExecutorHarness(postProcessRequest = {
 			shadowCasterSubmissions: [],
 			shadowTransmitterSubmissions: [],
 			reflectivePackets: [],
-			decalPackets: [],
 			spatialIndex: null,
 		},
 		shCoeffs: [],
@@ -541,8 +539,8 @@ async function testWarmupAggregatesFeaturePhasesAndProgress() {
 	assert.deepEqual(request.framePackets.all, []);
 	assert.deepEqual(request.runtimeOptions, {
 		enableEarlyZPrepass: true,
-		enableDeferredLighting: true,
-		sampleCount: 4,
+		sceneTargetMode: "color",
+		sampleCount: 1,
 	});
 	assert.equal(backend.textures.length, 0);
 	assert.equal(backend.submits, 0);

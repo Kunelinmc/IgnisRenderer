@@ -23,7 +23,6 @@ import {
 } from "../../shaders/ShaderMaterialSource";
 import type { ShaderGeneratedSourceBlock } from "../../shaders/runtime";
 import { WEBGPU_MODEL_BINDING_SHADER_UNIFORMS } from "./constants";
-import { WebGPUDeferredShaderError } from "../../foundation/Error";
 
 function createWebGPUShaderMaterialSourceBlocks(
 	material: ShaderMaterial,
@@ -211,9 +210,6 @@ export class WebGPUMaterialPipelineResolver {
 				isMask,
 			);
 		} catch (error) {
-			if (targetMode === "deferred" && material instanceof ShaderMaterial) {
-				throw new WebGPUDeferredShaderError(material.name, error);
-			}
 			if (purpose !== "scene" || runtime.mode !== "warn") throw error;
 			program = { kind: "builtin" };
 			fallbackReason = String(error);

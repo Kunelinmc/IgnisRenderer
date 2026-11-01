@@ -144,11 +144,6 @@ export interface WebGPUBackendOptions {
 	sampleCount?: number;
 	enableEarlyZPrepass?: boolean;
 	/**
-	 * Enables WebGPU deferred opaque lighting when runtime limits allow it.
-	 * Defaults to `true`; set to `false` to force the legacy MRT forward path.
-	 */
-	enableDeferredLighting?: boolean;
-	/**
 	 * Controls WebGPU internal frame graph validation diagnostics.
 	 * Defaults to `"throw"` so tests and development builds fail on invalid
 	 * internal resource declarations.
@@ -259,7 +254,6 @@ export class WebGPUBackend implements IRenderBackend {
 			: null;
 	private _warmupLogCompilationInfo = false;
 	private _enableEarlyZPrepass = true;
-	private _enableDeferredLighting = true;
 	private _enableOcclusionCulling = true;
 	private _frameGraphValidationMode: "throw" | "warn" = "throw";
 	private _completedFrameCoverage: RenderBackendCompletedFrameCoverage = "full-frame";
@@ -306,7 +300,6 @@ export class WebGPUBackend implements IRenderBackend {
 				"WebGPU sampleCount",
 			);
 		this._enableEarlyZPrepass = options.enableEarlyZPrepass !== false;
-		this._enableDeferredLighting = options.enableDeferredLighting !== false;
 		this._enableOcclusionCulling = options.enableOcclusionCulling !== false;
 		this._frameGraphValidationMode = options.frameGraphValidation === "warn" ? "warn" : "throw";
 		const capabilities: BackendCapabilities = {
@@ -1058,7 +1051,6 @@ export class WebGPUBackend implements IRenderBackend {
 				return runtime;
 			},
 			enableEarlyZPrepass: this._enableEarlyZPrepass,
-			enableDeferredLighting: this._enableDeferredLighting,
 			frameGraphValidationMode: this._frameGraphValidationMode,
 			get shaderRuntime() {
 				return backend.shaderRuntime;

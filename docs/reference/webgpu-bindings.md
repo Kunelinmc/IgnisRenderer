@@ -13,9 +13,9 @@ The list covers:
   `rendergraph/WebGPUFrameOrchestrator.ts` and
   `WebGPUShadowCasterRenderer.ts`.
 - WGSL bindings under `src/shaders/webgpu/`, including
-  `parts/definitions.wgsl`, `parts/fragmentGBuffer.wgsl`,
-  `deferredLightingShader.wgsl`, `environmentShader.wgsl`,
-  `particleShader.wgsl`, `particleSimulation.wgsl`, and post-process shaders.
+  `common/definitions.wgsl`, `scene/fragmentPrelude.wgsl`,
+  `environment/background.wgsl`, `particles/render.wgsl`,
+  `particles/simulation.wgsl`, and post-process shaders.
 - WebGPU compute kernels created through `ComputeRuntime` by
   `WebGPUPrefilterExecutor`,
   `SobelNormalMapper`, and `WebGPUParticleSimulator`.
@@ -26,14 +26,12 @@ This document does not list vertex attribute `shaderLocation` values.
 
 WebGPU scene rendering uses stable bind group roles:
 
-- `group(0)` is frame-scoped scene data for scene, deferred, and post-process
+- `group(0)` is frame-scoped scene data for scene and post-process
   frame-aware passes. Billboard particles use a separate camera-only group.
 - `group(1)` is model/material data for mesh scene passes, particle material
   data for particle render passes, or pass-specific animation data for shadow
   passes.
-- `group(2)` is clustered lighting data for scene and deferred lighting passes.
-- `group(3)` is G-buffer extension write or deferred lighting read data,
-  depending on the pipeline layout.
+- `group(2)` is clustered lighting data for scene lighting passes.
 
 Standalone compute and post-process kernels generally use `group(0)` for
 pass-local resources. Some kernels use `group(1)` for the shared frame bind
@@ -66,11 +64,10 @@ The following pipeline layouts must preserve these bind group roles:
 | --- | --- | --- | --- | --- |
 | `scenePipelineLayout` | `sceneFrameBindGroupLayout` | `modelBindGroupLayout` | `clusteredSceneBindGroupLayout` | N/A |
 | `sceneDepthPrepassPipelineLayout` | `depthFrameBindGroupLayout` | `depthModelBindGroupLayout` | `depthMaterialBindGroupLayout` | N/A |
-| `deferredLightingPipelineLayout` | `sceneFrameBindGroupLayout` | `deferredUnusedBindGroupLayout` | `clusteredSceneBindGroupLayout` | `gbufferReadBindGroupLayout` |
 | `environmentPipelineLayout` | `environmentFrameBindGroupLayout` | N/A | N/A | N/A |
 | `particlePipelineLayout` | `particleFrameBindGroupLayout` | `particleBindGroupLayout` | N/A | N/A |
 
-Forward scene, base G-buffer, and extension replay pipelines share
+Forward single-target, MRT, and scene-capture pipelines share
 `scenePipelineLayouts[family]`; their attachment and depth states remain
 pass-specific.
 
@@ -228,31 +225,20 @@ passes agree on the fixed index span for each cluster.
 | `1` | `0` | `frame` | `FrameCameraUniforms` uniform buffer through `sceneFrameBindGroupLayout` |
 | `1` | `10` | `frameLights` | Light enablement through `sceneFrameBindGroupLayout` |
 
-### G-buffer Bindings
+### Post-process MRT Attachments
 
-Opaque G-buffer geometry uses no extension storage bindings. After the base
-attachments and final depth are recorded, extension replay writes two color
-attachments with depth comparison `equal` and depth writes disabled:
+Forward MRT scene draws write lit scene color and the following post-process
+attachments through the scene pipeline layout:
 
 | Location | Shader field | Resource contract |
 | --- | --- | --- |
-| `0` | `materialExt0` | `rgba16float` render attachment |
-| `1` | `materialExt3` | `rgba16uint` render attachment |
+| `0` | `sceneColor` | `rgba16float` scene color |
+| `1` | `gAlbedoAlpha` | `rgba8unorm` base color and alpha |
+| `2` | `gNormalRoughMetal` | `rgba8unorm` encoded view-space normal, roughness, metallic |
+| `3` | `gEmissiveOcclusion` | `rgba16float` emissive color and occlusion |
+| `4` | `gMotionDepth` | `rgba16float` motion and linear depth |
 
-`gbufferReadBindGroupLayout` is used as `group(3)` by
-`deferredLightingPipelineLayout`:
-
-| Binding | Shader name | Resource contract |
-| --- | --- | --- |
-| `0` | `gAlbedoAlphaIn` | `texture_2d<f32>` |
-| `1` | `gNormalRoughMetalIn` | `texture_2d<f32>` |
-| `2` | `gEmissiveOcclusionIn` | `texture_2d<f32>` |
-| `3` | `gMotionDepthIn` | `texture_2d<f32>` |
-| `4` | `gSpecularIn` | `texture_2d<f32>` |
-| `5` | `gCoatSheenIn` | `texture_2d<f32>` |
-| `6` | `gSheenReflectanceIn` | `texture_2d<f32>` |
-| `7` | `gMaterialExt0In` | `texture_2d<f32>` |
-| `8` | `gMaterialExt3In` | `texture_2d<u32>` |
+Post-process kernels bind these textures through their pass-local layouts.
 
 ### Particle Render Bindings
 

@@ -3,7 +3,6 @@ import type {
 	FramePassStage,
 } from "../../../pipeline/types";
 import type { WebGPUSceneTargetMode } from "../WebGPUScenePassDescriptors";
-import type { WebGPUDeferredGBufferLayout } from "../constants";
 import type { WebGPUFrameGraphResourceId } from "./WebGPUFrameGraphResourceCatalog";
 import type { PostProcessSubgraphNodePayload } from "../../../postprocess/PostProcessSubgraphBuilder";
 import type {
@@ -24,8 +23,6 @@ export const WEBGPU_FRAME_GRAPH_NODE_KINDS = [
 	"planar-reflection-capture",
 	"planar-reflection-composite",
 	"opaque-scene",
-	"deferred-decal",
-	"deferred-lighting",
 	"hiz-build",
 	"occlusion-test",
 	"transparent-forward",
@@ -45,10 +42,8 @@ export type WebGPUFrameGraphNodeKind =
 	(typeof WEBGPU_FRAME_GRAPH_NODE_KINDS)[number];
 
 export interface WebGPUFrameResourceAllocationSnapshot {
-	readonly deferredActive: boolean;
 	readonly oitActive: boolean;
 	readonly sceneTargetMode: WebGPUSceneTargetMode;
-	readonly deferredGBufferLayout?: WebGPUDeferredGBufferLayout;
 	readonly hasFrameTargets?: boolean;
 	readonly hasMSAATargets?: boolean;
 	readonly needsTransmissionTargets?: boolean;

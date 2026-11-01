@@ -8,7 +8,6 @@ import type { PreparedFramePacketSet } from "../../pipeline/FramePackets";
 import type { ICommandEncoder } from "../ICommandEncoder";
 import type {
 	IBindingGroup,
-	IComputePipeline,
 	IndexFormat,
 	IRenderBuffer,
 	IRenderPipeline,
@@ -38,7 +37,6 @@ import type {
 } from "../../simulation/animation/types";
 import type { FramePreparationRequirements } from "../../pipeline/FrameRequirements";
 import type { ParticleBlendMode } from "../../particles";
-import type { WebGPUDeferredGBufferLayout } from "./constants";
 import type { WebGPUMaterialPipelineState } from "./WebGPUMaterialPipelineResolver";
 
 /** @internal WebGPU draw cache buffers for one snapshot; use Material for authoring. */
@@ -174,7 +172,6 @@ export interface WebGPUDrawResourceOptions {
 	transparentPipelineMode?: WebGPUTransparentPipelineMode;
 	sceneTargetMode?: WebGPUSceneTargetMode;
 	drawMode?: WebGPUDrawPipelineMode;
-	deferredGBufferLayout?: WebGPUDeferredGBufferLayout;
 	sampleCount: number;
 }
 
@@ -217,7 +214,6 @@ export interface WebGPUPreparedFrameResources {
 	depthFrameBinding: IBindingGroup;
 	/** Camera uniforms for billboard rendering without scene shadow resources. */
 	particleFrameBinding: IBindingGroup;
-	decalFrameBinding: IBindingGroup;
 	environmentBinding: IBindingGroup;
 	clusteredSceneBinding: IBindingGroup;
 	readonly lightingState: WebGPULightingState;
@@ -261,7 +257,7 @@ export interface WebGPUSceneResourceProvider {
 	): Promise<void>;
 }
 
-/** @internal Texture and sampler capability used by material/decal paths. */
+/** @internal Texture and sampler capability used by material paths. */
 export interface WebGPUTextureResourceProvider {
 	getTextureForSlot(texture: Texture | null, slotIndex: number): IRenderTexture;
 	getTextureForSlotAsync(
@@ -295,23 +291,6 @@ export interface WebGPUParticleBillboardRenderer {
 /** @internal Resolves the billboard renderer without widening its owner type. */
 export interface WebGPUParticleBillboardRendererProvider {
 	getParticleBillboardRenderer(): WebGPUParticleBillboardRenderer;
-}
-
-/** @internal Deferred G-buffer and decal pipeline capability. */
-export interface WebGPUDeferredResourceProvider {
-	getGBufferReadLayout(): GPUBindGroupLayout;
-	getDecalBindGroupLayout(): GPUBindGroupLayout;
-	getDecalOutputBindGroupLayout(): GPUBindGroupLayout;
-	getDecalBatchBindGroupLayout(): GPUBindGroupLayout;
-	getDeferredUnusedBinding(): IBindingGroup;
-	getDeferredPlaceholderTextures(): {
-		readonly rgba16Float: IRenderTexture;
-		readonly rgba8Unorm: IRenderTexture;
-		readonly rgba16Uint: IRenderTexture;
-	};
-	getDeferredLightingPipeline(): Promise<IRenderPipeline>;
-	getDecalPipeline(): Promise<IRenderPipeline>;
-	getDecalBatchPipeline(): Promise<IComputePipeline>;
 }
 
 /** @internal Planar-reflection composite layout capability. */

@@ -6,22 +6,12 @@ import type {
 	FrameContext,
 } from "../../../pipeline/types";
 import type { PreparedFramePacketSet } from "../../../pipeline/FramePackets";
-import {
-	materialSupportsWebGPUDeferredEarlyZPrepass,
-	materialSupportsWebGPUDeferredLighting,
-} from "../material";
-import {
-	GBufferSlot,
-	WEBGPU_DEFERRED_COLOR_FORMATS,
-	WEBGPU_MRT_COLOR_FORMATS,
-	type WebGPUDeferredGBufferLayout,
-} from "../constants";
+import { WEBGPU_MRT_COLOR_FORMATS } from "../constants";
 import {
 	getDefaultWebGPUDrawBindings,
 	submitWebGPUDraws,
 } from "../WebGPUDrawSubmission";
 import type {
-	WebGPUDrawResources,
 	WebGPUPreparedFrameResources,
 	WebGPUParticleBillboardRenderer,
 	WebGPUSceneResourceProvider,
@@ -38,30 +28,6 @@ import type { WebGPUDepthDirtyClearPass } from "./WebGPUDepthDirtyClearPass";
 import type { WebGPUColorDirtyClearPass } from "./WebGPUColorDirtyClearPass";
 import type { WebGPUFrameExecutionContext } from "./WebGPUFrameExecutionContext";
 import { Logger } from "../../../foundation/Logger";
-import { WebGPUDeferredShaderError } from "../../../foundation/Error";
-
-export interface WebGPUDeferredOpaqueFrameState {
-	readonly fallbackPackets: DrawPacket[];
-	readonly clearSceneColor: boolean;
-	readonly lightingEnabled: boolean;
-}
-
-interface WebGPUDeferredGBufferRecording {
-	readonly deferredGBufferLayout: WebGPUDeferredGBufferLayout;
-	readonly earlyZResources: ReadonlyMap<
-		DrawPacket,
-		WebGPUDrawResources[] | null
-	>;
-	readonly gbufferResources: ReadonlyMap<
-		DrawPacket,
-		WebGPUDrawResources[] | null
-	>;
-	readonly extensionResources: ReadonlyMap<DrawPacket, WebGPUDrawResources[] | null>;
-}
-
-export interface WebGPUScenePassRecorderCallbacks {
-	preflightDeferredFrame(context: FrameContext): Promise<void>;
-}
 
 /** @internal Concrete leaf port for scene recording data. */
 export class WebGPUSceneRecordingPort {
@@ -86,9 +52,6 @@ export class WebGPUSceneRecordingPort {
 	public getTargetHeight() { return this._require().targets.height; }
 	public getSampleCount() { return this._require().targets.sampleCount; }
 	public getSceneTargetMode() { return this._require().targets.sceneTargetMode; }
-	public getDeferredGBufferLayout() {
-		return this._require().configuration.deferredGBufferLayout;
-	}
 	public isMRTEnabled() { return this._require().configuration.mrtSupported; }
 	public isEarlyZPrepassEnabled() { return this._require().earlyZPrepassEnabled; }
 	public requireFrameResources() { return this._require().resources; }
@@ -133,22 +96,19 @@ export class WebGPUScenePassRecorder {
 	private readonly _framePort = new WebGPUSceneRecordingPort();
 	private readonly _depthDirtyClearPass: WebGPUDepthDirtyClearPass;
 	private readonly _colorDirtyClearPass: WebGPUColorDirtyClearPass;
-	private readonly _callbacks: WebGPUScenePassRecorderCallbacks;
 
 	public constructor(
 		host: WebGPUFrameHost,
 		sceneResources: WebGPUSceneResourceProvider,
 		particleRenderer: WebGPUParticleBillboardRenderer,
 		depthDirtyClearPass: WebGPUDepthDirtyClearPass,
-		colorDirtyClearPass: WebGPUColorDirtyClearPass,
-		callbacks: WebGPUScenePassRecorderCallbacks
+		colorDirtyClearPass: WebGPUColorDirtyClearPass
 	) {
 		this._host = host;
 		this._sceneResources = sceneResources;
 		this._particleRenderer = particleRenderer;
 		this._depthDirtyClearPass = depthDirtyClearPass;
 		this._colorDirtyClearPass = colorDirtyClearPass;
-		this._callbacks = callbacks;
 	}
 
 	/** @internal Binds the narrow frame data used by scene leaf recorders. */
@@ -161,145 +121,12 @@ export class WebGPUScenePassRecorder {
 		this._framePort.close();
 	}
 
-	/**
-	 * Records the opaque scene node and returns deferred state when lighting
-	 * resolution must continue in later graph nodes.
-	 *
-	 * @param context Current frame context.
-	 * @param deferredEnabled Whether deferred opaque lighting is active.
-	 * @returns Deferred opaque state, or `null` when opaque work is complete.
-	 * @sideEffects Records one or more WebGPU render passes.
-	 */
+	/** @internal Records opaque packets through the forward scene pass. */
 	public async recordOpaque(
 		context: FrameContext,
 		framePackets: PreparedFramePacketSet,
-		deferredEnabled: boolean
-	): Promise<WebGPUDeferredOpaqueFrameState | null> {
-		const targets = this._framePort.getFrameTargets();
-		const opaquePackets = framePackets.opaque.slice();
-		if (
-			!deferredEnabled ||
-			!this._framePort.isMRTEnabled() ||
-			!targets
-		) {
-			await this.recordMainPass(
-				context,
-				opaquePackets,
-				true,
-				true
-			);
-			return null;
-		}
-
-		const deferredPackets: DrawPacket[] = [];
-		const fallbackPackets: DrawPacket[] = [];
-		for (const packet of opaquePackets) {
-			if (materialSupportsWebGPUDeferredLighting(packet.submission.material.effective)) {
-				deferredPackets.push(packet);
-			} else {
-				fallbackPackets.push(packet);
-			}
-		}
-
-		if (deferredPackets.length <= 0 && fallbackPackets.length > 0) {
-			await this.recordMainPass(context, fallbackPackets, true, true);
-			return null;
-		}
-
-		let recording: WebGPUDeferredGBufferRecording;
-		try {
-			recording = await this._preflightDeferredPackets(context, deferredPackets);
-		} catch (error) {
-			if (error instanceof WebGPUDeferredShaderError) throw error;
-			Logger.warn(
-				"[webgpu-deferred-runtime-fallback] Deferred pipeline or binding " +
-					`creation failed; using the legacy MRT forward path. ${String(error)}`,
-				{
-					scope: "WebGPUScenePassRecorder",
-					onceKey: "webgpu-deferred-runtime-fallback",
-				}
-			);
-			await this.recordMainPass(context, opaquePackets, true, true);
-			return null;
-		}
-
-		const deferredResult = await this._recordDeferredGBufferPass(
-			context,
-			deferredPackets,
-			true,
-			true,
-			recording,
-		);
-		return {
-			fallbackPackets,
-			clearSceneColor: deferredResult?.clearSceneColor ?? false,
-			lightingEnabled: deferredResult !== null,
-		};
-	}
-
-	private async _preflightDeferredPackets(
-		context: FrameContext,
-		packets: readonly DrawPacket[]
-	): Promise<WebGPUDeferredGBufferRecording> {
-		const frameResources = this._framePort.requireFrameResources();
-		const deferredGBufferLayout = this._framePort.getDeferredGBufferLayout();
-		await this._callbacks.preflightDeferredFrame(context);
-		const earlyZResources = new Map<
-			DrawPacket,
-			WebGPUDrawResources[] | null
-		>();
-		const gbufferResources = new Map<
-			DrawPacket,
-			WebGPUDrawResources[] | null
-		>();
-		const extensionResources = new Map<DrawPacket, WebGPUDrawResources[] | null>();
-		const preflightEarlyZ = this._framePort.isEarlyZPrepassEnabled();
-		const defaultOptions = {
-			sceneTargetMode: "gbuffer" as const, deferredGBufferLayout, sampleCount: 1,
-		};
-		const earlyZOptions = { ...defaultOptions, drawMode: "early-z-prepass" as const };
-		const earlyZColorOptions = { ...defaultOptions, drawMode: "early-z-color" as const };
-		for (const packet of packets) {
-			let drawMode: "default" | "early-z-color" = "default";
-			// Custom fragment depth/discard must select its own final depth before
-			// extension replay; a vertex-only prepass cannot reproduce that logic.
-			if (preflightEarlyZ &&
-				materialSupportsWebGPUDeferredEarlyZPrepass(packet.submission.material.effective)) {
-				const preparation = this._sceneResources.getDrawResources(
-					packet,
-					frameResources,
-					earlyZOptions,
-				);
-				const resources = preparation instanceof Promise ? await preparation : preparation;
-				earlyZResources.set(packet, resources);
-				if (resources && resources.length > 0) {
-					drawMode = "early-z-color";
-				}
-			}
-			const preparation = this._sceneResources.getDrawResources(
-				packet,
-				frameResources,
-				drawMode === "early-z-color" ? earlyZColorOptions : defaultOptions,
-			);
-			const resources = preparation instanceof Promise ? await preparation : preparation;
-			gbufferResources.set(packet, resources);
-			if (deferredGBufferLayout === "extended") {
-				const preparation = this._sceneResources.getDrawResources(packet, frameResources, {
-					...defaultOptions, drawMode: "gbuffer-extensions",
-				});
-				const extension = preparation instanceof Promise ? await preparation : preparation;
-				if (resources?.length && !extension?.length) {
-					throw new Error("Deferred extension draw resources are unavailable.");
-				}
-				extensionResources.set(packet, extension);
-			}
-		}
-		return {
-			deferredGBufferLayout,
-			earlyZResources,
-			gbufferResources,
-			extensionResources,
-		};
+	): Promise<void> {
+		await this.recordMainPass(context, framePackets.opaque.slice(), true, true);
 	}
 
 	/**
@@ -828,275 +655,6 @@ export class WebGPUScenePassRecorder {
 		);
 	}
 
-	private async _recordDeferredGBufferPass(
-		context: FrameContext,
-		packets: DrawPacket[],
-		clearAttachments: boolean,
-		allowEarlyZPrepass: boolean,
-		recording: WebGPUDeferredGBufferRecording,
-	): Promise<{ clearSceneColor: boolean } | null> {
-		const encoder = this._framePort.getEncoder();
-		const targets = this._framePort.getFrameTargets();
-		if (!encoder || !targets) {
-			return null;
-		}
-		const deferredGBufferLayout = recording.deferredGBufferLayout;
-		if (
-			deferredGBufferLayout === "extended" &&
-			(
-				!targets.gSpecular ||
-				!targets.gCoatSheen ||
-				!targets.gSheenReflectance ||
-				!targets.gMaterialExt0 ||
-				!targets.gMaterialExt3
-			)
-		) {
-			await this.recordMainPass(context, packets, clearAttachments, true);
-			return null;
-		}
-
-		const frameResources = this._framePort.requireFrameResources();
-		await this._sceneResources.buildClusteredLighting(encoder, frameResources);
-		const incrementalPartial =
-			this._framePort.isIncrementalPartial(context);
-		const sceneColorAttachment = targets.sceneColorMain;
-		const depthAttachment = targets.depth;
-		const dirtyRects = this._framePort.resolveDirtyRects(
-			context,
-			sceneColorAttachment.width,
-			sceneColorAttachment.height
-		);
-		const shouldClearAttachments = clearAttachments && !incrementalPartial;
-		let depthPartialReuseApplied = false;
-		if (incrementalPartial && clearAttachments && dirtyRects.length > 0) {
-			const colorAttachments = [
-				targets.gAlbedoAlpha,
-				targets.gNormalRoughMetal,
-				targets.gEmissiveOcclusion,
-				targets.gMotionDepth,
-			];
-			if (deferredGBufferLayout === "extended") {
-				colorAttachments.push(
-					targets.gSpecular!,
-					targets.gCoatSheen!,
-					targets.gSheenReflectance!
-				);
-			}
-			await this._colorDirtyClearPass.record(
-				encoder,
-				deferredGBufferLayout === "extended" ? "extended" : "deferred",
-				[
-					{
-						view: sceneColorAttachment,
-						format:
-							sceneColorAttachment.format ?? TextureFormat.RGBA16Float,
-					},
-					...colorAttachments.map((view, index) => ({
-						view,
-						format: WEBGPU_DEFERRED_COLOR_FORMATS[index],
-					})),
-				],
-				1,
-				dirtyRects,
-				context.presentationAlphaMode,
-			);
-			depthPartialReuseApplied = await this._depthDirtyClearPass.record(
-				encoder,
-				depthAttachment,
-				TextureFormat.Depth32Float,
-				1,
-				dirtyRects
-			);
-		}
-
-		let environmentDrawn = false;
-		if (shouldClearAttachments || (incrementalPartial && clearAttachments)) {
-			const environmentResources =
-				await this._sceneResources.getEnvironmentResources(
-					frameResources,
-					"gbuffer",
-					{ sampleCount: 1 },
-				);
-			if (environmentResources) {
-				encoder.beginRenderPass({
-					label: "WebGPUEnvironmentDeferred",
-					colorAttachments: [
-						{
-							view: sceneColorAttachment,
-							clearValue: { r: 0, g: 0, b: 0, a: 1 },
-							loadOp: shouldClearAttachments ? "clear" : "load",
-							storeOp: "store",
-						},
-					],
-					depthStencilAttachment: {
-						view: depthAttachment,
-						depthClearValue: 1,
-						depthLoadOp: shouldClearAttachments ? "clear" : "load",
-						depthStoreOp: "store",
-					},
-				});
-				encoder.setPipeline(environmentResources.pipeline);
-				encoder.setBindingGroup(0, environmentResources.frameBinding);
-				for (const rect of dirtyRects) {
-					encoder.setScissorRect?.(rect.x, rect.y, rect.width, rect.height);
-					encoder.draw(3);
-				}
-				encoder.endRenderPass();
-				environmentDrawn = true;
-			}
-		}
-
-		const shouldRunEarlyZ =
-			allowEarlyZPrepass &&
-			this._framePort.isEarlyZPrepassEnabled() &&
-			packets.length > 0;
-		const earlyZPacketIds =
-			shouldRunEarlyZ ?
-				await this._recordEarlyZPrepass(
-					context,
-					packets,
-					dirtyRects,
-					"gbuffer",
-					depthAttachment,
-					this._resolveMRTMainDepthLoadOp(
-						depthPartialReuseApplied,
-						incrementalPartial,
-						clearAttachments,
-						shouldClearAttachments,
-						environmentDrawn,
-						false
-					),
-					recording.earlyZResources,
-				)
-			:	new Set<string>();
-		const earlyZExecuted = earlyZPacketIds.size > 0;
-		const colorAttachments = [];
-		colorAttachments[GBufferSlot.AlbedoAlpha] = {
-			view: targets.gAlbedoAlpha,
-			clearValue: { r: 0, g: 0, b: 0, a: 0 },
-			loadOp: shouldClearAttachments ? "clear" : "load",
-			storeOp: "store",
-		};
-		colorAttachments[GBufferSlot.NormalRoughMetal] = {
-			view: targets.gNormalRoughMetal,
-			clearValue: { r: 0.5, g: 0.5, b: 1, a: 0 },
-			loadOp: shouldClearAttachments ? "clear" : "load",
-			storeOp: "store",
-		};
-		colorAttachments[GBufferSlot.EmissiveOcclusion] = {
-			view: targets.gEmissiveOcclusion,
-			clearValue: { r: 0, g: 0, b: 0, a: 1 },
-			loadOp: shouldClearAttachments ? "clear" : "load",
-			storeOp: "store",
-		};
-		colorAttachments[GBufferSlot.MotionDepth] = {
-			view: targets.gMotionDepth,
-			clearValue: { r: 0, g: 0, b: 0, a: 0 },
-			loadOp: shouldClearAttachments ? "clear" : "load",
-			storeOp: "store",
-		};
-		if (deferredGBufferLayout === "extended") {
-			colorAttachments[GBufferSlot.Specular] = {
-				view: targets.gSpecular,
-				clearValue: { r: 0, g: 0, b: 0, a: 0 },
-				loadOp: shouldClearAttachments ? "clear" : "load",
-				storeOp: "store",
-			};
-			colorAttachments[GBufferSlot.CoatSheen] = {
-				view: targets.gCoatSheen,
-				clearValue: { r: 0, g: 0, b: 0, a: 0 },
-				loadOp: shouldClearAttachments ? "clear" : "load",
-				storeOp: "store",
-			};
-			colorAttachments[GBufferSlot.SheenReflectance] = {
-				view: targets.gSheenReflectance,
-				clearValue: { r: 0, g: 0, b: 0, a: 0 },
-				loadOp: shouldClearAttachments ? "clear" : "load",
-				storeOp: "store",
-			};
-		}
-
-		encoder.beginRenderPass({
-			label:
-				shouldClearAttachments ?
-					"WebGPUGBuffer_Clear"
-				:	"WebGPUGBuffer_Load",
-			colorAttachments,
-			depthStencilAttachment: {
-				view: depthAttachment,
-				depthClearValue: 1,
-				depthLoadOp: this._resolveMRTMainDepthLoadOp(
-					depthPartialReuseApplied,
-					incrementalPartial,
-					clearAttachments,
-					shouldClearAttachments,
-					environmentDrawn,
-					earlyZExecuted
-				),
-				depthStoreOp: "store",
-			},
-		});
-
-		await submitWebGPUDraws({
-			encoder,
-			resources: this._sceneResources,
-			frameResources,
-			packets,
-			preparedResources: recording.gbufferResources,
-			dirtyRects,
-			selectPacketsForRect: (candidatePackets, rect) =>
-				this._framePort.selectPacketsForRect(
-					context,
-					candidatePackets,
-					rect
-				),
-			resolveDrawOptions: (packet) => ({
-				sceneTargetMode: "gbuffer",
-				deferredGBufferLayout,
-				sampleCount: 1,
-				drawMode:
-					earlyZExecuted && earlyZPacketIds.has(packet.submission.id) ?
-						"early-z-color"
-					:	"default",
-			}),
-		});
-
-		encoder.endRenderPass();
-		if (deferredGBufferLayout === "extended") {
-			if (incrementalPartial && clearAttachments) {
-				await this._colorDirtyClearPass.record(encoder, "extensions", [
-					{ view: targets.gMaterialExt0!, format: TextureFormat.RGBA16Float },
-					{ view: targets.gMaterialExt3!, format: TextureFormat.RGBA16Uint },
-				], 1, dirtyRects);
-			}
-			encoder.beginRenderPass({
-				label: "WebGPUGBufferExtensions",
-				colorAttachments: [
-					{ view: targets.gMaterialExt0!, clearValue: { r: 0.5, g: 0.5, b: 0, a: 0 },
-						loadOp: shouldClearAttachments ? "clear" : "load", storeOp: "store" },
-					{ view: targets.gMaterialExt3!, clearValue: { r: 0, g: 0, b: 0, a: 0 },
-						loadOp: shouldClearAttachments ? "clear" : "load", storeOp: "store" },
-				],
-				depthStencilAttachment: { view: depthAttachment,
-					depthLoadOp: "load", depthStoreOp: "store" },
-			});
-			// Replay the same ordering, including equal-depth ties. MRT writes are
-			// depth-tested; fragment storage writes are not visibility guarantees.
-			await submitWebGPUDraws({
-				encoder, resources: this._sceneResources, frameResources, packets,
-				preparedResources: recording.extensionResources, dirtyRects,
-				selectPacketsForRect: (candidatePackets, rect) =>
-					this._framePort.selectPacketsForRect(context, candidatePackets, rect),
-				resolveDrawOptions: () => ({ sceneTargetMode: "gbuffer",
-					deferredGBufferLayout, sampleCount: 1, drawMode: "gbuffer-extensions" }),
-			});
-			encoder.endRenderPass();
-		}
-		return {
-			clearSceneColor: shouldClearAttachments && !environmentDrawn,
-		};
-	}
-
 	private async _recordMRTMainPass(
 		context: FrameContext,
 		packets: DrawPacket[],
@@ -1493,10 +1051,6 @@ export class WebGPUScenePassRecorder {
 		sceneTargetMode: WebGPUSceneTargetMode,
 		depthAttachment: IRenderTexture,
 		depthLoadOp: "clear" | "load",
-		preparedResources?: ReadonlyMap<
-			DrawPacket,
-			WebGPUDrawResources[] | null
-		>,
 	): Promise<Set<string>> {
 		const prepassedPacketIds = new Set<string>();
 		const encoder = this._framePort.getEncoder();
@@ -1505,8 +1059,7 @@ export class WebGPUScenePassRecorder {
 		}
 		encoder.beginRenderPass({
 			label:
-				sceneTargetMode === "gbuffer" ? "WebGPUEarlyZPrepassGBuffer"
-				: sceneTargetMode === "mrt" ?
+				sceneTargetMode === "mrt" ?
 					"WebGPUEarlyZPrepassMRT"
 				: sceneTargetMode === "color" ?
 					"WebGPUEarlyZPrepassColor"
@@ -1525,7 +1078,6 @@ export class WebGPUScenePassRecorder {
 			resources: this._sceneResources,
 			frameResources: this._framePort.requireFrameResources(),
 			packets,
-			preparedResources,
 			dirtyRects,
 			selectPacketsForRect: (candidatePackets, rect) =>
 				this._framePort.selectPacketsForRect(

@@ -14,7 +14,6 @@ import type {
 } from "./WebGPUFrameSession";
 import type { WebGPUDepthDirtyClearPass } from "./WebGPUDepthDirtyClearPass";
 import type { WebGPUColorDirtyClearPass } from "./WebGPUColorDirtyClearPass";
-import type { WebGPUDeferredOpaqueStatePort } from "./WebGPUDeferredFrameModule";
 import type { WebGPUScenePassRecorder } from "./WebGPUScenePassRecorder";
 import type { WebGPUFrameGraphNode } from "./types";
 import type { WebGPUFrameExecutionContext } from "./WebGPUFrameExecutionContext";
@@ -30,18 +29,13 @@ export class WebGPUSceneFrameModule implements WebGPUFrameGraphModule {
 			if (!packets) {
 				throw new Error("WebGPU frame session has no prepared frame packets.");
 			}
-			this._deferredOpaqueState.publish(await this.recorder.recordOpaque(
-				session.context,
-				packets,
-				session.configuration?.deferredActive === true,
-			));
+			await this.recorder.recordOpaque(session.context, packets);
 		},
 	};
 	constructor(
 		public readonly recorder: WebGPUScenePassRecorder,
 		private readonly _depthDirtyClearPass: WebGPUDepthDirtyClearPass,
 		private readonly _colorDirtyClearPass: WebGPUColorDirtyClearPass,
-		private readonly _deferredOpaqueState: WebGPUDeferredOpaqueStatePort,
 	) {}
 
 	public activateFrame(context: WebGPUFrameExecutionContext): void {
@@ -97,9 +91,7 @@ export class WebGPUSceneFrameModule implements WebGPUFrameGraphModule {
 			createWebGPUFrameGraphNode(
 				input.pass,
 				"opaque-scene",
-				input.state.deferredActive && input.state.sceneTargetMode === "gbuffer"
-					? "WebGPUGBuffer"
-					: `WebGPUOpaque${input.state.sceneTargetMode}`,
+				`WebGPUOpaque${input.state.sceneTargetMode}`,
 				this._createOpaqueResources(input),
 			),
 		];
@@ -148,15 +140,6 @@ export class WebGPUSceneFrameModule implements WebGPUFrameGraphModule {
 			writeWebGPUFrameGraphResource("gbuffer:motion-depth", "render-attachment"),
 			writeWebGPUFrameGraphResource("frame:depth", "depth-attachment"),
 		];
-		if (state.sceneTargetMode === "gbuffer" && state.deferredGBufferLayout !== "base") {
-			writes.push(
-				writeWebGPUFrameGraphResource("gbuffer:specular", "render-attachment"),
-				writeWebGPUFrameGraphResource("gbuffer:coat-sheen", "render-attachment"),
-				writeWebGPUFrameGraphResource("gbuffer:sheen-reflectance", "render-attachment"),
-				writeWebGPUFrameGraphResource("gbuffer:material-ext0", "render-attachment"),
-				writeWebGPUFrameGraphResource("gbuffer:material-ext3", "render-attachment"),
-			);
-		}
 		const reads = [
 			readWebGPUFrameGraphResource("shadow-atlas", "texture-binding", true),
 			readWebGPUFrameGraphResource(

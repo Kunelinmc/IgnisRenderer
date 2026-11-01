@@ -191,22 +191,6 @@ or prefab. Supplied and cloned weights are copied into independent arrays.
 See the [geometry contract](../contracts/geometry.md) and
 [loader contract](../contracts/loaders.md).
 
-## Deferred ShaderMaterial Outputs
-
-Replace `fragmentDeferredEntryPoint` with `fragmentDeferredBaseEntryPoint` and
-provide `fragmentDeferredExtensionsEntryPoint` in `ShaderMaterialParams`.
-Defaults are `fsMainDeferredBase` and `fsMainDeferredExtensions`. Both functions
-belong in the same WebGPU `fragment` chunk with `mode: "deferred"`.
-
-The base entry returns the seven standard G-buffer outputs. The extension entry
-returns `gMaterialExt0` at location `0` as `vec4<f32>` and `gMaterialExt3` at
-location `1` as `vec4<u32>`. Share the surface evaluation between entries so
-discard, fragment depth, and sample mask agree. Mark the shared vertex
-`position` output with `@invariant` so separate pipelines can reliably use
-depth equality. Remove old extension storage bindings and `textureStore` calls;
-the engine no longer adapts legacy shaders.
-Missing entries fail frame preflight. See the [WebGPU contract](../contracts/webgpu.md).
-
 ## WebGPU Frame Uniforms
 
 Custom WGSL using frame uniforms must adopt the new layout without legacy
@@ -467,33 +451,25 @@ Retune GPU SSAO settings authored in pixel units to view-space distances.
 Keep bias well below the radius. See the
 [post-process contract](../contracts/postprocess.md#ambient-occlusion).
 
-## WebGPU Deferred G-buffer
+## WebGPU Forward Rendering
 
-The extended WebGPU deferred G-buffer uses seven compact color attachments for
-the base entry and two color attachments for extension replay. `gMaterialExt1`
-and `gMaterialExt2` are removed. `gMaterialExt3` is `rgba16uint`, and
-`gMotionDepth.w` contains a packed material word rather than a plain
-shading-model number.
+WebGPU uses forward scene shading in single-target, color-only, and MRT modes.
+Remove `WebGPUBackendOptions.enableDeferredLighting` and the `ShaderMaterial`
+properties `deferredLighting`, `fragmentDeferredEntryPoint`,
+`fragmentDeferredBaseEntryPoint`, and `fragmentDeferredExtensionsEntryPoint`.
+Replace deferred fragment chunks with `stage: "fragment"` chunks whose `mode`
+is `"single"` or `"mrt"`. GLSL-to-WGSL callbacks must handle the corresponding
+`ShaderStageKind` values `"fragment-single"` and `"fragment-mrt"`.
 
-For materials with `ShaderMaterial.deferredLighting === true`, update the WebGPU
-`fragment` chunk with `mode: "deferred"` to the formats and field mapping in the
-[WebGPU contract](../contracts/webgpu.md#deferred-lighting). Adopt the two entry
-points described in [Deferred ShaderMaterial Outputs](#deferred-shadermaterial-outputs).
-Legacy storage-output chunks require explicit migration; the engine does not
-adapt them.
+MRT fragments write lit `sceneColor` at location `0`, followed by
+`gAlbedoAlpha`, `gNormalRoughMetal`, `gEmissiveOcclusion`, and `gMotionDepth`
+at locations `1..4`. Remove extension replay entries, material-word packing,
+and extension texture bindings. See the
+[WebGPU contract](../contracts/webgpu.md#forward-scene-rendering) and
+[bindings reference](../reference/webgpu-bindings.md#post-process-mrt-attachments).
 
-Emit base color locations `0..6` in this order:
-`gAlbedoAlpha`, `gNormalRoughMetal`, `gEmissiveOcclusion`, `gMotionDepth`,
-`gSpecular`, `gCoatSheen`, and `gSheenReflectance`. Emit `gMaterialExt0` at
-extension location `0` as `vec4<f32>` and `gMaterialExt3` at location `1` as
-`vec4<u32>`. Extension replay uses depth comparison `equal` with depth writes
-disabled. Remove the old group `3` extension storage bindings and their
-`textureStore` calls.
-
-Custom deferred shaders always select the extended layout. Follow the shared
-material-word and extension packing defined by `deferredGBufferCodec.wgsl`.
-The deferred resolve read ABI remains color bindings `0..6`, `gMaterialExt0In`
-at binding `7`, and `gMaterialExt3In` at binding `8`.
+Projected `Decal` objects remain available for Software rendering. WebGPU and
+WebGL ignore them; select `SoftwareBackend` when projected decals are required.
 
 ## Shadow Definitions and Planning
 

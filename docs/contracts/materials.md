@@ -154,14 +154,9 @@ const texture = new Texture({
   culling or front-face identity. Both authored normal-map frames must be built
   before correcting base and clearcoat normals independently.
 - Anisotropic environment reflection directions must also respect the geometric
-  hemisphere after bending. WebGPU deferred lighting may reconstruct this
-  hemisphere from locally planar depth. Missing or discontinuous neighboring
-  depth must select the corrected isotropic direction rather than an unreliable
-  anisotropic ray. Reconstruction must use the validated neighbors explicitly;
-  full-screen derivatives may include unrelated surfaces across a diagonal.
-- WebGPU must apply the same correction before base and extended G-buffer
-  encoding and in forward and transmission-capture shading. Deferred decoding
-  must prevent quantization from producing a back-facing shading normal.
+  hemisphere after bending.
+- WebGPU must apply the same correction in forward and transmission-capture
+  shading and before encoding post-process G-buffer normals.
   Normal comparisons after G-buffer decoding may include its encoding error.
 
 #### Resolved PBR features
@@ -221,15 +216,8 @@ const texture = new Texture({
 - `SoftwareBackend`, `WebGPUBackend`, and `WebGLBackend` built-in PBR lighting
   must use an anisotropic GGX base specular lobe when `anisotropyStrength` is
   greater than `0.0`.
-- `WebGPUBackend` deferred lighting must encode the resolved anisotropy tangent
-  and strength in its G-buffer extension payload and must use them for direct
-  anisotropic specular and environment reflection direction.
-- The WebGPU compact deferred payload must preserve `PhongMaterial.shininess`
-  as an unclamped FP16 value. The same channel may store the normalized PBR
-  specular factor only when the packed shading model is `PBR`.
-- WebGPU deferred material feature bits must be derived from
-  `resolvePBRMaterialFeatures` semantics. Missing feature bits must select the
-  documented neutral defaults and must not trigger extension texture loads.
+- `WebGPUBackend` forward lighting must use the resolved anisotropy tangent
+  and strength for direct anisotropic specular and environment reflection.
 
 ### Depth writes
 
@@ -252,13 +240,6 @@ const texture = new Texture({
 	  pre-passes.
 	- Color draws for these materials must not be promoted to read-only
 	  `early-z-color` pipelines because they were never pre-passed.
-- WebGPU deferred lighting contract:
-	- Materials with `depthWrite === false` must not enter the deferred G-buffer
-	  path.
-	- These materials must use the legacy forward fallback after deferred
-	  lighting resolve when MRT scene targets are available.
-	- Transparent and transmission materials must stay outside the deferred
-	  opaque G-buffer path regardless of `depthWrite`.
 - Cache contract:
 	- Material signatures and backend pipeline keys must include `depthWrite`.
 

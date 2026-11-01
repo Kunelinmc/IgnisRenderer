@@ -45,9 +45,9 @@ This document defines shader source ownership, composition, diagnostics, and cus
   Renderer and material public APIs must not
   expose this descriptor; WebGL frame execution derives it from current
   frame, light, target, and built-in material state.
-- `webgpu.scene` and `webgpu.deferredLighting` must use one built-in source
-  artifact each. Frame shadow state must remain runtime uniform data and must
-  not specialize these sources or participate in artifact identity.
+- `webgpu.scene` must use one built-in source artifact. Frame shadow state
+  must remain runtime uniform data and must not specialize this source or
+  participate in artifact identity.
   Manifest composition must preserve original asset paths and line numbers,
   including those of the shared shadow visibility asset.
 - Light and device limits must be owned by the backend directive profile and
@@ -90,10 +90,8 @@ This document defines shader source ownership, composition, diagnostics, and cus
   preload groups, and directive-profile inputs must be declared by backend
   pure-data manifests interpreted by the shared shader manifest runtime.
 - Built-in backend code must not perform ad hoc shader-text replacement.
-- Custom WebGPU deferred shaders must explicitly provide their base and extension
-  G-buffer entries as defined by the [WebGPU contract](webgpu.md). The engine
-  must not parse and rewrite their entry interfaces or capture storage writes
-  to generate extension compatibility shaders.
+- Custom WebGPU scene shaders must use `single` or `mrt` target modes as defined
+  by the [WebGPU contract](webgpu.md#forward-scene-rendering).
 - Manifest source expressions are closed to the built-in `asset`, `concat`,
   `when`, `defines`, and `template` nodes. Manifests must not contain callbacks
   or register custom operations.

@@ -1,4 +1,4 @@
-export type WebGPUSceneTargetMode = "single" | "color" | "mrt" | "gbuffer";
+export type WebGPUSceneTargetMode = "single" | "color" | "mrt";
 export type WebGPUTransparentPipelineMode =
 	| "default"
 	| "transmission"
@@ -8,7 +8,6 @@ export type WebGPUScenePipelineDrawMode =
 	| "default"
 	| "early-z-color"
 	| "early-z-prepass"
-	| "gbuffer-extensions"
 	| "reflection-capture";
 export type WebGPUDrawPipelineMode =
 	| WebGPUScenePipelineDrawMode
@@ -21,9 +20,6 @@ export type WebGPUScenePipelineLayoutKind =
 export type WebGPUSceneFragmentTargetKind =
 	| "single"
 	| "mrt"
-	| "gbuffer"
-	| "gbuffer-base"
-	| "gbuffer-extensions"
 	| "oit"
 	| "transmission-capture"
 	| "depth-only"
@@ -31,9 +27,6 @@ export type WebGPUSceneFragmentTargetKind =
 export type WebGPUSceneShaderEntryMode =
 	| "single"
 	| "mrt"
-	| "gbuffer"
-	| "gbuffer-base"
-	| "gbuffer-extensions"
 	| "oit"
 	| "transmission-capture"
 	| "early-z-prepass"
@@ -42,7 +35,6 @@ export type WebGPUSceneDepthStateMode =
 	| "default"
 	| "early-z-color"
 	| "early-z-prepass"
-	| "gbuffer-extensions"
 	| "planar-reflection";
 export type WebGPUSampleCountMode = "single-sample" | "mrt-msaa";
 export type WebGPUDepthFormatMode = "canvas" | "depth32float";
@@ -68,8 +60,7 @@ export interface WebGPUScenePassDescriptor extends WebGPUDrawPassDescriptor {
 export function resolveWebGPUScenePassDescriptor(
 	sceneTargetMode: WebGPUSceneTargetMode,
 	transparentMode: WebGPUTransparentPipelineMode = "default",
-	drawMode: WebGPUScenePipelineDrawMode = "default",
-	deferredGBufferLayout: "base" | "extended" = "extended"
+	drawMode: WebGPUScenePipelineDrawMode = "default"
 ): WebGPUScenePassDescriptor {
 	const sampleCountMode =
 		sceneTargetMode === "mrt" || sceneTargetMode === "color" ?
@@ -97,20 +88,14 @@ export function resolveWebGPUScenePassDescriptor(
 	}
 
 	const fragmentTargetKind =
-		drawMode === "gbuffer-extensions" ? "gbuffer-extensions" :
 		transparentMode === "transmission-capture" ? "transmission-capture" :
-		sceneTargetMode === "gbuffer" ?
-			deferredGBufferLayout === "base" ? "gbuffer-base" : "gbuffer"
-		: sceneTargetMode === "single" ? "single"
+		sceneTargetMode === "single" ? "single"
 		: sceneTargetMode === "color" && transparentMode !== "oit" ? "single"
 		: transparentMode === "oit" ? "oit"
 		: "mrt";
 	const shaderEntryMode =
-		drawMode === "gbuffer-extensions" ? "gbuffer-extensions" :
 		transparentMode === "transmission-capture" ? "transmission-capture" :
-		sceneTargetMode === "gbuffer" ?
-			deferredGBufferLayout === "base" ? "gbuffer-base" : "gbuffer"
-		: sceneTargetMode === "single" ? "single"
+		sceneTargetMode === "single" ? "single"
 		: sceneTargetMode === "color" && transparentMode !== "oit" ? "single"
 		: transparentMode === "oit" ? "oit"
 		: "mrt";
@@ -123,14 +108,12 @@ export function resolveWebGPUScenePassDescriptor(
 		pipelineLayoutKind,
 		fragmentTargetKind,
 		shaderEntryMode,
-		depthStateMode: drawMode === "gbuffer-extensions" ? "gbuffer-extensions"
-			: drawMode === "early-z-color" ? "early-z-color" : "default",
+		depthStateMode: drawMode === "early-z-color" ? "early-z-color" : "default",
 		frontFace: drawMode === "reflection-capture" ? "cw" : "ccw",
 		sampleCountMode,
 		depthFormatMode,
 		pipelineKeyPart:
 			`${sceneTargetMode}|${transparentMode}|${drawMode}|` +
-			`layout:${pipelineLayoutKind}|targets:${fragmentTargetKind}|` +
-			`gbuffer:${deferredGBufferLayout}`,
+			`layout:${pipelineLayoutKind}|targets:${fragmentTargetKind}`,
 	};
 }

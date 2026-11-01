@@ -36,7 +36,6 @@ const scene = {
 	opaquePackets: [],
 	transparentPackets: [],
 	reflectivePackets: [],
-	decalPackets: [],
 	occlusion: null,
 	spatialIndex: null,
 };

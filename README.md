@@ -29,6 +29,8 @@ their target platform.
   current hardware.
 
 Feature availability may vary by backend and device capability.
+WebGPU and WebGL use forward scene lighting. Projected decals are supported
+only by the Software backend.
 
 ## Architecture
 

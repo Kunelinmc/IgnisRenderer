@@ -128,16 +128,6 @@ export class WebGPUPostProcessBridge {
 					encoding: "normal-roughness-metallic.w",
 				};
 			}
-			if (targets.gSpecular) {
-				channels.specular = {
-					semantic: "specular",
-					handle: { backend: "webgpu", texture: targets.gSpecular },
-					width,
-					height,
-					format: TextureFormat.RGBA16Float,
-					encoding: "specular-color-factor.rgba",
-				};
-			}
 			if (targets.gAlbedoAlpha) {
 				channels.albedo = {
 					semantic: "albedo",

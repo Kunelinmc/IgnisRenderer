@@ -129,7 +129,6 @@ function normalizeSourceKind(sourceKind?: ShaderSourceKind): ShaderSourceKind {
 		case "postprocess":
 		case "clustered":
 		case "shadow":
-		case "decal":
 		case "particle":
 		case "custom-material":
 			return sourceKind;

@@ -118,7 +118,6 @@ export class WebGPUFrameBindingCache {
 	private _sceneBinding: IBindingGroup | null = null;
 	private _particleFrameBinding: IBindingGroup | null = null;
 	private _depthFrameBinding: IBindingGroup | null = null;
-	private _decalFrameBinding: IBindingGroup | null = null;
 	private _environmentBinding: IBindingGroup | null = null;
 	private _shadowAtlas: IRenderTexture | null = null;
 	private _shadowTransmittanceAtlas: IRenderTexture | null = null;
@@ -512,12 +511,6 @@ export class WebGPUFrameBindingCache {
 		return this._shadowComparisonSampler;
 	}
 
-	/**
-	 * Returns a frame binding group for decal shaders that only require frame uniforms.
-	 *
-	 * @returns A binding group compatible with `WebGPUDecalFrameBindGroupLayout`.
-	 * @sideEffects Lazily creates the binding group while reusing the shared frame uniform buffer.
-	 */
 	/** @internal Camera-only Early-Z bindings owned by frame resources; use Renderer. */
 	public getDepthFrameBinding(): IBindingGroup {
 		if (!this._depthFrameBinding) {
@@ -528,18 +521,6 @@ export class WebGPUFrameBindingCache {
 			});
 		}
 		return this._depthFrameBinding;
-	}
-
-	public getDecalFrameBinding(): IBindingGroup {
-		if (!this._decalFrameBinding) {
-			this._decalFrameBinding = this._backend.createBindingGroup({
-				label: "FrameBinding_decal",
-				layout: this._layouts.decalFrameBindGroupLayout,
-				entries: [{ binding: 0, resource: this._getFrameCameraUniformBuffer() }],
-			});
-		}
-
-		return this._decalFrameBinding;
 	}
 
 	public getEnvironmentBinding(): IBindingGroup {
@@ -643,12 +624,10 @@ export class WebGPUFrameBindingCache {
 		this._sceneBinding?.destroy();
 		this._particleFrameBinding?.destroy();
 		this._depthFrameBinding?.destroy();
-		this._decalFrameBinding?.destroy();
 		this._environmentBinding?.destroy();
 		this._sceneBinding = null;
 		this._particleFrameBinding = null;
 		this._depthFrameBinding = null;
-		this._decalFrameBinding = null;
 		this._environmentBinding = null;
 		this._frameCameraUniformBuffer?.destroy();
 		this._frameCameraUniformBuffer = null;

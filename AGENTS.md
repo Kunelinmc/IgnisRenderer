@@ -188,8 +188,9 @@ required references. Read them before changing related behavior:
 - Post-processing is a backend-owned `"postprocess"` backend pass. Do not add
   public backend post-process graph registration APIs or hardcode pass kernels
   outside `src/postprocess/passes/`.
-- WebGPU deferred lighting is internal to the WebGPU `main-opaque` pass and
-  must not add global renderer frame-pass stages for Software or WebGL.
+- WebGPU forward scene shading belongs to the WebGPU `main-opaque` pass. Its
+  MRT attachments serve post-processing and must not add global renderer
+  frame-pass stages for Software or WebGL.
 - `IBLPrefilter` owns CPU, worker, and WebGPU environment specular
   prefiltering. `Renderer` must not schedule environment IBL bake/update work
   or expose environment IBL update APIs.

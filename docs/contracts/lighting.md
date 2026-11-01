@@ -185,7 +185,7 @@ The cached culling state and bindings must be invalidated when:
   response, including its BRDF integration and multiple-scattering compensation.
   It must not subtract the single-angle `F(NdotV)` while adding a different
   integrated specular response. The same rule must apply to WebGL forward and
-  WebGPU forward and deferred lighting.
+  WebGPU forward lighting.
 - A unit-white environment and matching diffuse SH must return approximately
   unit radiance for a white, opaque, non-absorbing base dielectric, including
   grazing views down to `NdotV = 0.001`. This base-lobe check excludes clearcoat,

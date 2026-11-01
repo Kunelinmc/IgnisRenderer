@@ -24,12 +24,6 @@ fn resolvePBRReflectionDirection(direction: vec3<f32>, geometricNormal: vec3<f32
 	return safeNormalize(direction + geometricNormal * (PBR_MIN_NDOTV - horizon), geometricNormal);
 }
 
-fn resolveViewFacingShadingNormal(normal: vec3<f32>, viewDirection: vec3<f32>) -> vec3<f32> {
-	// G-buffer quantization can move a nearly tangent normal behind the viewer.
-	return safeNormalize(normal + viewDirection *
-		max(PBR_MIN_NDOTV - dot(normal, viewDirection), 0.0), viewDirection);
-}
-
 fn resolvePBRShadingNormal(
 	shadingNormal: vec3<f32>, geometricNormal: vec3<f32>, viewDirection: vec3<f32>
 ) -> vec3<f32> {

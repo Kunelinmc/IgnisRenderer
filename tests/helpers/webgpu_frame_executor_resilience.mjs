@@ -92,8 +92,6 @@ class WebGPUFrameExecutor extends WebGPUFrameOrchestrator {
 			frameRuntime.modules,
 			{
 				enableEarlyZPrepass: options?.enableEarlyZPrepass ?? host.enableEarlyZPrepass,
-				enableDeferredLighting:
-					options?.enableDeferredLighting ?? host.enableDeferredLighting,
 				frameGraphValidationMode:
 					options?.frameGraphValidationMode ?? host.frameGraphValidationMode,
 				diagnosticsObserver: diagnostics,
@@ -160,7 +158,6 @@ function createFrameDiagnosticsCollector(frameRuntime) {
 				sampleCount: 1,
 				texturePoolOwnerCount: 0,
 				sceneTargetMode: "single",
-				deferredGBufferLayout: "extended",
 				needsOITTargets: false,
 				frameTargets: null,
 				msaaTargets: null,
@@ -184,7 +181,6 @@ function createPreparedFrameResources(options = {}) {
 		scopeKey: options.scopeKey ?? "main",
 		sceneTargetMode: options.sceneTargetMode ?? "mrt",
 		frameBinding: { id: "frame-binding" },
-		decalFrameBinding: { id: "decal-frame-binding" },
 		environmentBinding: { id: "environment-binding" },
 		clusteredSceneBinding: { id: "clustered-binding" },
 		lightingState: {},
@@ -417,53 +413,6 @@ function createOITSequencingResourcesStub() {
 	};
 }
 
-function createDeferredLightingResourcesStub() {
-	const state = {
-		deferredUnusedBinding: { id: "deferred-unused-binding" },
-		events: [],
-	};
-	const drawResource = {
-		pipeline: { id: "gbuffer-pipeline" },
-		bindings: [
-			{ slot: 0, group: { id: "frame-binding" } },
-			{ slot: 1, group: { id: "model-binding" } },
-			{ slot: 2, group: { id: "clustered-binding" } },
-		],
-		vertexBuffer: { id: "vertex-buffer" },
-		indexBuffer: { id: "index-buffer" },
-		indexCount: 3,
-	};
-	return {
-		sceneFrameLayout: {},
-		createFrameScope() { return createFrameScopeAdapter(this); },
-		prepareFrame(_context, options = {}) {
-			return createPreparedFrameResources(options);
-		},
-		async buildClusteredLighting() {},
-		renderShadows() {},
-		async getEnvironmentResources() {
-			return null;
-		},
-		async getDrawResources(packet, _frameResources, options = {}) {
-			state.events.push(
-				`draw:${packet.id}:${options.sceneTargetMode ?? "none"}:${options.drawMode ?? "default"}`
-			);
-			return [drawResource];
-		},
-		async renderParticles() {},
-		getGBufferReadLayout() {
-			return { id: "gbuffer-read-layout" };
-		},
-		async getDeferredLightingPipeline() {
-			return { id: "deferred-lighting-pipeline" };
-		},
-		getDeferredUnusedBinding() {
-			return state.deferredUnusedBinding;
-		},
-		_state: state,
-	};
-}
-
 function createPlanarReflectionResourcesStub() {
 	const state = {
 		events: [],
@@ -630,7 +579,6 @@ export {
 	PARTICLE_MESH_TRANSIENT_BATCHES_KEY,
 	WebGPUFrameExecutor,
 	WebGPUPostProcessExecutor,
-	createDeferredLightingResourcesStub,
 	createFrameContext,
 	createFrameScopeAdapter,
 	createMSAAContext,

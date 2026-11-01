@@ -12,7 +12,7 @@ const prepared = {
 	slices: [{ viewProjection: Matrix4.identity() }],
 };
 const context = {
-	scene: { decalPackets: [] },
+	scene: {},
 	shadowPlan: {
 		lights: [prepared],
 		diagnostics: [],

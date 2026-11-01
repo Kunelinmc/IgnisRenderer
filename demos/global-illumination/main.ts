@@ -137,7 +137,6 @@ async function startDemo(): Promise<void> {
 	const sceneControls = populateScene(scene, settings);
 
 	const backend = new WebGPUBackend({
-		enableDeferredLighting: false,
 		sampleCount: 1,
 	});
 	const renderer = new Renderer(canvas, backend, camera);

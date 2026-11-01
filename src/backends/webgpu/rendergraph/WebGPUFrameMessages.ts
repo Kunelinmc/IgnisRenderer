@@ -51,7 +51,7 @@ export const WEBGPU_FRAME_CONFIGURATION_REQUEST_MESSAGE =
 		seeded: true,
 	});
 
-export type WebGPUFrameTargetClass = "single" | "color" | "mrt" | "gbuffer";
+export type WebGPUFrameTargetClass = "single" | "color" | "mrt";
 
 export const WEBGPU_FRAME_LOGICAL_RESOURCES = {
 	postProcessTargets: "frame:post-process-targets",
@@ -70,9 +70,6 @@ export interface WebGPUFrameLogicalResourceDemand {
 }
 
 export const WEBGPU_FRAME_FEATURE_STATES = {
-	deferredSupported: "deferred:supported",
-	deferredActive: "deferred:active",
-	deferredGBufferLayout: "deferred:gbuffer-layout",
 	oitActive: "transparency:oit-active",
 	transparencyMode: "transparency:mode",
 } as const;

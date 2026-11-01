@@ -1,9 +1,5 @@
 import assert from "node:assert/strict";
 
-import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
-import {
-	analyzeWebGPUDeferredFeatures,
-} from "../../../src/backends/webgpu/rendergraph/WebGPUDeferredFrameModule.ts";
 import {
 	analyzeWebGPUPostProcessFeatures,
 } from "../../../src/backends/webgpu/rendergraph/WebGPUPostProcessFrameModule.ts";
@@ -27,7 +23,6 @@ function createContext() {
 			enableOcclusionCulling: true,
 		},
 		scene: {
-			decalPackets: [],
 			particleSystems: [],
 			reflectivePackets: [{}],
 			occlusion: { eligibleCandidateCount: 1 },
@@ -36,28 +31,6 @@ function createContext() {
 }
 
 const context = createContext();
-const base = analyzeWebGPUDeferredFeatures(context, {
-	all: [],
-	opaque: [createTestDrawPacket({ material: new PBRMaterial() })],
-	transparent: [],
-	shadowCasterSubmissions: [],
-	shadowTransmitterSubmissions: [],
-	reflective: [],
-});
-assert.equal(base.hasDeferredLightingWork, true);
-assert.equal(base.deferredGBufferLayout, "base");
-
-context.scene.decalPackets.push({});
-const extended = analyzeWebGPUDeferredFeatures(context, {
-	all: [],
-	opaque: [createTestDrawPacket({ material: new PBRMaterial() })],
-	transparent: [],
-	shadowCasterSubmissions: [],
-	shadowTransmitterSubmissions: [],
-	reflective: [],
-});
-assert.equal(extended.deferredGBufferLayout, "extended");
-
 let transmissionReads = 0;
 const transparency = analyzeWebGPUTransparency(context, [createTestDrawPacket({
 	material: {

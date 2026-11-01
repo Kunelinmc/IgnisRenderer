@@ -95,7 +95,6 @@ function createBackend(
 			throw new Error("WebGPU is not supported by this browser.");
 		}
 		return new WebGPUBackend({
-			enableDeferredLighting: true,
 			enableEarlyZPrepass: true,
 			enableOcclusionCulling: true,
 		});
@@ -108,7 +107,6 @@ function createBackend(
 	}
 	if (platform.hasWebGPU) {
 		return new WebGPUBackend({
-			enableDeferredLighting: true,
 			enableEarlyZPrepass: true,
 			enableOcclusionCulling: true,
 		});

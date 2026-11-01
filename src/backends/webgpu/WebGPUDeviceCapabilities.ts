@@ -2,9 +2,6 @@
 import type { RenderBackendDebugInfo } from "../IRenderBackend";
 
 import {
-	WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE,
-	WEBGPU_DEFERRED_COLOR_TARGET_COUNT,
-	WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT,
 	WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE,
 	WEBGPU_MRT_COLOR_TARGET_COUNT,
 	WEBGPU_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
@@ -59,12 +56,10 @@ const WEBGPU_REQUIRED_DEVICE_LIMITS = [
 ] as const satisfies readonly WebGPUMinimumLimit[];
 
 const WEBGPU_COLOR_ATTACHMENT_LIMIT_TIERS = [
-	WEBGPU_DEFERRED_COLOR_TARGET_COUNT,
 	WEBGPU_MRT_COLOR_TARGET_COUNT,
 ] as const;
 
 const WEBGPU_COLOR_ATTACHMENT_BYTE_LIMIT_TIERS = [
-	WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE,
 	WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE,
 ] as const;
 
@@ -139,9 +134,6 @@ export function createWebGPURequiredLimits(limits: GPUSupportedLimits): Record<s
 	}
 	if (maxColorAttachmentBytesPerSample !== undefined) {
 		requiredLimits.maxColorAttachmentBytesPerSample = maxColorAttachmentBytesPerSample;
-	}
-	if (limits.maxStorageTexturesPerShaderStage >= WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT) {
-		requiredLimits.maxStorageTexturesPerShaderStage = WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT;
 	}
 	if (limits.maxTextureDimension2D > 0) {
 		requiredLimits.maxTextureDimension2D = limits.maxTextureDimension2D;

@@ -740,24 +740,12 @@ async function testClusteredCullShaderUsesActiveCountAndTiling() {
 }
 
 async function testClusteredShadingUsesActiveLightCountGuards() {
-	const deferred = (await ShaderSource.load(
-		"webgpu.deferredLighting"
-	)).source.code;
-	assert.ok(deferred.includes("fn activeClusteredLightCount() -> u32"));
-	assert.ok(
-		deferred.includes(
-			"return min(clusterGrid.lightCount, arrayLength(&clusterPositionRanges.values));"
-		)
-	);
-	assert.equal(
-		countOccurrences(
-			deferred,
-			"let clusterLightCount = activeClusteredLightCount();"
-		),
-		2
-	);
-	assert.ok(!deferred.includes("clusterLights.lights"));
-	assert.ok(deferred.includes("surface.pixelPosition"));
+	const scene = (await ShaderSource.load("webgpu.scene")).source.code;
+	assert.ok(scene.includes("fn activeClusteredLightCount() -> u32"));
+	assert.ok(scene.includes(
+		"return min(clusterGrid.lightCount, arrayLength(&clusterPositionRanges.values));"
+	));
+	assert.ok(!scene.includes("clusterLights.lights"));
 
 	for (const part of ["fragmentPbrPoint", "fragmentPhong"]) {
 		const source = (
@@ -786,7 +774,6 @@ async function testClusteredShadingUsesActiveLightCountGuards() {
 	).source.code;
 	assert.ok(areaPart.includes("if (!isClusteredLightingEnabled())"));
 	assert.ok(!areaPart.includes("getClusterHeaderForFragment"));
-	const scene = (await ShaderSource.load("webgpu.scene")).source.code;
 	assert.equal(countOccurrences(scene, "getClusterHeaderForFragment("), 3);
 	assert.equal(countOccurrences(scene, "clusterIndices.indices[clusterHeader.offset"), 2);
 }

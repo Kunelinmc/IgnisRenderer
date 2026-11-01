@@ -10,12 +10,7 @@ import type {
 } from "../../types";
 import type { WebGPUFrameHost } from "./WebGPUFrameHost";
 
-export type WebGPUColorDirtyClearMode =
-	| "color"
-	| "mrt"
-	| "deferred"
-	| "extensions"
-	| "extended";
+export type WebGPUColorDirtyClearMode = "color" | "mrt";
 
 export interface WebGPUColorDirtyClearAttachment {
 	readonly view: IRenderTexture;
@@ -111,11 +106,7 @@ export class WebGPUColorDirtyClearPass {
 		}
 
 		const entryPointBase =
-			mode === "color" ? "fsColor"
-			: mode === "mrt" ? "fsMRT"
-			: mode === "deferred" ? "fsDeferred"
-			: mode === "extensions" ? "fsExtensions"
-			: "fsExtended";
+			mode === "color" ? "fsColor" : "fsMRT";
 		const entryPoint = presentationAlphaMode === "premultiplied" ?
 			`${entryPointBase}Transparent`
 		:	entryPointBase;
@@ -148,10 +139,7 @@ export class WebGPUColorDirtyClearPass {
 		count: number
 	): void {
 		const expected =
-			mode === "color" ? 1
-			: mode === "extensions" ? 2
-			: mode === "mrt" || mode === "deferred" ? 5
-			: 8;
+			mode === "color" ? 1 : 5;
 		if (count !== expected) {
 			throw new Error(
 				`WebGPU ${mode} dirty clear requires ${expected} attachments; ` +

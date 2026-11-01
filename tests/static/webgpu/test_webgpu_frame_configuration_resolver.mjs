@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 
 import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
-import { WebGPUDeferredFrameModule } from "../../../src/backends/webgpu/rendergraph/WebGPUDeferredFrameModule.ts";
 import { WebGPUFrameConfigurationModule } from "../../../src/backends/webgpu/rendergraph/WebGPUFrameConfigurationModule.ts";
 import { WebGPUFrameMessageRegistry } from "../../../src/backends/webgpu/rendergraph/WebGPUFrameMessageRegistry.ts";
 import {
@@ -24,7 +23,6 @@ const transparencyRuntime = new WebGPUTransparencyRuntime(
 	unused, unused, unused, unused, unused,
 );
 const modules = [
-	new WebGPUDeferredFrameModule(unused, unused, unused),
 	transparencyRuntime,
 	new WebGPUReflectionFrameModule(unused, unused, unused),
 	new WebGPUVisibilityFrameModule(unused, unused, unused),
@@ -47,7 +45,6 @@ function createContext() {
 			enableOcclusionCulling: false,
 		},
 		scene: {
-			decalPackets: [],
 			particleSystems: [],
 			reflectivePackets: [],
 			occlusion: { eligibleCandidateCount: 0 },
@@ -92,12 +89,9 @@ async function configure(analysis, context, overrides = {}) {
 					maxColorAttachments: overrides.maxColorAttachments ?? 8,
 					maxColorAttachmentBytesPerSample:
 						overrides.maxColorAttachmentBytesPerSample ?? 64,
-					maxStorageTexturesPerShaderStage:
-						overrides.maxStorageTexturesPerShaderStage ?? 4,
 				},
 				options: {
 					enableEarlyZPrepass: true,
-					enableDeferredLighting: true,
 					samplePlan: {
 						requestedSampleCount: sampleCount,
 						sampleCount,
@@ -137,27 +131,34 @@ const oitMsaa = await configure(oitAnalysis, oitContext, { sampleCount: 4 });
 assert.equal(oitMsaa.oitActive, false);
 assert.ok(oitMsaa.diagnostics.some(({ code }) => code === "webgpu-oit-disabled-msaa"));
 
-const deferredContext = createContext();
-const deferredPackets = packets([{ material: new PBRMaterial() }]);
-const deferredAnalysis = await analyze(deferredContext, deferredPackets, []);
-const deferred = await configure(deferredAnalysis, deferredContext);
-assert.equal(deferred.deferredActive, true);
-assert.equal(deferred.sceneTargetMode, "gbuffer");
-assert.equal(deferred.deferredGBufferLayout, "base");
+const opaqueContext = createContext();
+const opaqueAnalysis = await analyze(opaqueContext,
+	packets([{ material: new PBRMaterial({ anisotropyStrength: 1 }) }]), []);
+const opaque = await configure(opaqueAnalysis, opaqueContext);
+assert.equal(opaque.sceneTargetMode, "single");
+assert.equal(opaque.targetRequirements, null);
 
-const unsupported = await configure(deferredAnalysis, deferredContext, {
-	maxColorAttachments: 1,
-	maxColorAttachmentBytesPerSample: 16,
-	maxStorageTexturesPerShaderStage: 0,
-});
-assert.equal(unsupported.deferredActive, false);
-assert.equal(unsupported.sceneTargetMode, "single");
-for (const code of [
-	"webgpu-mrt-disabled-attachments",
-	"webgpu-deferred-disabled-attachments",
-	"webgpu-deferred-disabled-bytes",
-	"webgpu-deferred-disabled-storage-textures",
-]) assert.ok(unsupported.diagnostics.some((diagnostic) => diagnostic.code === code));
+const gBufferPasses = [{
+	id: "ssao",
+	declaration: {
+		color: { access: "read", output: "new-version" },
+		gBuffer: [{ semantic: "normal", access: "read" }],
+	},
+}];
+const gBufferAnalysis = await analyze(opaqueContext, packets(), gBufferPasses);
+const mrt = await configure(gBufferAnalysis, opaqueContext);
+assert.equal(mrt.sceneTargetMode, "mrt");
+assert.equal(mrt.targetRequirements.sceneTargetMode, "mrt");
+for (const limits of [
+	{ maxColorAttachments: 1 },
+	{ maxColorAttachmentBytesPerSample: 16 },
+]) {
+	const unsupported = await configure(gBufferAnalysis, opaqueContext, limits);
+	assert.equal(unsupported.sceneTargetMode, "single");
+	assert.ok(unsupported.diagnostics.some(({ code }) =>
+		code === (limits.maxColorAttachments ? "webgpu-mrt-disabled-attachments"
+			: "webgpu-mrt-disabled-bytes")));
+}
 
 let transmissionReads = 0;
 const retryContext = createContext();
@@ -292,11 +293,9 @@ await assert.rejects(
 				capabilities: {
 					maxColorAttachments: 8,
 					maxColorAttachmentBytesPerSample: 64,
-					maxStorageTexturesPerShaderStage: 4,
 				},
 				options: {
 					enableEarlyZPrepass: true,
-					enableDeferredLighting: true,
 					samplePlan: {
 						requestedSampleCount: 1,
 						sampleCount: 1,

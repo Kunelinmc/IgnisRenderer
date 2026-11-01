@@ -46,6 +46,8 @@ native resource lifetimes.
    typed messages.
 6. Feature configuration handlers apply capabilities and fallback policy. A
    generic reducer merges their target and logical-resource demands.
+   `WebGPUFrameConfigurationModule` also contains the stateless target and
+   sample-count resolver shared by frame execution and warmup.
 7. Target managers allocate or reuse frame-sized resources.
 8. The frame scope prepares resources, then sealing publishes one complete
    recording execution context containing the command stream and target view.
@@ -61,8 +63,8 @@ native resource lifetimes.
 ## Stage Expansion
 
 One portable stage may expand into several WebGPU nodes. `main-opaque` can
-include background work, G-buffer rendering, projected decals, deferred
-lighting, forward fallback materials, planar reflection composition, Hi-Z, and
+include background work, Early-Z, forward scene shading with optional
+post-process MRT attachments, planar reflection composition, Hi-Z, and
 occlusion work. Transparent rendering can expand into forward or OIT node
 sequences. Post-processing contributes one node per eligible logical pass.
 
@@ -84,7 +86,7 @@ to Software or WebGL.
 | Feature modules / frame graph compiler | Node expansion, ordering, logical resources, dependencies, stage slices, and diagnostics |
 | Feature modules | Feature analysis, configuration requirements, graph contributions, commands, warmup, and pass-local lifecycle |
 | Resource owners | Native texture, buffer, pipeline, binding, pool, and frame-target lifetimes |
-| Scene pipeline resources | Shared forward, G-buffer, Early-Z, and capture scene variants |
+| Scene pipeline resources | Shared single-target, MRT, Early-Z, and capture scene variants |
 | Particle render resources | Owner-managed billboard pipelines, particle buffers, bindings, and pass recording |
 | Frame packet contributors | Backend-composed, device-independent conversion of supplemental current-view draw work |
 | Post-process runtime | Logical plan, declarations, histories, transients, and history transactions |
@@ -100,7 +102,7 @@ individual fields through orchestrator callbacks.
 
 The frame target manager owns physical allocation and publishes a stable
 frame-scoped target view without transferring native ownership. The command
-stream owns encoder rotation and submission state. Visibility, deferred,
+stream owns encoder rotation and submission state. Visibility,
 transparency, post-process, and presentation modules retain their own mutable
 per-frame feature state and exchange only narrow typed ports.
 

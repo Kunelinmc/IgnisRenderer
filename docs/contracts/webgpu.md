@@ -1,7 +1,8 @@
 # WebGPU Backend Contract
 
-This document defines WebGPU frame-graph execution, geometry packing, deferred
-lighting, presentation configuration, reflections, and structured buffer packing.
+This document defines WebGPU frame-graph execution, geometry packing, forward
+scene rendering, presentation configuration, reflections, and structured buffer
+packing.
 
 ## Contract
 
@@ -217,13 +218,13 @@ lighting, presentation configuration, reflections, and structured buffer packing
   their retained analysis. The configuration reducer may merge generic target
   classes, resource demands, diagnostics, and conflicts; it must not contain
   feature-specific packet scans.
-- Scene, shadow, deferred, transparency, reflection, visibility, post-process,
+- Scene, shadow, transparency, reflection, visibility, post-process,
   presentation, and custom-render-target modules must own their feature-local
   analysis, graph contribution, node execution, warmup, and lifecycle work.
 - WebGPU device initialization must construct resource owners without compiling
-  scene, environment, deferred, or reflection shader modules and pipelines.
+  scene, environment, or reflection shader modules and pipelines.
   Those resources must compile lazily on first use or explicit warmup.
-- Scene, environment, deferred, and reflection owners must enumerate their own
+- Scene, environment, and reflection owners must enumerate their own
   warmup variants from the current frame inputs, resolved backend options,
   device capabilities, and sample count. `WebGPUFrameRuntimeComposition` must
   expose one backend-private warmup entrypoint that plans warmup work, invokes
@@ -236,9 +237,18 @@ lighting, presentation configuration, reflections, and structured buffer packing
   must reject; compilation failures must remain in `WarmupReport.errors`.
   The composition must retain cooperative yielding and must not expose
   separate post-process or reflection warmup ports.
-- Deferred warmup must reuse the same analysis and capability policy as frame
-  configuration. Reflection warmup must own its temporary frame scope and
-  release it in a `finally` block.
+- Scene, environment, and particle warmup must use the scene target mode and
+  effective sample count selected by current frame configuration. Warmup and
+  frame execution must share the typed configuration resolver, including
+  retained feature analysis, resource demands, device capability policy, and
+  sample-count resolution. Warmup must resolve this configuration without
+  allocating frame targets or recording a normal frame.
+- Warmup include flags must select which work is warmed without changing the
+  frame's target routing or effective sample count. A color-only post-process
+  demand, such as bloom without G-buffer consumers, must warm color-only scene
+  variants rather than MRT variants.
+- Reflection warmup must own its temporary frame scope and release it in a
+  `finally` block.
   Modules must receive narrow runtime capabilities and must not receive the
   concrete `WebGPUFrameOrchestrator`.
 - Unsupported renderer-level backend pass ids must produce an empty WebGPU
@@ -307,7 +317,7 @@ lighting, presentation configuration, reflections, and structured buffer packing
   not own texture-pool allocation, command-stream state, feature-local frame
   state, or runtime feature capabilities.
 - `WebGPUFrameServiceOwner` must be the backend-private shared-service
-  composition root. It owns device-lifetime scene, texture, deferred, shadow,
+  composition root. It owns device-lifetime scene, texture, shadow,
   and particle-render resources; consumers must receive only the corresponding
   narrow resource-provider capability.
 - Each frame-scope preparation must normalize scene lights into one
@@ -322,15 +332,12 @@ lighting, presentation configuration, reflections, and structured buffer packing
   volumetric pass is enabled. Preparing another scope or disabling the pass
   must not overwrite a previously prepared scope's lighting data.
 - `WebGPUScenePipelineResources` must own only built-in and custom scene shader
-  modules together with forward, G-buffer, Early-Z, and scene-capture pipeline
-  variants. It must not own environment, deferred-lighting, or planar-reflection
-  composite pipelines, and it must consume immutable material pipeline state.
+  modules together with single-target, MRT, Early-Z, and scene-capture pipeline
+  variants. It must not own environment or planar-reflection composite pipelines,
+  and it must consume immutable material pipeline state.
 - `WebGPUEnvironmentResources` must own the environment shader and render
   pipeline handles shared by main-scene, planar-reflection, and reflection-probe
   capture paths. Capture runtimes must not create private copies.
-- `WebGPUDeferredResources` must directly own deferred-lighting and decal shader
-  and pipeline handles. It must not recover deferred-lighting pipelines through
-  a callback into a shared scene pipeline owner.
 - `WebGPUTextureRegistry` must explicitly release registry-owned texture and
   sampler handles when `Texture.dispose()` is called. It must also release them
   after an unreachable `Texture` is finalized when `FinalizationRegistry` is
@@ -382,7 +389,7 @@ lighting, presentation configuration, reflections, and structured buffer packing
 - Shared shader invalidation and destruction must be routed through
   `WebGPUFrameServiceOwner`; frame-node runtimes may invalidate only their
   pass-local resources.
-- Scene, shadow, deferred, transparency, reflection, visibility, post-process,
+- Scene, shadow, transparency, reflection, visibility, post-process,
   presentation, and custom-render-target modules must own their node executors
   and feature-local pipeline/binding lifecycle. The orchestrator must not
   construct concrete feature runtimes, retain feature passes, or provide
@@ -417,8 +424,8 @@ lighting, presentation configuration, reflections, and structured buffer packing
 	lifecycle. It must not delegate planning to a separate transparency planner.
 	`WebGPUFrameTargetManager` exclusively owns OIT frame textures.
 - Post-process and presentation must be explicit internal graph nodes.
-- Planar reflection composite must be an explicit graph node after opaque or
-  deferred output and before transparency.
+- Planar reflection composite must be an explicit graph node after opaque
+  scene output and before transparency.
 - `WebGPUFrameSession` must be a discriminated lifecycle state of
   `"preparing"`, `"recording"`, `"committing"`, or `"skipped"`. A recording or
   committing session must contain non-null configuration, prepared resources,
@@ -491,8 +498,8 @@ lighting, presentation configuration, reflections, and structured buffer packing
   session data through a callback-based recording context.
 - Hi-Z readiness and build diagnostics must be owned by the visibility module;
   motion-history write state by the post-process module; presentation status by
-  the presentation runtime; deferred opaque state by a deferred state port; and
-  transparency runtime fallback by the transparency runtime.
+  the presentation runtime; and transparency runtime fallback by the transparency
+  runtime.
 - The node executor table must exhaustively cover `WebGPUFrameGraphNodeKind` so
   adding a node kind produces a TypeScript error until an executor is supplied.
 - A planned graph node with no runtime executor must throw because it indicates
@@ -614,9 +621,9 @@ lighting, presentation configuration, reflections, and structured buffer packing
   shader target mode, wireframe state, and shader-runtime fingerprint. Shared
   scene pipeline resources must consume the resolved policy rather than inspect
   concrete material subclasses.
-- Frame shadow state must not participate in built-in scene or deferred shader,
+- Frame shadow state must not participate in built-in scene shader,
   pipeline, or static preparation cache identity. Draw resource assembly, warmup,
-  and deferred pass orchestration must not select a shadow compilation variant.
+  and scene pass orchestration must not select a shadow compilation variant.
   Built-in lighting and custom-program fallback must read the current runtime
   shadow uniforms. Ready built-in static preparation must remain synchronous
   across shadow-state changes.
@@ -796,196 +803,63 @@ lighting, presentation configuration, reflections, and structured buffer packing
   semantic stream, index buffer, lazily created wireframe buffer, and morph
   buffer owned by the invalidated handle.
 
-### Deferred lighting
+### Forward scene rendering
 
-- Public control contract:
-	- `WebGPUBackendOptions.enableDeferredLighting` must default to `true`.
-	- When `enableDeferredLighting === false`, `WebGPUBackend` must not run the
-	  deferred lighting resolve and must route opaque materials through the
-	  legacy MRT forward path when MRT is available.
-	- When `enableDeferredLighting !== false`, `WebGPUBackend` must attempt to
-	  enable deferred lighting and must warn once if any runtime requirement
-	  prevents correct activation.
-- Runtime gating contract:
-	- Deferred lighting must require `sampleCount === 1`.
-	- Base deferred lighting must require `maxColorAttachments >= 4` and
-	  `maxColorAttachmentBytesPerSample >= 32`.
-	- Extended deferred lighting must require `maxColorAttachments >= 7` and
-	  `maxColorAttachmentBytesPerSample >= 56`.
-	- Deferred lighting must require
-	  `maxStorageTexturesPerShaderStage >= 2`.
-	- Color-attachment byte requirements must be derived through the WebGPU-owned
-	  `getWebGPURenderTargetPixelByteCost()` lookup rather than texel storage size
-	  or duplicated literals. Backend-agnostic `TextureFormatInfo` metadata must
-	  not contain WebGPU-specific attachment costs.
-	- If any requirement is not met, `WebGPUBackend` must use the legacy MRT
-	  forward path when available, otherwise the single-target forward path,
-	  and must warn once.
-- Pass ordering contract:
-	- `main-opaque` must render environment/background into `sceneColorMain`
-	  before lighting resolve when background rendering is enabled.
-	- Builtin opaque and mask deferred materials must render surface payloads
-	  into the G-buffer.
-	- Deferred lighting must run as a fullscreen render pass that reads the
-	  G-buffer, shadow data, environment data, and clustered-light buffers, then
-	  writes `sceneColorMain`.
-	- Deferred lighting must discard pixels with `gMotionDepth.z <= 0`, preserving
-	  prior background color.
-	- Non-deferred opaque fallback materials must render after deferred lighting
-	  through the legacy MRT forward shader.
-	- Transparent, OIT, transmission, and particles must render after opaque
-	  lighting resolve through existing forward paths.
-- Clustered-lighting compute contract:
-	- Gather culling and overflow resolution must dispatch the cluster grid across
-	  `tilesX`, `tilesY`, and `zSlices`. They must not flatten the complete cluster
-	  count into one dispatch dimension.
-	- Gather and overflow shaders must derive the row-major cluster index from the
-	  three-dimensional workgroup id so large valid frame grids do not exceed
-	  `maxComputeWorkgroupsPerDimension` in a single dimension.
-- G-buffer contract:
-	- Built-in PBR draws, including generic materials using PBR shading, must
-	  upload WebGPU-private feature and texture flags in a draw-uniform
-	  `pbrMasks` field. WebGPU must construct these flags from
-	  `resolvePBRMaterialFeatures` semantics. They must not participate in
-	  shader-module or render-pipeline cache keys.
-	- Built-in WGSL asset composition and directive-profile inputs must be
-	  declared by the WebGPU shader manifest. The shared manifest mechanism must
-	  not turn material feature flags into source specializations.
-	- Built-in PBR shaders must use uniform `if` control flow to sample a material
-	  texture only when its texture-presence bit is set. Extension texture samples
-	  must additionally require an active parent feature; `select` must not be
-	  used to guard a texture operation.
-	- Missing texture samples must resolve to the same neutral values as the
-	  device-lifetime fallback textures. Fixed bind-group layouts and fallback
-	  bindings must remain available even when shader control flow skips the
-	  texture operation.
-	- Deferred packet preflight must retain one frame-local recording snapshot per
-	  packet. The snapshot must contain the resolved pipeline, material uniform
-	  data, texture and sampler resources, model binding, geometry resources, and
-	  the selected early-Z/G-buffer draw variants.
-	- G-buffer, extension, and early-Z recording must consume the retained packet snapshots
-	  and must not call `getDrawResources()` again. A packet selected by multiple
-	  incremental dirty rectangles must reuse the same snapshot for every
-	  rectangle.
-	- Deferred scene warmup must compile the base G-buffer variant and, for an
-	  `extended` layout, the extension replay variant. It must report extension
-	  compilation failures with their original compiler diagnostics. Warmup and
-	  frame preflight must share the deferred
-	  early-Z eligibility policy; custom deferred programs must not warm unused
-	  vertex-only early-Z variants. A `base` layout must not warm extension replay.
-	- Forward scene, base G-buffer, and extension replay pipelines must reuse the
-	  same scene pipeline layout for each shading family.
-	- Before an incremental partial scene draw, WebGPU must shader-clear scene
-	  color and every active raster G-buffer attachment inside all dirty
-	  rectangles. The clear must use the attachment layout's canonical empty
-	  values, must preserve pixels outside the rectangles, and must precede
-	  depth clear, early-Z, and geometry recording.
-	- The frame analyzer must select `base` or `extended` deferred payload mode.
-	  `ShaderMaterial` deferred chunks and deferred decals must conservatively
-	  select `extended` mode.
-	- `base` mode must expose only `gAlbedoAlpha`, `gNormalRoughMetal`,
-	  `gEmissiveOcclusion`, and `gMotionDepth`. It must use no more than
-	  `24` color bytes per pixel, excluding depth.
-	- `extended` mode may additionally expose `gSpecular`, `gCoatSheen`,
-	  `gSheenReflectance`, `gMaterialExt0`, and `gMaterialExt3`. Its complete
-	  deferred payload must use no more than `60` bytes per pixel, excluding
-	  depth.
-	- Color MRTs must be:
-	  `gAlbedoAlpha`, `gNormalRoughMetal`, `gEmissiveOcclusion`,
-	  `gMotionDepth`, `gSpecular`, `gCoatSheen`, and `gSheenReflectance`.
-	- `gAlbedoAlpha`, `gNormalRoughMetal`, and `gSheenReflectance` must use
-	  `rgba8unorm`. `gEmissiveOcclusion`, `gMotionDepth`, `gSpecular`, and
-	  `gCoatSheen` must use `rgba16float`.
-	- `gNormalRoughMetal.xy` must store the encoded view-space normal,
-	  `gNormalRoughMetal.z` must store roughness, and
-	  `gNormalRoughMetal.w` must store metallic.
-	- `gSpecular.rgb` must store the resolved specular color. `gSpecular.a` must
-	  store the PBR specular factor or the unclamped Phong/Flat shininess,
-	  according to the packed shading model.
-	- Extension payload textures must be `gMaterialExt0` as `rgba16float` and
-	  `gMaterialExt3` as `rgba16uint`. They must support render attachments and
-	  retain storage usage for visibility-filtered decal composition. Deferred
-	  opaque shading must not store transmission volume or attenuation payloads.
-	- Opaque geometry must write extensions through a second raster pass after
-	  the base G-buffer has selected the final visible depth. Extension outputs
-	  must be color attachments, not fragment storage writes. The extension pass
-	  must use read-only depth with `equal` comparison, replay the same packet and
-	  primitive order, and preserve the original alpha discard, fragment depth,
-	  and sample mask. Equal-depth ties must retain the base pass's last-draw winner.
-	  This rule must hold with early-Z enabled or disabled and for incremental
-	  dirty rectangles. Base-only frames must not record an extension pass.
-	- `gMaterialExt0.xy` must store the encoded view-space clearcoat normal,
-	  `gMaterialExt0.z` the iridescence factor, and `gMaterialExt0.w` the
-	  iridescence thickness.
-	- `gMaterialExt3.xy` must store the encoded view-space anisotropy tangent,
-	  `gMaterialExt3.z` must store the resolved anisotropy strength, and
-	  `gMaterialExt3.w` must store the 11-bit receiver render-layer mask.
-	- WebGPU must expose `LogicalGBufferBridge.normalSpace` as `"view"`.
-	  Consumers that combine G-buffer normals with reconstructed world-space
-	  positions or directions must transform decoded normals through the packed
-	  camera basis first.
-	- `gMotionDepth.w` must store an exactly representable packed material word.
-	  Bits `0..1` contain the shading model; higher bits identify clearcoat,
-	  sheen, iridescence, anisotropy, and non-default specular/reflectance data.
-	- Deferred lighting must read the base payload first and must not load an
-	  extension texture when the packed material word says that extension is
-	  absent.
-	- Forward and deferred opaque lighting must use the shared Phong and PBR
-	  direct-light evaluators. Forward-only transmission background and volume
-	  terms must remain outside those shared opaque evaluators.
-	- When no deferred packet or decal needs `gMaterialExt0`, the target manager
-	  must bind a device-lifetime placeholder instead of allocating a full-size
-	  texture.
-	- The deferred lighting shader must branch on `PBR`, `Phong`, `Flat`, and
-	  `Unlit` shading models inside the same fullscreen pass.
-	- `gSpecular.a` must decode as unclamped Phong shininess for `Phong` and
-	  `Flat`, and as a `[0, 1]` specular factor only for `PBR`.
-	- Opaque and mask `PBRMaterial` instances with `anisotropyStrength > 0.0`
-	  or `anisotropyMap` may enter deferred lighting when all runtime gates pass.
-	- `transmissionFactor > 0.0`, `AlphaMode.Blend`, OIT, and transparent
-	  particles must remain on forward transparent paths.
-- `ShaderMaterial` contract:
-	- Every WebGPU shader chunk must explicitly set `backend: "webgpu"`.
-	- `ShaderTargetMode` must include `"deferred"`.
-	- `ShaderStageKind` must include `"fragment-deferred"`.
-	- `ShaderMaterialParams.deferredLighting` must opt a shader material into
-	  deferred routing.
-	- `ShaderMaterialParams.fragmentDeferredBaseEntryPoint` must select the base
-	  G-buffer fragment entry point and must default to `fsMainDeferredBase`.
-	- `ShaderMaterialParams.fragmentDeferredExtensionsEntryPoint` must select the
-	  extension fragment entry point and must default to `fsMainDeferredExtensions`.
-	  Both entries must exist in the same WebGPU deferred fragment chunk. The base
-	  entry must write the seven standard G-buffer color outputs. The extension
-	  entry must write `gMaterialExt0` at location `0` as `vec4<f32>` and
-	  `gMaterialExt3` at location `1` as `vec4<u32>`.
-	- When MRT rendering falls back from a missing `fragment-mrt` chunk to a
-	  `fragment-single` chunk, the resolved WebGPU program must use
-	  `fragmentSingleEntryPoint`. The pipeline must preserve the MRT attachment
-	  layout while setting every color target after location `0` to a zero write
-	  mask.
-	- A `ShaderMaterial` must enter the G-buffer path only when
-	  `deferredLighting === true` and a WebGPU deferred fragment chunk exists.
-	  Deferred packets must also be opaque or masked and write depth.
-	- Custom shader authors must preserve the same discard, fragment depth, and
-	  sample mask semantics in both entries, preferably through a shared WGSL
-	  surface function. Their shared vertex entry must mark its `position` output
-	  with `@invariant` and use identical clip-position inputs and arithmetic in
-	  both pipelines; sharing a module alone is not an invariance guarantee.
-	  The engine must select the supplied entries directly, without rewriting
-	  their interfaces or generating compatibility entry points. Direct fragment
-	  storage writes to extension G-buffer textures are unsupported.
-	- Custom deferred programs must select final depth without a vertex-only
-	  early-Z prepass that omits their fragment depth or discard logic. Missing or
-	  invalid deferred entries must reject frame preflight before recording draw
-	  commands; they must not silently select built-in or forward shaders.
-	- Non-opt-in `ShaderMaterial` instances must render after lighting through
-	  the legacy MRT forward fallback.
-- Camera reconstruction contract:
-	- Perspective camera packing must keep `environmentBasisRight.w` as
-	  `tanHalfFov` and `environmentBasisUp.w` as `aspect`.
-	- Orthographic camera packing must store `halfWidth` in
-	  `environmentBasisRight.w` and `halfHeight` in `environmentBasisUp.w`.
-	- `environmentBasisBackward.w` must remain the orthographic flag.
+- `WebGPUSceneFrameModule` must own `main-opaque` scene shading and its target
+  declarations. Built-in lighting must execute in scene fragment shaders for
+  `single`, `color`, and `mrt` scene target modes.
+- `single` must render directly to the canvas target. `color` must render to
+  offscreen scene color and depth. `mrt` must additionally write the four
+  post-process G-buffer attachments in the same forward scene draw.
+- MRT capability checks must use `WEBGPU_MRT_COLOR_TARGET_COUNT` and
+  `WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE`. Attachment byte requirements must be
+  derived through `getWebGPURenderTargetPixelByteCost()`, not backend-neutral
+  texel storage sizes. Unsupported MRT must select single-target rendering.
+- `main-opaque` must render environment/background before opaque scene geometry
+  when background rendering is enabled. Transparent, OIT, transmission, and
+  particle work must retain their existing ordering after opaque scene shading.
+- `WebGPUBackend` must ignore prepared `DecalPacket` instances. It must not
+  allocate decal resources, apply decal material channels, or record decal
+  passes. Projected decals are supported only by `SoftwareBackend`.
+- The MRT post-process attachments must be `gAlbedoAlpha` and
+  `gNormalRoughMetal` as `rgba8unorm`, and `gEmissiveOcclusion` and
+  `gMotionDepth` as `rgba16float`. They must remain separate from lit scene color.
+- `gNormalRoughMetal.xy` must encode the view-space normal, `.z` roughness, and
+  `.w` metallic. `LogicalGBufferBridge.normalSpace` must be `"view"`. Consumers
+  combining decoded normals with world-space positions or directions must
+  transform those normals through the packed camera basis first.
+- `gMotionDepth.xy` must store NDC motion delta, `.z` non-negative linear camera
+  depth, and `.w` zero.
+- Before incremental partial scene draws, WebGPU must shader-clear scene color
+  and every active raster G-buffer attachment to canonical empty values inside
+  dirty rectangles, preserving pixels outside them. Color clearing must precede
+  depth clearing, Early-Z, and scene geometry recording.
+- Built-in PBR draws, including generic materials using PBR shading, must upload
+  WebGPU-private feature and texture flags in `pbrMasks`, derived from
+  `resolvePBRMaterialFeatures`. These flags must not participate in shader-module
+  or render-pipeline cache keys.
+- The WebGPU shader manifest must declare built-in WGSL asset composition and
+  directive-profile inputs without specializing source on material feature flags.
+- Built-in PBR shaders must use uniform `if` control flow to sample textures only
+  when their texture-presence bits are set. Extension samples must also require
+  an active parent feature. `select` must not guard a texture operation.
+- Missing samples must resolve to the neutral values of device-lifetime fallback
+  textures. Fixed layouts and fallback bindings must remain available when shader
+  control flow skips a sample.
+- Clustered-light gather culling and overflow resolution must dispatch across
+  `tilesX`, `tilesY`, and `zSlices`, deriving row-major cluster indices from the
+  three-dimensional workgroup id. They must not flatten the complete cluster
+  count into one dispatch dimension.
+- `ShaderTargetMode` must accept only `"single"` and `"mrt"`. WebGPU fragment
+  chunks must explicitly set `backend: "webgpu"`, `stage: "fragment"`, and
+  `mode: "single"` or `mode: "mrt"`.
+- When an MRT `ShaderMaterial` uses a `fragment-single` fallback because no
+  `fragment-mrt` chunk exists, the program must use `fragmentSingleEntryPoint`.
+  The pipeline must retain the MRT layout with zero write masks after location
+  `0`, preserving the other post-process attachments.
+- Scene camera reconstruction must use the packed `inverseView` and
+  `inverseProjection` matrices and the shared frame-camera helpers for
+  perspective and orthographic projections.
 
 ### Screen-space global illumination
 
@@ -1096,7 +970,7 @@ lighting, presentation configuration, reflections, and structured buffer packing
   for the job camera and must reuse backend-owned scene, environment, lighting,
   particle, and shadow services.
 - The public target must expose only final `rgba16float` scene color and optional
-  `depth32float`. Legacy MRT or deferred intermediates must be private scratch
+  `depth32float`. MRT intermediates must be private scratch
   resources.
 - Readback copies must follow their writer job in command order. Ticket results
   must not publish until the frame transaction commits.
@@ -1128,7 +1002,7 @@ lighting, presentation configuration, reflections, and structured buffer packing
 - Reflection capture must use a `reflection-capture` pipeline variant with
   flipped front-face winding.
 - Main scene rendering must render the base material first.
-- Composite must run after opaque or deferred lighting output and before
+- Composite must run after opaque forward scene output and before
   transparent scene rendering.
 - Capture and composite must be explicit internal frame graph nodes.
 - Composite must write a planar reflection mask target for mirror receiver
@@ -1253,9 +1127,6 @@ PBR material packing must consume the named semantics returned by
 private WebGPU shader ABI encodings; they must be constructed by WebGPU from
 those semantics and must not depend on material-owned bit assignments.
 Generic PBR materials must use the same semantic resolution as `PBRMaterial`.
-Extended G-buffer selection must use resolved lobe activation; an inactive
-extension texture alone must not require the extended layout. Non-default
-reflectance must continue to require the extended layout.
 
 Scene material packing must use these `group(1)` uniform bindings:
 
@@ -1298,55 +1169,6 @@ bun tests/static/webgpu/test_webgpu_frame_graph_compiler.mjs
 bun tests/static/webgpu/test_webgpu_frame_graph_planner.mjs
 bun tests/static/webgpu/test_webgpu_frame_node_executor_registry.mjs
 bun tests/static/webgpu/test_webgpu_frame_executor_lifecycle_invalidation.mjs
-```
-
-### Deferred lighting
-
-```ts
-import { WebGPUBackend } from "../src/backends/webgpu/WebGPUBackend";
-
-const backend = new WebGPUBackend({
-	enableDeferredLighting: false,
-});
-```
-
-```ts
-import { ShaderMaterial } from "../src/materials/ShaderMaterial";
-
-const material = new ShaderMaterial({
-	deferredLighting: true,
-	fragmentDeferredBaseEntryPoint: "fsDeferredBase",
-	fragmentDeferredExtensionsEntryPoint: "fsDeferredExtensions",
-	chunks: [
-		{ backend: "webgpu", language: "wgsl", stage: "vertex", code: vertexWGSL },
-		{
-			backend: "webgpu",
-			language: "wgsl",
-			stage: "fragment",
-			mode: "deferred",
-			code: deferredFragmentWGSL,
-		},
-	],
-});
-```
-
-The shared vertex output must declare invariant position for depth-equal replay:
-
-```wgsl
-struct VertexOutput {
-	@invariant @builtin(position) position: vec4<f32>,
-	@location(0) normal: vec3<f32>,
-}
-```
-
-`tests/browser/fixtures/webgpu_gbuffer_custom_probe.wgsl` contains a complete
-two-entry example with shared surface evaluation, discard, fragment depth, and
-sample mask.
-
-```bash
-bun tests/static/shaders/test_shader_material.mjs
-bun tests/static/webgpu/test_webgpu_bridge_material_pipelines.mjs
-bun tests/static/webgpu/test_webgpu_frame_executor_transparency_deferred.mjs
 ```
 
 ### Sample-count configuration
@@ -1460,29 +1282,6 @@ const packed = packer.pack({
 - `getFrameGraphDebugState().graphAnalysis` must group `current`,
   `lastAttempt`, and `lastSuccessful` snapshots. Shadow diagnostics such as
   `read-content-unknown` and `opaque-stage-effects` must appear only there.
-
-### Deferred lighting
-
-- `webgpu-deferred-disabled-msaa`:
-  emitted when deferred lighting is unavailable because `sampleCount !== 1`.
-- `webgpu-deferred-disabled-attachments`:
-  emitted when the active base or extended layout exceeds
-  `maxColorAttachments`.
-- `webgpu-deferred-disabled-bytes`:
-  emitted when the active base or extended layout exceeds
-  `maxColorAttachmentBytesPerSample`.
-- `webgpu-deferred-disabled-storage-textures`:
-  emitted when `maxStorageTexturesPerShaderStage < 2`.
-- `webgpu-deferred-runtime-fallback`:
-  emitted when deferred frame target allocation, binding creation, or pipeline
-  creation fails after limits passed. Pipeline and binding creation must be
-  preflighted before the first G-buffer command so the frame can atomically use
-  legacy forward rendering. A valid custom deferred material must not disable
-  this fallback for failures in shared deferred resources or built-in draws.
-- Custom deferred program resolution, shader compilation, and render-pipeline
-  creation failures must preserve their error origin and reject frame preflight,
-  including in `warn` mode. They must not select built-in or forward shaders.
-  Other deferred preflight failures must retain the runtime fallback policy.
 
 ### Sample-count configuration
 

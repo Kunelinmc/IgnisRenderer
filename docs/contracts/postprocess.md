@@ -7,8 +7,8 @@ This document defines logical post-process declarations, planning, backend execu
 ### Cross-backend declarations
 
 - `FogPass` must execute only as a post-process effect. `FogOptions` must not
-  expose an application-mode selector, and scene, deferred-lighting, and particle
-  shaders must not apply fog independently.
+  expose an application-mode selector, and scene and particle shaders must not
+  apply fog independently.
 - Fog must mix scene-linear HDR color with the configured fog color using the
   declared G-buffer depth channel. It must retain the `linear`, `exp`, and `exp2`
   falloff models and the existing post-process alpha-coverage calculation.

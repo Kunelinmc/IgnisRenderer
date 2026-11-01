@@ -396,7 +396,6 @@ function createBackend(
 
 function createWebGPUBackend(): WebGPUBackend {
 	return new WebGPUBackend({
-		enableDeferredLighting: false,
 		enableEarlyZPrepass: false,
 		enableOcclusionCulling: false,
 	});

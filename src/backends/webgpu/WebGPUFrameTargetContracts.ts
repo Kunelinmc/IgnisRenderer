@@ -10,11 +10,6 @@ export interface WebGPUFrameTargets {
 	gNormalRoughMetal?: IRenderTexture | null;
 	gEmissiveOcclusion?: IRenderTexture | null;
 	gMotionDepth?: IRenderTexture | null;
-	gSpecular?: IRenderTexture | null;
-	gCoatSheen?: IRenderTexture | null;
-	gSheenReflectance?: IRenderTexture | null;
-	gMaterialExt0?: IRenderTexture | null;
-	gMaterialExt3?: IRenderTexture | null;
 	depth: IRenderTexture;
 	oitAccum?: IRenderTexture | null;
 	oitReveal?: IRenderTexture | null;

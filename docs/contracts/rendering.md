@@ -76,13 +76,11 @@ This document defines cross-backend rendering features, capability gating, pass 
     contributors after they have been classified.
   - `WebGLBackend` must copy `sceneColor` into `postColorTexture`, then resolve
     back into `sceneColor`.
-- WebGPU deferred ordering contract:
-  - OIT must not write G-buffer deferred material payload textures.
-  - OIT must execute after `main-opaque` deferred lighting resolve.
+- WebGPU forward ordering contract:
+  - OIT must not write opaque post-process G-buffer attachments.
+  - OIT must execute after `main-opaque` forward scene shading.
   - `transmission` materials must remain on the legacy transparent path after
     OIT resolve or after alpha particles, matching existing pass ordering.
-  - Deferred opaque payload compaction must not change transparent, OIT,
-    transmission, particle, wireframe, or `depthWrite === false` routing.
 
 ### Occlusion culling
 
@@ -123,8 +121,7 @@ This document defines cross-backend rendering features, capability gating, pass 
   not add renderer-level global pipeline stages.
 - The WebGPU internal frame graph may create an `occlusion-test` node only when
   occlusion culling is enabled and the prepared scene has eligible candidates.
-- The `occlusion-test` node must execute after opaque depth or deferred depth is
-  available.
+- The `occlusion-test` node must execute after opaque depth is available.
 - WebGPU occlusion culling must rely on the shared frame Hi-Z texture built
   from `gMotionDepth` after opaque depth is available. The occlusion runtime
   must not own a separate Hi-Z texture or build pipeline.
@@ -265,7 +262,8 @@ The option `enableEarlyZPrepass?: boolean` is accepted by `SoftwareBackendOption
 
 - The Early-Z prepass must apply only to `main-opaque`.
 - `main-transparent`, OIT passes, transmission passes, particles, and environment rendering must not use the prepass.
-- **WebGPU Deferred Path**: When deferred lighting is active, the Early-Z prepass must run before the G-buffer geometry pass and must not run before the fullscreen deferred lighting resolve pass.
+- **WebGPU forward path**: The Early-Z prepass must run before opaque scene
+  shading for single-target, color-only, and MRT targets.
 - **Depth-Write Disable**: Materials with `depthWrite === false` must not participate in the prepass. Their color draws must not use the read-only depth state since they were not prepassed.
 
 #### Material Mask / Alpha Discard Contract
@@ -285,15 +283,16 @@ The option `enableEarlyZPrepass?: boolean` is accepted by `SoftwareBackendOption
 	- Opaque non-mask prepass must use depth-only pipeline state with `depthWriteEnabled = true` and `depthCompare = less`.
 	- Opaque color draws that were prepassed must use read-only depth state with `depthWriteEnabled = false` and `depthCompare = equal` (`early-z-color`).
 	- Opaque color draws that were not prepassed must use `depthWriteEnabled = material.depthWrite !== false` and `depthCompare = less-equal`, including draws whose prepass is unavailable.
-	- G-buffer draws that were prepassed must use the same read-only `early-z-color` depth state as legacy MRT color draws.
+	- MRT scene draws that were prepassed must use the same read-only
+	  `early-z-color` depth state as other forward opaque color draws.
 	- At equal depth, the later opaque draw in the prepared color packet order
 	  must overwrite the earlier draw. Enabling the prepass must preserve that
 	  result for depth-writing draws with matching position and sample coverage.
 	- Built-in depth and color vertex outputs must mark `position` as
 	  `@invariant` and share current clip-position arithmetic. Deformation,
 	  jitter, culling, alpha discard, and sample coverage must agree between passes.
-	  Custom shaders opting into a prepass or depth-equal G-buffer extension
-	  replay must satisfy the same equivalence, including invariant position.
+	  Custom shaders opting into a prepass must satisfy the same equivalence,
+	  including invariant position.
 	- Transparent, transmission, particle, and shadow depth states retain their
 	  owning pass contracts; they must not inherit the opaque equality policy.
 - **WebGL Backend**:
@@ -314,9 +313,14 @@ The option `enableEarlyZPrepass?: boolean` is accepted by `SoftwareBackendOption
 	- Incremental dirty-rect flow must clear scene color and every active
 	  G-buffer attachment inside the dirty region before scene draws. It must
 	  preserve attachment contents outside the dirty region.
-	- The Early-Z prepass, G-buffer geometry pass, and legacy color pass must clip to resolved dirty rects.
+	- The Early-Z prepass and forward scene color passes must clip to resolved
+	  dirty rects.
 
 ### Projected decals
+
+Projected decals must be applied only by `SoftwareBackend`. `WebGPUBackend`
+and `WebGLBackend` must ignore prepared `DecalPacket` instances without
+allocating decal resources or recording decal passes.
 
 `Node.renderLayers` must be an unsigned bitmask. The default value is `1`
 (layer bit 0).
@@ -325,21 +329,12 @@ The option `enableEarlyZPrepass?: boolean` is accepted by `SoftwareBackendOption
 executed as a decal source and must be skipped.
 
 `Decal.receiverLayerMask` must match receiver pixels through
-`MeshInstance.renderLayers & Decal.receiverLayerMask`. Bits `0..10` are the
-cross-backend guaranteed receiver range. Higher bits may be used by CPU-side
-APIs but must not be relied on for cross-backend decal receiver tests.
+`MeshInstance.renderLayers & Decal.receiverLayerMask` on Software. Bits `0..10`
+are the supported receiver range. Higher bits may be used by CPU-side APIs but
+must not be relied on for decal receiver tests.
 
 `Decal.priority` must sort decals in ascending order. Decals with equal priority
 must retain scene traversal order.
-
-WebGPU batch optimization must not change the observable result of overlapping
-decals. Any device limit, material binding, texture binding, storage-texture, or
-tile/bin overflow that prevents exact ordered batching must fall back to the
-per-decal ordered path.
-
-WebGPU device negotiation must require at least `28`
-`maxSampledTexturesPerShaderStage` bindings so the complete decal material
-surface and G-buffer snapshot can coexist in the fragment stage.
 
 `Decal.channelBlendModes` may set per-channel blend behavior. Supported modes
 are `disabled`, `lerp`, `replace`, `multiply`, `add`, and `normal`.
@@ -350,14 +345,14 @@ component operations. `normal` must perform normalized direction blending for
 `normal`, `clearcoatNormal`, and `anisotropy`; for scalar and color channels it
 must behave as `lerp`. `multiply` and `add` must not modify direction channels.
 
-Software and WebGPU decal coverage must be the product of `Decal.opacity`,
+Software decal coverage must be the product of `Decal.opacity`,
 material factor alpha, base-color texture alpha, and edge fade.
 `AlphaMode.Mask` must reject decal coverage when the resolved material alpha is
 below `alphaCutoff`. A decal must not reclassify an opaque receiver into the
 transparent pass.
 
-Software and WebGPU normal and clearcoat-normal projection must use the
-inverse-transpose projector normal transform. Software and WebGPU anisotropy
+Software normal and clearcoat-normal projection must use the
+inverse-transpose projector normal transform. Software anisotropy
 tangents must rotate the sampled tangent-space direction by the material
 anisotropy rotation, use the projector linear transform, and be orthogonalized
 against the resolved receiver normal after direction blending.
@@ -572,6 +567,8 @@ bun tests/static/webgpu/test_webgpu_frame_executor_targets_msaa.mjs
 
 ### Projected decals
 
+Use this workflow with `SoftwareBackend`. WebGPU and WebGL do not apply decals.
+
 ```ts
 import { Decal, PBRMaterial, TextureLoader } from "ignis-renderer";
 
@@ -665,9 +662,6 @@ frames would otherwise produce duplicate warnings.
 
 `Decal` instances with a non-invertible world matrix must be skipped during
 prepared-scene construction.
-
-WebGPU adapters that cannot provide the required decal sampled textures must
-fail device negotiation with the standard WebGPU minimum-limit diagnostic.
 
 ## Verification
 

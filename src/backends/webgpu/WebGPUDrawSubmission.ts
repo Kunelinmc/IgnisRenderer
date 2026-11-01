@@ -294,7 +294,6 @@ function createDrawOptionsKey(options: WebGPUDrawResourceOptions): string {
 		options.transparentPipelineMode ?? "default",
 		options.drawMode ?? "default",
 		options.sampleCount,
-		options.deferredGBufferLayout ?? "extended",
 	].join("|");
 }
 

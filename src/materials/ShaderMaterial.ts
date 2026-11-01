@@ -2,12 +2,11 @@ import type { Texture } from "../core/Texture";
 import { Matrix4 } from "../maths/Matrix4";
 import { Material, type MaterialParams, ShadingModel } from "./Material";
 
-export type ShaderTargetMode = "single" | "mrt" | "deferred";
+export type ShaderTargetMode = "single" | "mrt";
 export type ShaderStageKind =
 	| "vertex"
 	| "fragment-single"
 	| "fragment-mrt"
-	| "fragment-deferred"
 	| "fragment-depth";
 export type ShaderChunkLanguage = "wgsl" | "glsl";
 export type ShaderChunkBackend = "webgpu" | "webgl";
@@ -101,17 +100,8 @@ export interface ShaderMaterialParams extends MaterialParams {
 	vertexEntryPoint?: string;
 	fragmentSingleEntryPoint?: string;
 	fragmentMRTEntryPoint?: string;
-	/** Base deferred G-buffer output entry. Defaults to `fsMainDeferredBase`. */
-	fragmentDeferredBaseEntryPoint?: string;
-	/**
-	 * Extension G-buffer output entry in the same deferred fragment chunk.
-	 * Defaults to `fsMainDeferredExtensions`; must preserve base discard and depth semantics.
-	 */
-	fragmentDeferredExtensionsEntryPoint?: string;
 	depthFragmentEntryPoint?: string;
 	depthFragmentCode?: string;
-	/** Opts this material into WebGPU deferred lighting when a deferred chunk exists. */
-	deferredLighting?: boolean;
 	/** Declares that custom fragment outputs obey transparent presentation rules. */
 	transparentOutputCompatible?: boolean;
 	glslToWgsl?: ShaderMaterialGLSLToWGSL;
@@ -125,8 +115,6 @@ export interface ResolvedWebGPUShaderProgram {
 	fragmentCode: string;
 	vertexEntryPoint: string;
 	fragmentEntryPoint: string;
-	/** @internal WebGPU pipeline bridge; selected only for deferred extension replay. */
-	fragmentExtensionsEntryPoint?: string;
 	/**
 	 * @internal Used by the WebGPU material pipeline resolver to match color target writes
 	 * after source fallback. Applications should configure shader chunks and
@@ -156,12 +144,10 @@ type ShaderChunkKey =
 	| "webgpu:wgsl:vertex"
 	| "webgpu:wgsl:fragment-single"
 	| "webgpu:wgsl:fragment-mrt"
-	| "webgpu:wgsl:fragment-deferred"
 	| "webgpu:wgsl:fragment-depth"
 	| "webgpu:glsl:vertex"
 	| "webgpu:glsl:fragment-single"
 	| "webgpu:glsl:fragment-mrt"
-	| "webgpu:glsl:fragment-deferred"
 	| "webgpu:glsl:fragment-depth"
 	| "webgl:glsl:vertex"
 	| "webgl:glsl:fragment-single"
@@ -201,12 +187,10 @@ const SHADER_CHUNK_ORDER: readonly ShaderChunkKey[] = [
 	"webgpu:wgsl:vertex",
 	"webgpu:wgsl:fragment-single",
 	"webgpu:wgsl:fragment-mrt",
-	"webgpu:wgsl:fragment-deferred",
 	"webgpu:wgsl:fragment-depth",
 	"webgpu:glsl:vertex",
 	"webgpu:glsl:fragment-single",
 	"webgpu:glsl:fragment-mrt",
-	"webgpu:glsl:fragment-deferred",
 	"webgpu:glsl:fragment-depth",
 	"webgl:glsl:vertex",
 	"webgl:glsl:fragment-single",
@@ -243,17 +227,7 @@ export class ShaderMaterial extends Material {
 	public vertexEntryPoint: string;
 	public fragmentSingleEntryPoint: string;
 	public fragmentMRTEntryPoint: string;
-	/** Selects the base G-buffer output in the WebGPU deferred fragment chunk. */
-	public fragmentDeferredBaseEntryPoint: string;
-	/**
-	 * Selects the extension MRT output in the same deferred chunk. Both entries
-	 * must agree on discard, fragment depth, and sample mask. The shared vertex
-	 * entry must mark its position output with `@invariant` for depth-equal replay.
-	 */
-	public fragmentDeferredExtensionsEntryPoint: string;
 	public depthFragmentEntryPoint: string;
-	/** Whether this material may route through WebGPU deferred lighting. */
-	public deferredLighting: boolean;
 
 	private _chunks: Map<ShaderChunkKey, string>;
 	private _textureBindings: Map<string, ShaderMaterialTextureBindingRecord>;
@@ -271,13 +245,8 @@ export class ShaderMaterial extends Material {
 		this.fragmentSingleEntryPoint =
 			params.fragmentSingleEntryPoint ?? "fsMainSingle";
 		this.fragmentMRTEntryPoint = params.fragmentMRTEntryPoint ?? "fsMain";
-		this.fragmentDeferredBaseEntryPoint =
-			params.fragmentDeferredBaseEntryPoint ?? "fsMainDeferredBase";
-		this.fragmentDeferredExtensionsEntryPoint =
-			params.fragmentDeferredExtensionsEntryPoint ?? "fsMainDeferredExtensions";
 		this.depthFragmentEntryPoint =
 			params.depthFragmentEntryPoint ?? "fsMainDepth";
-		this.deferredLighting = params.deferredLighting === true;
 		this._chunks = new Map<ShaderChunkKey, string>();
 		this._textureBindings = new Map();
 		this._uniformBindings = new Map();
@@ -569,10 +538,7 @@ export class ShaderMaterial extends Material {
 			this.vertexEntryPoint,
 			this.fragmentSingleEntryPoint,
 			this.fragmentMRTEntryPoint,
-			this.fragmentDeferredBaseEntryPoint,
-			this.fragmentDeferredExtensionsEntryPoint,
 			this.depthFragmentEntryPoint,
-			this.deferredLighting ? 1 : 0,
 		].join(":");
 	}
 
@@ -586,56 +552,22 @@ export class ShaderMaterial extends Material {
 		const vertexSource = this._resolveWebGPUStageCode("vertex", mode);
 		const vertexCode = vertexSource.code;
 		const fragmentStage =
-			mode === "deferred" ? "fragment-deferred"
-			: mode === "mrt" ? "fragment-mrt"
+			mode === "mrt" ? "fragment-mrt"
 			: "fragment-single";
 		const fragmentSource = this._resolveWebGPUStageCode(fragmentStage, mode);
 		const fragmentCode = fragmentSource.code;
-		if (fragmentSource.stage === "fragment-deferred") {
-			if (typeof this.fragmentDeferredBaseEntryPoint !== "string" ||
-				!this.fragmentDeferredBaseEntryPoint.trim()) {
-				throw new TypeError("ShaderMaterial deferred base entry point is required.");
-			}
-			if (typeof this.fragmentDeferredExtensionsEntryPoint !== "string" ||
-				!this.fragmentDeferredExtensionsEntryPoint.trim()) {
-				throw new TypeError("ShaderMaterial deferred extension entry point is required.");
-			}
-		}
 		return {
 			vertexCode,
 			fragmentCode,
 			vertexEntryPoint: this.vertexEntryPoint,
 			fragmentEntryPoint:
-				fragmentSource.stage === "fragment-deferred" ?
-					this.fragmentDeferredBaseEntryPoint
-				: fragmentSource.stage === "fragment-mrt" ?
+				fragmentSource.stage === "fragment-mrt" ?
 					this.fragmentMRTEntryPoint
 				:	this.fragmentSingleEntryPoint,
 			fragmentTargetMode:
-				fragmentSource.stage === "fragment-deferred" ? "deferred"
-				: fragmentSource.stage === "fragment-mrt" ? "mrt"
+				fragmentSource.stage === "fragment-mrt" ? "mrt"
 				: "single",
-			fragmentExtensionsEntryPoint: fragmentSource.stage === "fragment-deferred"
-				? this.fragmentDeferredExtensionsEntryPoint : undefined,
 		};
-	}
-
-	/**
-	 * Returns whether this material has opted into the WebGPU deferred lighting
-	 * shader contract and provides an explicit deferred fragment chunk.
-	 *
-	 * @returns `true` when `resolveWebGPUProgram("deferred")` is expected to
-	 * resolve without falling back to the legacy MRT or single-target fragment.
-	 * @sideEffects None.
-	 */
-	public hasWebGPUDeferredProgram(): boolean {
-		return (
-			this.deferredLighting &&
-			(
-				this._chunks.has("webgpu:wgsl:fragment-deferred") ||
-				this._chunks.has("webgpu:glsl:fragment-deferred")
-			)
-		);
 	}
 
 	public resolveWebGPUDepthPrepassProgram(
@@ -814,14 +746,6 @@ export class ShaderMaterial extends Material {
 					mode: "mrt",
 					code,
 				};
-			case "webgpu:wgsl:fragment-deferred":
-				return {
-					backend: "webgpu",
-					language: "wgsl",
-					stage: "fragment",
-					mode: "deferred",
-					code,
-				};
 			case "webgpu:wgsl:fragment-depth":
 				return {
 					backend: "webgpu",
@@ -850,14 +774,6 @@ export class ShaderMaterial extends Material {
 					language: "glsl",
 					stage: "fragment",
 					mode: "mrt",
-					code,
-				};
-			case "webgpu:glsl:fragment-deferred":
-				return {
-					backend: "webgpu",
-					language: "glsl",
-					stage: "fragment",
-					mode: "deferred",
 					code,
 				};
 			case "webgpu:glsl:fragment-depth":
@@ -953,7 +869,7 @@ export class ShaderMaterial extends Material {
 		if (stage === "fragment-depth") {
 			return `webgpu:${language}:fragment-depth` as ShaderChunkKey;
 		}
-		if (mode !== "single" && mode !== "mrt" && mode !== "deferred") {
+		if (mode !== "single" && mode !== "mrt") {
 			throw new Error(`Unsupported shader chunk mode "${mode}".`);
 		}
 		return `webgpu:${language}:fragment-${mode}` as ShaderChunkKey;
@@ -987,13 +903,6 @@ export class ShaderMaterial extends Material {
 				return singleCode ?
 					{ code: singleCode, stage: "fragment-single" }
 				:	null;
-			}
-			case "fragment-deferred": {
-				const code =
-					mode === "deferred" ?
-						this._chunks.get(`webgpu:${language}:fragment-deferred`)
-					:	undefined;
-				return code ? { code, stage } : null;
 			}
 			case "fragment-depth": {
 				const code = this._chunks.get(`webgpu:${language}:fragment-depth`);

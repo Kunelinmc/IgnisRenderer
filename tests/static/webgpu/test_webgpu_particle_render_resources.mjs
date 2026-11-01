@@ -285,39 +285,47 @@ async function testGPUIndirectDrawAndFallback() {
 }
 
 async function testParticlePipelinesUsePassTargetSampleCount() {
-	const backend = new FakeWebGPUBackend();
-	const owner = new WebGPUFrameServiceOwner(
-		backend,
-		createWebGPUComputeFacade(backend),
-	);
-	const transient = createTransientStore();
-	transient.set(PARTICLE_TRANSIENT_BATCHES_KEY, [
-		createBillboardBatch(
-			"particle-msaa",
-			ParticleBlendMode.Alpha,
-			new Texture({
-				data: new Uint8Array([255, 255, 255, 255]),
-				width: 1,
-				height: 1,
-				colorSpace: "sRGB",
-			}),
-		),
-	]);
+	for (const mode of ["color", "mrt"]) {
+		const backend = new FakeWebGPUBackend();
+		const owner = new WebGPUFrameServiceOwner(
+			backend,
+			createWebGPUComputeFacade(backend),
+		);
+		const transient = createTransientStore();
+		const texture = new Texture({
+			data: new Uint8Array([255, 255, 255, 255]),
+			width: 1,
+			height: 1,
+			colorSpace: "sRGB",
+		});
+		transient.set(PARTICLE_TRANSIENT_BATCHES_KEY, [
+			createBillboardBatch("alpha-msaa", ParticleBlendMode.Alpha, texture),
+			createBillboardBatch("additive-msaa", ParticleBlendMode.Additive, texture),
+		]);
 
-	await owner.getParticleBillboardRenderer().renderParticles(
-		new FakeCommandEncoder(backend),
-		createBillboardContext(transient),
-		createParticleTargets(4),
-		{ particleFrameBinding: { label: "particle-frame-binding" } },
-		"mrt",
-	);
-
-	const pipeline = backend.pipelines.find(
-		(entry) => entry.label === "WebGPUParticlePipeline_alpha_mrt",
-	);
-	assert.ok(pipeline);
-	assert.equal(pipeline.desc.sampleCount, 4);
-	owner.destroy();
+		try {
+			const particles = owner.getParticleBillboardRenderer();
+			await particles.warmup(mode, 4);
+			const warmed = backend.pipelines.filter((pipeline) =>
+				pipeline.label?.startsWith("WebGPUParticlePipeline_"));
+			assert.equal(warmed.length, 2);
+			assert.deepEqual(warmed.map((pipeline) => pipeline.desc.sampleCount), [4, 4],
+				`${mode}: warmup must compile alpha and additive pipelines for the pass sample count`);
+			const renderedCount = await particles.renderParticles(
+				new FakeCommandEncoder(backend),
+				createBillboardContext(transient),
+				createParticleTargets(4),
+				{ particleFrameBinding: { label: "particle-frame-binding" } },
+				mode,
+			);
+			assert.equal(renderedCount, 2);
+			assert.deepEqual(backend.pipelines.filter((pipeline) =>
+				pipeline.label?.startsWith("WebGPUParticlePipeline_")), warmed,
+				"Actual particle rendering must reuse the warmed MSAA pipelines");
+		} finally {
+			owner.destroy();
+		}
+	}
 }
 
 async function testParticleBindingCacheEviction() {

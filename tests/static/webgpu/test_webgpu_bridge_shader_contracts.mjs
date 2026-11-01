@@ -13,8 +13,6 @@ import { mapShaderGeneratedLocation } from "../../../src/shaders/runtime/sourceM
 import { WEBGPU_TEST_PROFILE } from "../shaders/shaderDirectiveTestProfiles.mjs";
 import {
 	createWebGPUMaterialUniformData,
-	materialSupportsWebGPUDeferredLighting,
-	materialRequiresExtendedWebGPUGBuffer,
 	packMatrix4ForWGSL,
 	remapClipSpaceDepth
 } from "../../../src/backends/webgpu/index.ts";
@@ -72,27 +70,20 @@ import {
 	MAX_SPOT_LIGHTS
 } from "../../../src/backends/constants.ts";
 import {
-	WEBGPU_DEFERRED_BASE_COLOR_BYTES_PER_SAMPLE,
-	WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE,
-	WEBGPU_DEFERRED_COLOR_TARGET_COUNT,
-	WEBGPU_DEFERRED_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
-	WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT,
-	WEBGPU_GBUFFER_READ_TEXTURE_COUNT,
+	WEBGPU_MRT_COLOR_TARGET_COUNT,
+	WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE,
 	WEBGPU_MODEL_BINDING_FLAT_MATERIAL,
 	WEBGPU_MODEL_BINDING_MATERIAL_COMMON,
 	WEBGPU_MODEL_BINDING_PBR_MATERIAL,
 	WEBGPU_MODEL_BINDING_PHONG_MATERIAL,
 	WEBGPU_OBJECT_UNIFORM_BYTE_SIZE,
 	WEBGPU_SH_COEFFICIENT_COUNT,
-	WEBGPU_SCENE_FRAME_FRAGMENT_TEXTURE_COUNT,
 	WEBGPU_PLANAR_REFLECTION_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
-	WEBGPU_DECAL_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
 	WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLER_COUNT,
 	WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
 	WEBGPU_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
 	WEBGPU_TEXTURE_SLOT,
-	WEBGPU_TEXTURE_SLOT_COUNT,
-	GBufferSlot
+	WEBGPU_TEXTURE_SLOT_COUNT
 } from "../../../src/backends/webgpu/constants.ts";
 
 const previousGPUShaderStage = globalThis.GPUShaderStage;
@@ -148,9 +139,9 @@ async function testSharedFrameUniformABI() {
 	}
 	assert.equal(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT.byteSize, 272);
 	for (const key of [
-		"webgpu.scene", "webgpu.scene.depth", "webgpu.deferredLighting",
+		"webgpu.scene", "webgpu.scene.depth",
 		"webgpu.environment", "webgpu.particle", "webgpu.clusteredLightingCull",
-		"webgpu.utility.decal", "webgpu.utility.planarReflectionComposite",
+		"webgpu.utility.planarReflectionComposite",
 		"webgpu.postprocess.ssr", "webgpu.postprocess.ssgi",
 		"webgpu.postprocess.screenSpaceRefractions", "webgpu.postprocess.volumetric",
 	]) {
@@ -280,7 +271,6 @@ function testMaterialAdaptation() {
 		1 << 16
 	);
 	assert.equal(pbrAnisotropyData.pipelineKey, pbrData.pipelineKey);
-	assert.equal(materialSupportsWebGPUDeferredLighting(pbr), true);
 
 	const genericPBR = new Material({
 		shading: ShadingModel.PBR,
@@ -296,7 +286,6 @@ function testMaterialAdaptation() {
 	genericPBR.clearcoat = 0;
 	let genericFeatures = createWebGPUMaterialUniformData(genericPBR).lighting.pbrMasks;
 	assert.equal(genericFeatures[0] & (1 << 5), 0);
-	assert.equal(materialRequiresExtendedWebGPUGBuffer(genericPBR), false);
 	assert.notEqual(genericFeatures[1] & (1 << 7), 0);
 	genericPBR.clearcoat = 1;
 	genericFeatures = createWebGPUMaterialUniformData(genericPBR).lighting.pbrMasks;
@@ -325,8 +314,6 @@ function testMaterialAdaptation() {
 		createWebGPUMaterialUniformData(allFeatures).lighting.pbrMasks,
 		[(1 << 10) - 1, (1 << 17) - 1, 0, 0],
 	);
-	const transmissivePBR = new PBRMaterial({ transmissionFactor: 1 });
-	assert.equal(materialSupportsWebGPUDeferredLighting(transmissivePBR), false);
 
 	const phong = new PhongMaterial({
 		diffuse: { r: 128, g: 128, b: 128 },
@@ -402,8 +389,7 @@ function testFeatureGate() {
 
 async function testSceneSourcesPreserveSourceLocations() {
 	for (const [key, entryPoint, path] of [
-		["webgpu.scene", "fsMainGBufferPBR", "./webgpu/scene/fragmentGBuffer.wgsl"],
-		["webgpu.deferredLighting", "fsMainDeferredLighting", "./webgpu/lighting/deferredLighting.wgsl"],
+		["webgpu.scene", "fsMainPBR", "./webgpu/scene/fragmentSingleTarget.wgsl"],
 	]) {
 		const original = readFileSync(new URL(`../../../src/shaders/${path.slice(2)}`,
 			import.meta.url), "utf8").split(/\r?\n/);
@@ -444,9 +430,6 @@ async function testSceneShaderCoverage() {
 			`${name} CPU and WGSL member order must match`,
 		);
 	}
-	const WEBGPU_DEFERRED_LIGHTING_SHADER = await loadCompiledWebGPUShader(
-		"webgpu.deferredLighting"
-	);
 	const WEBGPU_ENVIRONMENT_SHADER = await loadCompiledWebGPUShader(
 		"webgpu.environment"
 	);
@@ -482,7 +465,7 @@ async function testSceneShaderCoverage() {
 			WEBGPU_SCENE_SHADER
 		)
 	);
-	for (const source of [WEBGPU_SCENE_SHADER, WEBGPU_DEFERRED_LIGHTING_SHADER]) {
+	for (const source of [WEBGPU_SCENE_SHADER]) {
 		assert.equal(
 			/\w+\s*:\s*ShadowData\b/.test(source),
 			false,
@@ -524,26 +507,7 @@ async function testSceneShaderCoverage() {
 		(WEBGPU_SCENE_SHADER.match(/fn evaluateOpaquePBRLight\(/g)?.length ?? 0),
 		1
 	);
-	assert.ok(
-		/evaluateAreaLight\(\s*frameLights\.areaLights\[i\],\s*surface\.worldPosition,\s*sampleIndex\s*\)/.test(
-			WEBGPU_DEFERRED_LIGHTING_SHADER
-		)
-	);
-	assert.ok(
-		/evaluateAreaLight\(\s*areaRecord,\s*surface\.worldPosition,\s*sampleIndex\s*\)/.test(
-			WEBGPU_DEFERRED_LIGHTING_SHADER
-		)
-	);
-	assert.ok(
-		WEBGPU_DEFERRED_LIGHTING_SHADER.includes("pbr.energyCompensation")
-	);
 	assert.ok(WEBGPU_SCENE_SHADER.includes("return encodeOctahedralNormal(cameraWorldToViewDirection("));
-	assert.ok(
-		WEBGPU_DEFERRED_LIGHTING_SHADER.includes(
-			"decodeOctahedralNormal(encoded)"
-		)
-	);
-	assert.ok(!WEBGPU_DEFERRED_LIGHTING_SHADER.includes("sqrt(z2)"));
 	for (const postProcessShader of [
 		WEBGPU_SSAO_SHADER,
 		WEBGPU_SSGI_SHADER,
@@ -554,7 +518,6 @@ async function testSceneShaderCoverage() {
 	}
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(2)"));
 	assert.doesNotMatch(WEBGPU_SCENE_SHADER, /FogUniforms|ignisComputeFogFactor/);
-	assert.doesNotMatch(WEBGPU_DEFERRED_LIGHTING_SHADER, /FogUniforms|ignisComputeFogFactor/);
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(7) var brdfLUTTexture"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(9) var shadowComparisonSampler"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(2) @binding(0)"));
@@ -588,29 +551,6 @@ async function testSceneShaderCoverage() {
 	assert.ok(!WEBGPU_SCENE_SHADER.includes("var iridescenceSampler"));
 	assert.ok(!WEBGPU_SCENE_SHADER.includes("var iridescenceThicknessSampler"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("applySkinning("));
-	assert.ok(WEBGPU_SCENE_SHADER.includes("fn fsMainGBufferPBR("));
-	assert.ok(WEBGPU_SCENE_SHADER.includes("fn fsMainGBufferExtensionsPBR("));
-	assert.ok(!WEBGPU_SCENE_SHADER.includes("textureStore(gMaterialExt"));
-	assert.ok(WEBGPU_DEFERRED_LIGHTING_SHADER.includes("gMaterialExt3In"));
-	assert.ok(
-		WEBGPU_SCENE_SHADER.includes("vec4<f32>(phongSpecular, shininess)")
-	);
-	assert.ok(
-		WEBGPU_DEFERRED_LIGHTING_SHADER.includes(
-			"select(clamp(specular.a, 0.0, 1.0), max(specular.a, 0.0), isPhong)"
-		)
-	);
-	assert.ok(WEBGPU_DEFERRED_LIGHTING_SHADER.includes("anisotropyTangent"));
-	assert.ok(
-		WEBGPU_DEFERRED_LIGHTING_SHADER.includes(
-			"specular = resolveAnisotropicSpecular("
-		)
-	);
-	assert.ok(
-		/resolveAnisotropicReflectionDirection\(\s*surface\.normal/.test(
-			WEBGPU_DEFERRED_LIGHTING_SHADER
-		)
-	);
 	assert.ok(WEBGPU_SCENE_SHADER.includes("fn fsMainOITPBR("));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("fn fsMainTransmissionCapturePBR("));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@builtin(vertex_index)"));
@@ -631,22 +571,19 @@ async function testSceneShaderCoverage() {
 	);
 }
 
-async function testGBufferSlotShaderABI() {
+async function testForwardMRTOutputABI() {
 	const sceneShader = (await ShaderSource.load("webgpu.scene")).source.code;
 	const slots = [
-		["gAlbedoAlpha", GBufferSlot.AlbedoAlpha],
-		["gNormalRoughMetal", GBufferSlot.NormalRoughMetal],
-		["gEmissiveOcclusion", GBufferSlot.EmissiveOcclusion],
-		["gMotionDepth", GBufferSlot.MotionDepth],
-		["gSpecular", GBufferSlot.Specular],
-		["gCoatSheen", GBufferSlot.CoatSheen],
-		["gSheenReflectance", GBufferSlot.SheenReflectance],
+		["gAlbedoAlpha", 1],
+		["gNormalRoughMetal", 2],
+		["gEmissiveOcclusion", 3],
+		["gMotionDepth", 4],
 	];
-	assert.equal(WEBGPU_DEFERRED_COLOR_TARGET_COUNT, slots.length);
+	assert.equal(WEBGPU_MRT_COLOR_TARGET_COUNT, slots.length + 1);
 	for (const [name, slot] of slots) {
 		assert.ok(
 			sceneShader.includes(`@location(${slot}) ${name}`),
-			`GBufferSlot.${name.slice(1)} must match the WGSL output location`
+			`${name} must match the forward MRT output location`
 		);
 	}
 }
@@ -697,16 +634,10 @@ function testScenePipelineLimitConstantsMatchLayout() {
 			)
 		);
 	const sceneFragmentEntries = getFragmentEntries(layouts.scenePipelineLayouts.pbr);
-	const deferredFragmentEntries = getFragmentEntries(
-		layouts.deferredLightingPipelineLayout
-	);
 	const planarReflectionFragmentEntries = getFragmentEntries(
 		layouts.planarReflectionPipelineLayouts.pbr
 	);
 	const sceneSampledTextureCount = sceneFragmentEntries.filter(
-		(entry) => !!entry.texture
-	).length;
-	const deferredSampledTextureCount = deferredFragmentEntries.filter(
 		(entry) => !!entry.texture
 	).length;
 	const planarReflectionSampledTextureCount =
@@ -723,79 +654,12 @@ function testScenePipelineLimitConstantsMatchLayout() {
 		WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT
 	);
 	assert.equal(
-		deferredSampledTextureCount,
-		WEBGPU_DEFERRED_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT
-	);
-	assert.equal(
-		deferredSampledTextureCount,
-		WEBGPU_SCENE_FRAME_FRAGMENT_TEXTURE_COUNT +
-			WEBGPU_GBUFFER_READ_TEXTURE_COUNT
-	);
-	assert.equal(
 		planarReflectionSampledTextureCount,
 		WEBGPU_PLANAR_REFLECTION_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT
 	);
-	const decalFragmentEntries = getFragmentEntries(
-		layouts.decalPipelineLayout
-	);
-	const decalSampledTextureCount = decalFragmentEntries.filter(
-		(entry) => !!entry.texture
-	).length;
-	assert.equal(
-		decalSampledTextureCount,
-		WEBGPU_DECAL_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT
-	);
-	assert.equal(
-		WEBGPU_DECAL_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
-		26,
-		"the compact decal fragment layout must bind 26 sampled textures"
-	);
-	assert.equal(
-		WEBGPU_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
-		decalSampledTextureCount,
-		"device negotiation must request the decal sampled-texture limit"
-	);
-	assert.equal(
-		layouts.deferredLightingPipelineLayout.desc.bindGroupLayouts[1],
-		layouts.deferredUnusedBindGroupLayout
-	);
 	assert.equal(layouts.scenePipelineLayouts.pbr.desc.bindGroupLayouts.length, 3);
-	assert.equal(layouts.decalPipelineLayout.desc.bindGroupLayouts.length, 4);
-	assert.equal(
-		layouts.decalPipelineLayout.desc.bindGroupLayouts[3],
-		layouts.decalOutputBindGroupLayout
-	);
-	assert.equal(layouts.decalBatchPipelineLayout.desc.bindGroupLayouts.length, 4);
-	assert.equal(
-		layouts.decalBatchPipelineLayout.desc.bindGroupLayouts[3],
-		layouts.decalBatchBindGroupLayout
-	);
-	assert.equal(
-		layouts.decalOutputBindGroupLayout.desc.entries.length,
-		WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT
-	);
-	assert.equal(
-		layouts.decalOutputBindGroupLayout.desc.entries.filter(
-			(entry) => (entry.visibility & GPUShaderStage.FRAGMENT) !== 0
-		).length,
-		WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT
-	);
-	assert.equal(layouts.decalBatchBindGroupLayout.desc.entries.length, 13);
-	assert.equal(
-		layouts.decalBatchBindGroupLayout.desc.entries.filter(
-			(entry) => (entry.visibility & GPUShaderStage.FRAGMENT) !== 0
-		).length,
-		0
-	);
-	assert.equal(
-		layouts.decalBatchBindGroupLayout.desc.entries.filter(
-			(entry) =>
-				(entry.visibility & GPUShaderStage.COMPUTE) !== 0 &&
-				!!entry.storageTexture
-		).length,
-		WEBGPU_GBUFFER_READ_TEXTURE_COUNT
-	);
-	assert.equal(layouts.deferredUnusedBindGroupLayout.desc.entries.length, 0);
+	assert.equal(WEBGPU_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
+		Math.max(sceneSampledTextureCount, planarReflectionSampledTextureCount));
 	assert.equal(samplerCount, WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLER_COUNT);
 	assert.equal(
 		planarReflectionSamplerCount,
@@ -803,70 +667,21 @@ function testScenePipelineLimitConstantsMatchLayout() {
 	);
 	assert.ok(samplerCount <= 16);
 	assert.ok(planarReflectionSamplerCount <= 16);
-	assert.equal(WEBGPU_DEFERRED_BASE_COLOR_BYTES_PER_SAMPLE, 32);
-	assert.equal(WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE, 56);
+	assert.equal(WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE, 40);
 	const requiredLimits = createWebGPURequiredLimits({
 		maxSampledTexturesPerShaderStage: 32,
 		maxSamplersPerShaderStage: 16,
 		maxStorageBuffersPerShaderStage: 8,
+		maxUniformBuffersPerShaderStage: 12,
 		maxStorageTexturesPerShaderStage: 4,
 		maxColorAttachments: 8,
 		maxColorAttachmentBytesPerSample: 128,
 		maxTextureDimension2D: 16384,
 	});
-	assert.equal(requiredLimits.maxColorAttachmentBytesPerSample, 56);
-	assert.equal(
-		WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE +
-			WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT * 8,
-		72
-	);
-}
-
-function testDecalBatchLayoutHonorsStorageTextureLimit() {
-	const device = {
-		limits: {
-			maxStorageTexturesPerShaderStage: 4,
-			maxStorageBuffersPerShaderStage: 8,
-		},
-		bindGroupLayouts: [],
-		pipelineLayouts: [],
-		createBindGroupLayout(desc) {
-			for (const visibility of [
-				GPUShaderStage.FRAGMENT,
-				GPUShaderStage.COMPUTE,
-			]) {
-				const storageTextureCount = desc.entries.filter(
-					(entry) =>
-						(entry.visibility & visibility) !== 0 &&
-						!!entry.storageTexture
-				).length;
-				assert.ok(storageTextureCount <= 4);
-			}
-			const layout = { desc };
-			this.bindGroupLayouts.push(layout);
-			return layout;
-		},
-		createPipelineLayout(desc) {
-			const layout = { desc };
-			this.pipelineLayouts.push(layout);
-			return layout;
-		},
-	};
-	const layouts = createWebGPUPipelineLayouts(device);
-
-	assert.equal(layouts.decalBatchBindGroupLayout.desc.entries.length, 0);
-	assert.equal(
-		layouts.decalPipelineLayout.desc.bindGroupLayouts[3],
-		layouts.decalOutputBindGroupLayout
-	);
-	assert.equal(
-		layouts.decalBatchPipelineLayout.desc.bindGroupLayouts[3],
-		layouts.decalBatchBindGroupLayout
-	);
-	assert.equal(
-		layouts.decalOutputBindGroupLayout.desc.entries.length,
-		WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT
-	);
+	assert.equal(requiredLimits.maxColorAttachmentBytesPerSample, WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE);
+	assert.equal(requiredLimits.maxColorAttachments, WEBGPU_MRT_COLOR_TARGET_COUNT);
+	assert.equal(requiredLimits.maxSampledTexturesPerShaderStage,
+		Math.max(sceneSampledTextureCount, planarReflectionSampledTextureCount));
 }
 
 function testShadowDepthLayoutMatchesTransmittanceShaderBinding() {
@@ -1131,9 +946,8 @@ async function run() {
 		await testSceneSourcesPreserveSourceLocations();
 		await testSceneShaderCoverage();
 		await testSharedFrameUniformABI();
-		await testGBufferSlotShaderABI();
+		await testForwardMRTOutputABI();
 		await testScenePipelineLimitConstantsMatchLayout();
-		await testDecalBatchLayoutHonorsStorageTextureLimit();
 		await testShadowDepthLayoutMatchesTransmittanceShaderBinding();
 		await testParticleShaderDepthConsistency();
 		await testWebGPUShaderConstantTokenInjection();

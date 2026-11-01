@@ -123,7 +123,6 @@ export interface ShaderModuleDesc {
 		| "clustered"
 		| "shadow"
 		| "particle"
-		| "decal"
 		| "custom-material"
 		| "unknown";
 	label?: string;

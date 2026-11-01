@@ -81,9 +81,14 @@ export class WebGPUParticleRenderResources implements WebGPUParticleBillboardRen
 		this._evictParticleBindings();
 	}
 
-	/** Compiles the legacy particle resources required by warmup. */
-	public async warmup(mode: WebGPUSceneTargetMode): Promise<void> {
-		await this._ensureParticleResources(mode, 1, "legacy", 1);
+	/**
+	 * Compiles alpha and additive resources for the resolved frame targets.
+	 * @internal WebGPU particle warmup; applications use `Renderer.warmup()`.
+	 */
+	public async warmup(mode: WebGPUSceneTargetMode, sampleCount = 1): Promise<void> {
+		await this._ensureParticleResources(
+			mode, 1, "legacy", this._normalizeSampleCount(sampleCount),
+		);
 	}
 
 	public async renderParticles(

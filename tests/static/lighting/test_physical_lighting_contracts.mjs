@@ -40,20 +40,15 @@ function testAnalyticalAmbientUsesDiffuseIrradianceOnly() {
 	const webgpuForward = readSource(
 		"src/shaders/webgpu/scene/fragmentPbrAmbient.wgsl"
 	);
-	const webgpuDeferred = readSource(
-		"src/shaders/webgpu/lighting/deferredLighting.wgsl"
-	);
 
 	assert.match(webgl, /specularAmbientBase = vec3\(0\.0\)/);
 	assert.match(webgl, /ambientSheen = specularAmbientBase \*/);
 	assert.match(webgl, /if \(shAmbientEnabled\) \{[\s\S]*ambientDiffuseWeight/);
 	assert.doesNotMatch(webgl, /specularAmbientBase = ambientBase/);
 	assert.doesNotMatch(webgl, /ambientSheen = \(ambientBase \/ PI\)/);
-	for (const source of [webgpuForward, webgpuDeferred]) {
-		assert.match(source, /specularAmbientRadiance = vec3<f32>\(0\.0\)/);
-		assert.match(source, /if \(shAmbientEnabled\) \{[\s\S]*kdAmbient/);
-		assert.doesNotMatch(source, /specularAmbientRadiance = ambientColor \/ PI/);
-	}
+	assert.match(webgpuForward, /specularAmbientRadiance = vec3<f32>\(0\.0\)/);
+	assert.match(webgpuForward, /if \(shAmbientEnabled\) \{[\s\S]*kdAmbient/);
+	assert.doesNotMatch(webgpuForward, /specularAmbientRadiance = ambientColor \/ PI/);
 }
 
 function testPhongSpecularLobeNormalization() {

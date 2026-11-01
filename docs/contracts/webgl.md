@@ -10,8 +10,7 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
 - Global post-process invalidation must reconstruct the full scene before
   running the post-process chain, including when a local scene edit coincides.
 - WebGL scene lighting must use the forward material path. Its material G-buffer
-  is a post-processing resource, not a deferred lighting resolve. Cross-backend
-  verification must identify WebGL deferred lighting as unsupported.
+  must serve post-processing independently of scene lighting.
 
 ### Backend lifecycle and execution
 
@@ -106,7 +105,7 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
 - `WebGLBackend` must report `profile.capabilities.clusteredLighting = true`.
 - `WebGLBackend` must report `profile.capabilities.postProcess = true`.
 - `WebGLBackend` must report `profile.capabilities.meshParticles = false`.
-- Projected decals are temporarily not applicable to `WebGLBackend`.
+- Projected decals must be supported only by `SoftwareBackend`.
   `WebGLBackend` must ignore prepared `DecalPacket` instances without capability
   probing, receiver planning, resource allocation, decal passes, diagnostics,
   or changes to forward frame output.

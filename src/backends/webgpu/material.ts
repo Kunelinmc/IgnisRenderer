@@ -11,10 +11,7 @@ import {
 	type PBRMaterialTexturePresence,
 	type ResolvedPBRMaterialFeatures,
 } from "../../materials/PBRMaterial";
-import {
-	isMaterialTransparentPass,
-	materialUsesTransmission,
-} from "../../materials/transparency";
+import { materialUsesTransmission } from "../../materials/transparency";
 import { ShaderMaterial } from "../../materials/ShaderMaterial";
 import type {
 	ResolvedShaderMaterialUniformBinding,
@@ -259,62 +256,6 @@ export function createWebGPUMaterialUniformData(
 		};
 	}
 	return { ...base, shadingFamily, lighting: null };
-}
-
-export function materialSupportsWebGPUDeferredLighting(
-	material: Material | null | undefined
-): boolean {
-	if (!material) {
-		return false;
-	}
-	if (material.wireframe) {
-		return false;
-	}
-	if (!material.depthWrite) {
-		return false;
-	}
-	if (isMaterialTransparentPass(material)) {
-		return false;
-	}
-	if (materialUsesTransmission(material)) {
-		return false;
-	}
-	if (material instanceof ShaderMaterial) {
-		if (material.deferredLighting && !material.hasWebGPUDeferredProgram()) {
-			throw new Error("ShaderMaterial deferred lighting requires an explicit deferred fragment chunk.");
-		}
-		return material.hasWebGPUDeferredProgram();
-	}
-	return true;
-}
-
-/** @internal Deferred depth policy shared by frame preflight and `Renderer.warmup()`. */
-export function materialSupportsWebGPUDeferredEarlyZPrepass(material: Material): boolean {
-	return !(material instanceof ShaderMaterial);
-}
-
-/** Returns whether a deferred material needs the extended G-buffer payload. */
-export function materialRequiresExtendedWebGPUGBuffer(
-	material: Material | null | undefined
-): boolean {
-	if (!material) {
-		return false;
-	}
-	if (material instanceof ShaderMaterial) {
-		return material.hasWebGPUDeferredProgram();
-	}
-	const shadingFamily = resolveShadingFamily(material);
-	if (shadingFamily === "phong" || shadingFamily === "flat") {
-		return true;
-	}
-	if (shadingFamily !== "pbr") {
-		return false;
-	}
-	const features = resolvePBRMaterialFeatures(material);
-	const reflectance = (material as Material & { reflectance?: number }).reflectance ?? 0.5;
-	// The compact G-buffer assumes neutral reflectance; layout selection stays backend-owned.
-	return features.clearcoat || features.sheen || features.iridescence ||
-		features.anisotropy || features.specular || Math.abs(reflectance - 0.5) > 1e-6;
 }
 
 function createMaterialTextureSlots(

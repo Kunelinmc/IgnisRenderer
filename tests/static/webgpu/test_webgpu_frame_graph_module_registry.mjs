@@ -2,10 +2,7 @@ import assert from "node:assert/strict";
 
 import { WebGPUFrameGraphModuleRegistry } from "../../../src/backends/webgpu/rendergraph/WebGPUFrameGraphModuleRegistry.ts";
 import { WebGPUFrameMessageSnapshot } from "../../../src/backends/webgpu/rendergraph/WebGPUFrameMessage.ts";
-import {
-	WebGPUDeferredFrameModule,
-	WebGPUDeferredOpaqueStatePort,
-} from "../../../src/backends/webgpu/rendergraph/WebGPUDeferredFrameModule.ts";
+import { WebGPUSceneFrameModule } from "../../../src/backends/webgpu/rendergraph/WebGPUSceneFrameModule.ts";
 import { WebGPUReflectionFrameModule } from "../../../src/backends/webgpu/rendergraph/WebGPUReflectionFrameModule.ts";
 import { WEBGPU_FRAME_CONFIGURATION_DEMAND_MESSAGE } from "../../../src/backends/webgpu/rendergraph/WebGPUFrameMessages.ts";
 import { WEBGPU_FRAME_GRAPH_NODE_KINDS } from "../../../src/backends/webgpu/rendergraph/types.ts";
@@ -73,14 +70,14 @@ async function testLaneOrderDoesNotDependOnRegistrationOrder() {
 	const lighting = {
 		id: "lighting",
 		executors: {},
-		planStage: () => [{ lane: "lighting", nodes: [createNode("deferred-lighting")] }],
+		planStage: () => [{ lane: "lighting", nodes: [createNode("planar-reflection-composite")] }],
 		destroy() {},
 	};
 	const forward = await plan(createRegistry([geometry, lighting]));
 	const reversed = await plan(createRegistry([lighting, geometry]));
 	assert.deepEqual(
 		forward.nodes.map((node) => node.id),
-		["main-opaque:geometry:opaque-scene", "main-opaque:lighting:deferred-lighting"],
+		["main-opaque:geometry:opaque-scene", "main-opaque:lighting:planar-reflection-composite"],
 	);
 	assert.deepEqual(reversed.nodes.map((node) => node.id), forward.nodes.map((node) => node.id));
 }
@@ -141,15 +138,11 @@ async function testExclusiveAndCompositionConflicts() {
 	);
 }
 
-async function testDeferredReflectionCompositeHasOneOwnerAndExecution() {
-	let lightingExecutions = 0;
+async function testSceneReflectionCompositeHasOneOwnerAndExecution() {
+	let sceneExecutions = 0;
 	let reflectionExecutions = 0;
-	const deferredState = new WebGPUDeferredOpaqueStatePort();
-	const deferred = new WebGPUDeferredFrameModule(
-		{ async recordLightingPass() { lightingExecutions++; } },
-		{},
-		{ async recordMainPass() {} },
-		deferredState,
+	const scene = new WebGPUSceneFrameModule(
+		{ async recordOpaque() { sceneExecutions++; } }, {}, {},
 	);
 	const reflection = new WebGPUReflectionFrameModule(
 		{},
@@ -163,9 +156,7 @@ async function testDeferredReflectionCompositeHasOneOwnerAndExecution() {
 		pass: PASS,
 		context: {},
 		state: {
-			deferredActive: true,
-			sceneTargetMode: "gbuffer",
-			deferredGBufferLayout: "base",
+			sceneTargetMode: "mrt",
 		},
 		messages: {
 			getAll: (descriptor) => descriptor === WEBGPU_FRAME_CONFIGURATION_DEMAND_MESSAGE
@@ -174,7 +165,7 @@ async function testDeferredReflectionCompositeHasOneOwnerAndExecution() {
 		},
 	};
 	const nodes = [
-		...deferred.planStage(planningInput),
+		...scene.planStage(planningInput),
 		...reflection.planStage(planningInput),
 	].flatMap((contribution) => contribution.nodes ?? []);
 	assert.equal(
@@ -194,13 +185,9 @@ async function testDeferredReflectionCompositeHasOneOwnerAndExecution() {
 			samplePlan: { sampleCount: 1 },
 		},
 	};
-	deferredState.publish({
-			lightingEnabled: true,
-			clearSceneColor: true,
-			fallbackPackets: [],
-	});
-	await deferred.executors["deferred-lighting"]({}, session);
-	assert.equal(lightingExecutions, 1);
+	session.framePackets = { opaque: [], transparent: [] };
+	await scene.executors["opaque-scene"]({}, session);
+	assert.equal(sceneExecutions, 1);
 	assert.equal(reflectionExecutions, 0);
 	await reflection.executors["planar-reflection-composite"]({}, session);
 	assert.equal(reflectionExecutions, 1);
@@ -254,6 +241,6 @@ testRegistrationAndSealingValidation();
 await testLaneOrderDoesNotDependOnRegistrationOrder();
 await testStaticEdgesAndOwnerLocalIdentity();
 await testExclusiveAndCompositionConflicts();
-await testDeferredReflectionCompositeHasOneOwnerAndExecution();
+await testSceneReflectionCompositeHasOneOwnerAndExecution();
 await testFinalOutputPublicationFeedsPresentationPlanning();
 console.log("WebGPU frame graph module registry tests passed");

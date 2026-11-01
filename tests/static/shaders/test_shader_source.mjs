@@ -570,12 +570,12 @@ async function testWebGPUCompositeIncludesSharedParts() {
 	ShaderSource.clearCache();
 
 	const ssr = (await ShaderSource.load("webgpu.postprocess.ssr")).source;
-	const deferred = (await ShaderSource.load("webgpu.deferredLighting")).source;
+	const scene = (await ShaderSource.load("webgpu.scene")).source;
 
 	assert.ok(ssr.code.includes("struct DirectionalLightData"));
 	assert.ok(ssr.code.includes("struct TraceParams"));
-	assert.ok(deferred.code.includes("struct DirectionalLightData"));
-	assert.ok(deferred.code.includes("fn activeClusteredLightCount() -> u32"));
+	assert.ok(scene.code.includes("struct DirectionalLightData"));
+	assert.ok(scene.code.includes("fn activeClusteredLightCount() -> u32"));
 }
 
 async function testWebGPUFogCompilesWithoutSharedIncludes() {
@@ -719,9 +719,8 @@ async function testWebGPUAnimationConsumers() {
 
 async function testGpuColorConsumersUseNativeDecoding() {
 	ShaderSource.clearCache();
-	const [webgpuIbl, webgpuDecal, webglIbl] = await Promise.all([
+	const [webgpuIbl, webglIbl] = await Promise.all([
 		ShaderSource.load("webgpu.iblPrefilter"),
-		ShaderSource.load("webgpu.utility.decal"),
 		ShaderSource.load("webgl.part.iblPrefilterFragment"),
 	]);
 	const webgpuCompileStage = new ShaderBackendCompileStage({
@@ -742,15 +741,6 @@ async function testGpuColorConsumersUseNativeDecoding() {
 		label: "WebGPUIblPrefilter",
 		sourceKind: "builtin-environment",
 	});
-	const compiledWebgpuDecal = webgpuCompileStage.compile({
-		code: webgpuDecal.source.code,
-		language: "wgsl",
-		stage: "unknown",
-		entryPoint: "fsMain",
-		label: "WebGPUDecal",
-		sourceKind: "builtin-scene",
-		sourceMap: webgpuDecal.source.sourceMap,
-	});
 	const compiledWebglIbl = webglCompileStage.compile({
 		code: webglIbl.source.code,
 		language: "glsl",
@@ -761,9 +751,8 @@ async function testGpuColorConsumersUseNativeDecoding() {
 	});
 
 	assert.equal(compiledWebgpuIbl.hasErrors, false);
-	assert.equal(compiledWebgpuDecal.hasErrors, false);
 	assert.equal(compiledWebglIbl.hasErrors, false);
-	for (const compiled of [compiledWebgpuIbl, compiledWebgpuDecal, compiledWebglIbl]) {
+	for (const compiled of [compiledWebgpuIbl, compiledWebglIbl]) {
 		const decodeCalls = compiled.code.match(/\bsrgbToLinear\s*\(/g)?.length ?? 0;
 		const declarations = compiled.code.match(/\b(?:fn|vec3)\s+srgbToLinear\s*\(/g)?.length ?? 0;
 		assert.equal(decodeCalls, declarations, "native samples must not be decoded twice");

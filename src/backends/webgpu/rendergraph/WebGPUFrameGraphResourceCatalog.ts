@@ -22,11 +22,6 @@ export const WEBGPU_FRAME_GRAPH_RESOURCES = {
 	gbufferNormalRoughMetal: "gbuffer:normal-rough-metal",
 	gbufferEmissiveOcclusion: "gbuffer:emissive-occlusion",
 	gbufferMotionDepth: "gbuffer:motion-depth",
-	gbufferSpecular: "gbuffer:specular",
-	gbufferCoatSheen: "gbuffer:coat-sheen",
-	gbufferSheenReflectance: "gbuffer:sheen-reflectance",
-	gbufferMaterialExt0: "gbuffer:material-ext0",
-	gbufferMaterialExt3: "gbuffer:material-ext3",
 	msaaColor: "msaa:scene-color-main",
 	msaaDepth: "msaa:depth",
 	msaaGBufferAlbedoAlpha: "msaa:gbuffer:albedo-alpha",
@@ -153,11 +148,6 @@ export function collectActiveWebGPUFrameGraphResources(
 		if (targets.gNormalRoughMetal) active.add(r.gbufferNormalRoughMetal);
 		if (targets.gEmissiveOcclusion) active.add(r.gbufferEmissiveOcclusion);
 		if (targets.gMotionDepth) active.add(r.gbufferMotionDepth);
-		if (targets.gSpecular) active.add(r.gbufferSpecular);
-		if (targets.gCoatSheen) active.add(r.gbufferCoatSheen);
-		if (targets.gSheenReflectance) active.add(r.gbufferSheenReflectance);
-		if (targets.gMaterialExt0) active.add(r.gbufferMaterialExt0);
-		if (targets.gMaterialExt3) active.add(r.gbufferMaterialExt3);
 		if (targets.oitAccum) active.add(r.oitAccum);
 		if (targets.oitReveal) active.add(r.oitReveal);
 		if (targets.oitSceneColorCopy) active.add(r.oitSceneColorCopy);
@@ -194,11 +184,7 @@ function collectTextureBindings(
 			[r.frameHiZ, targets.hiZ], [r.gbufferAlbedoAlpha, targets.gAlbedoAlpha],
 			[r.gbufferNormalRoughMetal, targets.gNormalRoughMetal],
 			[r.gbufferEmissiveOcclusion, targets.gEmissiveOcclusion],
-			[r.gbufferMotionDepth, targets.gMotionDepth], [r.gbufferSpecular, targets.gSpecular],
-			[r.gbufferCoatSheen, targets.gCoatSheen],
-			[r.gbufferSheenReflectance, targets.gSheenReflectance],
-			[r.gbufferMaterialExt0, targets.gMaterialExt0],
-			[r.gbufferMaterialExt3, targets.gMaterialExt3],
+			[r.gbufferMotionDepth, targets.gMotionDepth],
 			[r.oitAccum, targets.oitAccum], [r.oitReveal, targets.oitReveal],
 			[r.oitSceneColorCopy, targets.oitSceneColorCopy],
 			[r.transmissionSceneColorCopy, targets.transmissionSceneColorCopy],

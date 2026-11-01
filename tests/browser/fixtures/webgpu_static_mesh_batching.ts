@@ -29,7 +29,6 @@ export function setup() {
 		const renderer = new Renderer(
 			canvas,
 			new WebGPUBackend({
-				enableDeferredLighting: false,
 				enableEarlyZPrepass: false,
 			}),
 			camera,

@@ -19,8 +19,9 @@ flowchart TD
 
 The renderer pipeline expresses portable intent. A backend may expand one
 renderer stage into several native passes as long as the shared ordering and
-transaction boundaries remain intact. WebGPU deferred lighting, for example,
-is an internal expansion of `main-opaque`, not an additional global stage.
+transaction boundaries remain intact. WebGPU `main-opaque` owns forward scene
+shading, with optional MRT attachments for post-processing. Projected decals
+are applied only by Software; WebGPU and WebGL ignore them.
 
 Shadow authoring definitions and persistent light bindings belong to
 `Scene.shadows`. `ShadowPlanner` resolves them once into an immutable

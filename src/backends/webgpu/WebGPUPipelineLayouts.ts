@@ -1,5 +1,4 @@
 import {
-	WEBGPU_GBUFFER_READ_TEXTURE_COUNT,
 	WEBGPU_MODEL_BINDING_ANIMATION_PARAMS,
 	WEBGPU_MODEL_BINDING_JOINT_MATRICES,
 	WEBGPU_MODEL_BINDING_MORPH_NORMAL,
@@ -24,22 +23,13 @@ import {
 } from "./constants";
 import type { WebGPUShadingFamily } from "./types";
 
-const WEBGPU_DECAL_BATCH_STORAGE_TEXTURE_COUNT = WEBGPU_GBUFFER_READ_TEXTURE_COUNT;
-const WEBGPU_DECAL_BATCH_STORAGE_BUFFER_COUNT = 3;
-
 export interface WebGPUPipelineLayouts {
 	sceneFrameBindGroupLayout: GPUBindGroupLayout;
 	depthFrameBindGroupLayout: GPUBindGroupLayout;
 	depthModelBindGroupLayout: GPUBindGroupLayout;
 	depthMaterialBindGroupLayout: GPUBindGroupLayout;
-	decalFrameBindGroupLayout: GPUBindGroupLayout;
 	clusteredSceneBindGroupLayout: GPUBindGroupLayout;
-	gbufferReadBindGroupLayout: GPUBindGroupLayout;
-	decalBindGroupLayout: GPUBindGroupLayout;
-	decalOutputBindGroupLayout: GPUBindGroupLayout;
-	decalBatchBindGroupLayout: GPUBindGroupLayout;
 	planarReflectionBindGroupLayout: GPUBindGroupLayout;
-	deferredUnusedBindGroupLayout: GPUBindGroupLayout;
 	environmentFrameBindGroupLayout: GPUBindGroupLayout;
 	modelBindGroupLayouts: Record<WebGPUShadingFamily, GPUBindGroupLayout>;
 	particleFrameBindGroupLayout: GPUBindGroupLayout;
@@ -47,9 +37,6 @@ export interface WebGPUPipelineLayouts {
 	scenePipelineLayouts: Record<WebGPUShadingFamily, GPUPipelineLayout>;
 	sceneDepthPrepassPipelineLayout: GPUPipelineLayout;
 	planarReflectionPipelineLayouts: Record<WebGPUShadingFamily, GPUPipelineLayout>;
-	deferredLightingPipelineLayout: GPUPipelineLayout;
-	decalPipelineLayout: GPUPipelineLayout;
-	decalBatchPipelineLayout: GPUPipelineLayout;
 	environmentPipelineLayout: GPUPipelineLayout;
 	particlePipelineLayout: GPUPipelineLayout;
 }
@@ -194,19 +181,6 @@ export function createWebGPUPipelineLayouts(
 			},
 		],
 	});
-	const decalFrameBindGroupLayout = device.createBindGroupLayout({
-		label: "WebGPUDecalFrameBindGroupLayout",
-		entries: [
-			{
-				binding: 0,
-				visibility:
-					GPUShaderStage.VERTEX |
-					GPUShaderStage.FRAGMENT |
-					GPUShaderStage.COMPUTE,
-				buffer: { type: "uniform" },
-			},
-		],
-	});
 	const environmentFrameBindGroupLayout = device.createBindGroupLayout({
 		label: "WebGPUEnvironmentFrameBindGroupLayout",
 		entries: [
@@ -241,137 +215,6 @@ export function createWebGPUPipelineLayouts(
 				type: binding === 0 ? "uniform" : "read-only-storage",
 			} as GPUBufferBindingLayout,
 		})),
-	});
-	const gbufferReadEntries: GPUBindGroupLayoutEntry[] = [];
-	for (let binding = 0; binding < WEBGPU_GBUFFER_READ_TEXTURE_COUNT - 1; binding++) {
-		gbufferReadEntries.push({
-			binding,
-			visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE,
-			texture: { sampleType: "float" },
-		});
-	}
-	gbufferReadEntries.push({
-		binding: WEBGPU_GBUFFER_READ_TEXTURE_COUNT - 1,
-		visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE,
-		texture: { sampleType: "uint" },
-	});
-	const gbufferReadBindGroupLayout = device.createBindGroupLayout({
-		label: "WebGPUGBufferReadBindGroupLayout",
-		entries: gbufferReadEntries,
-	});
-	const decalEntries: GPUBindGroupLayoutEntry[] = [
-		{
-			binding: 0,
-			visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE,
-			buffer: { type: "uniform" },
-		},
-	];
-	for (let i = 0; i < WEBGPU_TEXTURE_SLOT_COUNT; i++) {
-		decalEntries.push({
-			binding: 1 + i * 2,
-			visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE,
-			texture: { sampleType: "float" },
-		});
-		if (i < WEBGPU_TEXTURE_DEDICATED_SAMPLER_SLOT_COUNT) {
-			decalEntries.push({
-				binding: 2 + i * 2,
-				visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE,
-				sampler: { type: "filtering" },
-			});
-		}
-	}
-	const decalBindGroupLayout = device.createBindGroupLayout({
-		label: "WebGPUDecalBindGroupLayout",
-		entries: decalEntries,
-	});
-	const decalOutputEntries: GPUBindGroupLayoutEntry[] = [
-		{
-			binding: 11,
-			visibility: GPUShaderStage.FRAGMENT,
-			storageTexture: {
-				access: "write-only",
-				format: "rgba16float",
-				viewDimension: "2d",
-			},
-		},
-		{
-			binding: 12,
-			visibility: GPUShaderStage.FRAGMENT,
-			storageTexture: {
-				access: "write-only",
-				format: "rgba16uint",
-				viewDimension: "2d",
-			},
-		},
-	];
-	const decalOutputBindGroupLayout = device.createBindGroupLayout({
-		label: "WebGPUDecalOutputBindGroupLayout",
-		entries: decalOutputEntries,
-	});
-	const decalBatchEntries: GPUBindGroupLayoutEntry[] =
-		deviceSupportsDecalBatchBindGroupLayout(device) ?
-			[
-				{
-					binding: 0,
-					visibility: GPUShaderStage.COMPUTE,
-					buffer: { type: "uniform" },
-				},
-				{
-					binding: 1,
-					visibility: GPUShaderStage.COMPUTE,
-					buffer: { type: "read-only-storage" },
-				},
-				{
-					binding: 2,
-					visibility: GPUShaderStage.COMPUTE,
-					buffer: { type: "read-only-storage" },
-				},
-				{
-					binding: 3,
-					visibility: GPUShaderStage.COMPUTE,
-					buffer: { type: "read-only-storage" },
-				},
-				{
-					binding: 4,
-					visibility: GPUShaderStage.COMPUTE,
-					storageTexture: {
-						access: "write-only",
-						format: "rgba8unorm",
-						viewDimension: "2d",
-					},
-				},
-			]
-		:	[];
-	if (decalBatchEntries.length > 0) {
-		const batchFormats = [
-			"rgba8unorm",
-			"rgba16float",
-			"rgba16float",
-			"rgba16float",
-			"rgba16float",
-			"rgba8unorm",
-			"rgba16float",
-			"rgba16uint",
-		] as const;
-		for (let index = 0; index < batchFormats.length; index++) {
-			decalBatchEntries.push({
-				binding: 5 + index,
-				visibility: GPUShaderStage.COMPUTE,
-				storageTexture: {
-					access: "write-only",
-					format: batchFormats[index],
-					viewDimension: "2d",
-				},
-			});
-		}
-	}
-	const decalBatchBindGroupLayout = device.createBindGroupLayout({
-		label: "WebGPUDecalBatchBindGroupLayout",
-		entries: decalBatchEntries,
-	});
-	const deferredUnusedBindGroupLayout = device.createBindGroupLayout({
-		label: "WebGPUDeferredUnusedBindGroupLayout",
-		entries: [],
 	});
 	const planarReflectionBindGroupLayout = device.createBindGroupLayout({
 		label: "WebGPUPlanarReflectionBindGroupLayout",
@@ -525,33 +368,6 @@ export function createWebGPUPipelineLayouts(
 			],
 		});
 	}
-	const deferredLightingPipelineLayout = device.createPipelineLayout({
-		label: "WebGPUDeferredLightingPipelineLayout",
-		bindGroupLayouts: [
-			sceneFrameBindGroupLayout,
-			deferredUnusedBindGroupLayout,
-			clusteredSceneBindGroupLayout,
-			gbufferReadBindGroupLayout,
-		],
-	});
-	const decalPipelineLayout = device.createPipelineLayout({
-		label: "WebGPUDecalPipelineLayout",
-		bindGroupLayouts: [
-			decalFrameBindGroupLayout,
-			gbufferReadBindGroupLayout,
-			decalBindGroupLayout,
-			decalOutputBindGroupLayout,
-		],
-	});
-	const decalBatchPipelineLayout = device.createPipelineLayout({
-		label: "WebGPUDecalBatchPipelineLayout",
-		bindGroupLayouts: [
-			decalFrameBindGroupLayout,
-			gbufferReadBindGroupLayout,
-			decalBindGroupLayout,
-			decalBatchBindGroupLayout,
-		],
-	});
 	const environmentPipelineLayout = device.createPipelineLayout({
 		label: "WebGPUEnvironmentPipelineLayout",
 		bindGroupLayouts: [environmentFrameBindGroupLayout],
@@ -566,14 +382,8 @@ export function createWebGPUPipelineLayouts(
 		depthFrameBindGroupLayout,
 		depthModelBindGroupLayout,
 		depthMaterialBindGroupLayout,
-		decalFrameBindGroupLayout,
 		clusteredSceneBindGroupLayout,
-		gbufferReadBindGroupLayout,
-		decalBindGroupLayout,
-		decalOutputBindGroupLayout,
-		decalBatchBindGroupLayout,
 		planarReflectionBindGroupLayout,
-		deferredUnusedBindGroupLayout,
 		environmentFrameBindGroupLayout,
 		modelBindGroupLayouts,
 		particleFrameBindGroupLayout,
@@ -581,9 +391,6 @@ export function createWebGPUPipelineLayouts(
 		scenePipelineLayouts,
 		sceneDepthPrepassPipelineLayout,
 		planarReflectionPipelineLayouts,
-		deferredLightingPipelineLayout,
-		decalPipelineLayout,
-		decalBatchPipelineLayout,
 		environmentPipelineLayout,
 		particlePipelineLayout,
 	};
@@ -623,16 +430,4 @@ function createLightingMaterialLayoutEntry(
 		case "unlit":
 			return null;
 	}
-}
-
-function deviceSupportsDecalBatchBindGroupLayout(device: GPUDevice): boolean {
-	const limits = device.limits;
-	const maxStorageTextures =
-		limits?.maxStorageTexturesPerShaderStage ?? Number.POSITIVE_INFINITY;
-	const maxStorageBuffers =
-		limits?.maxStorageBuffersPerShaderStage ?? Number.POSITIVE_INFINITY;
-	return (
-		maxStorageTextures >= WEBGPU_DECAL_BATCH_STORAGE_TEXTURE_COUNT &&
-		maxStorageBuffers >= WEBGPU_DECAL_BATCH_STORAGE_BUFFER_COUNT
-	);
 }

@@ -25,8 +25,6 @@ assert.deepEqual(violations, []);
 
 const orchestrator = readFileSync(join(root, "WebGPUFrameOrchestrator.ts"), "utf8");
 for (const dependency of [
-	"WebGPUDeferredLightingPass",
-	"WebGPUDeferredDecalPass",
 	"WebGPUPlanarReflectionPass",
 	"WebGPUHiZBuilder",
 	"WebGPUOcclusionCullingRuntime",

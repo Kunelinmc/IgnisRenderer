@@ -392,7 +392,6 @@ async function createRenderer(
 		return new Renderer(
 			target,
 			new WebGPUBackend({
-				enableDeferredLighting: true,
 				enableEarlyZPrepass: true,
 				enableOcclusionCulling: false,
 			}),

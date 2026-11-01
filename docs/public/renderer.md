@@ -17,6 +17,10 @@ A renderer needs a canvas and one rendering backend. IgnisRenderer provides
 `WebGPUBackend`, `WebGLBackend`, and `SoftwareBackend`; choose the backend that
 matches the environments your application supports.
 
+WebGPU and WebGL use forward scene lighting and can write additional surface
+attachments for post-processing. Projected `Decal` objects are supported only
+by `SoftwareBackend`; WebGPU and WebGL ignore them.
+
 Each backend instance belongs to one `Renderer` for its entire lifetime. Create
 a new backend instance when creating another renderer, even after the first
 renderer has been destroyed.

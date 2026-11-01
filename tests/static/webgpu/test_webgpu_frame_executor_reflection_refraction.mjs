@@ -24,7 +24,6 @@ const restoreTestState = initializeIsolatedWebGPUTestState();
 
 async function testPlanarReflectionCaptureAndCompositeSequencing() {
 	const backend = new FakeBackend();
-	backend.device.limits.maxStorageTexturesPerShaderStage = 0;
 	const resources = createPlanarReflectionResourcesStub();
 	const executor = new WebGPUFrameExecutor(
 		backend, resources, undefined, undefined, resources,
@@ -145,7 +144,6 @@ async function testPlanarReflectionCaptureAndCompositeSequencing() {
 
 async function testPlanarReflectionUsesColorTargetsWithoutPostProcess() {
 	const backend = new FakeBackend();
-	backend.device.limits.maxStorageTexturesPerShaderStage = 0;
 	const resources = createPlanarReflectionResourcesStub();
 	const executor = new WebGPUFrameExecutor(
 		backend, resources, undefined, undefined, resources,
@@ -235,7 +233,6 @@ async function testPlanarReflectionUsesColorTargetsWithoutPostProcess() {
 
 async function testPlanarReflectionCaptureKeepsMSAAFrameTargetsAlive() {
 	const backend = new FakeBackend();
-	backend.device.limits.maxStorageTexturesPerShaderStage = 0;
 	const msaa = createMSAAContext(4);
 	let executor = null;
 	const resources = createPlanarReflectionResourcesStub();
@@ -331,7 +328,6 @@ async function testPlanarReflectionCaptureKeepsMSAAFrameTargetsAlive() {
 
 async function testPlanarReflectionCaptureFailureKeepsMainFrameResources() {
 	const backend = new FakeBackend();
-	backend.device.limits.maxStorageTexturesPerShaderStage = 0;
 	const resources = createPlanarReflectionResourcesStub();
 	resources._state.throwOnClusteredBuild = true;
 	const executor = new WebGPUFrameExecutor(backend, resources, backend.msaaContext);
@@ -407,7 +403,6 @@ async function testPlanarReflectionCaptureFailureKeepsMainFrameResources() {
 
 async function testPlanarReflectionCaptureUsesMirroredCameraAndCenterSide() {
 	const backend = new FakeBackend();
-	backend.device.limits.maxStorageTexturesPerShaderStage = 0;
 	const resources = createPlanarReflectionResourcesStub();
 	const executor = new WebGPUFrameExecutor(
 		backend, resources, undefined, undefined, resources,

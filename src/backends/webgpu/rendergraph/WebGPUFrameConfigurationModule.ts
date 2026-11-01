@@ -1,4 +1,11 @@
-import type { WebGPUFrameConfiguration } from "./WebGPUFrameConfiguration";
+import { TextureFormat } from "../../../core/TextureFormat";
+import type { FrameContext } from "../../../pipeline/types";
+import type { WebGPUSampleCountResolver } from "../WebGPUSampleCountResolver";
+import type {
+	WebGPUFrameConfiguration,
+	WebGPUFrameSamplePlan,
+} from "./WebGPUFrameConfiguration";
+import type { WebGPUFrameGraphModuleRegistry } from "./WebGPUFrameGraphModuleRegistry";
 import {
 	WEBGPU_FRAME_CONFIGURATION_DEMAND_MESSAGE,
 	WEBGPU_FRAME_CONFIGURATION_MESSAGE,
@@ -8,7 +15,10 @@ import {
 	type WebGPUFrameConfigurationDemand,
 	type WebGPUFrameTargetClass,
 } from "./WebGPUFrameMessages";
-import type { WebGPUFrameMessageHandler } from "./WebGPUFrameMessage";
+import type {
+	WebGPUFrameMessageHandler,
+	WebGPUFrameMessageSnapshot,
+} from "./WebGPUFrameMessage";
 import {
 	WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE,
 	WEBGPU_MRT_COLOR_TARGET_COUNT,
@@ -73,37 +83,20 @@ export class WebGPUFrameConfigurationModule {
 
 		let targetClass: WebGPUFrameTargetClass =
 			options.samplePlan.sampleCount > 1 ? "color" : "single";
-		if (options.forceForwardMrt === true) targetClass = "mrt";
 		for (const demand of demands) {
 			if (demand.targetClass && targetRank(demand.targetClass) > targetRank(targetClass)) {
 				targetClass = demand.targetClass;
 			}
 		}
-		const deferredActive = getFeatureState(
-			featureStates,
-			WEBGPU_FRAME_FEATURE_STATES.deferredActive,
-			false,
-		);
-		const deferredSupported = getFeatureState(
-			featureStates,
-			WEBGPU_FRAME_FEATURE_STATES.deferredSupported,
-			false,
-		);
 		const oitActive = getFeatureState(
 			featureStates,
 			WEBGPU_FRAME_FEATURE_STATES.oitActive,
 			false,
 		);
-		if (deferredActive) targetClass = "gbuffer";
-		if (!mrtSupported && !deferredActive) {
+		if (!mrtSupported) {
 			targetClass = "single";
 		}
 		const sceneTargetMode = targetClass;
-		const deferredGBufferLayout = getFeatureState(
-			featureStates,
-			WEBGPU_FRAME_FEATURE_STATES.deferredGBufferLayout,
-			"extended" as const,
-		);
 		const needsPostProcessTargets = hasResource(
 			resources,
 			WEBGPU_FRAME_LOGICAL_RESOURCES.postProcessTargets,
@@ -122,12 +115,9 @@ export class WebGPUFrameConfigurationModule {
 		);
 		return {
 			mrtSupported,
-			deferredSupported,
-			deferredActive,
 			oitActive,
 			transparencyMode: oitActive ? "oit" : "legacy",
 			sceneTargetMode,
-			deferredGBufferLayout,
 			targetRequirements: sceneTargetMode === "single" ? null : {
 				sceneTargetMode,
 				needsPostProcessTargets,
@@ -135,7 +125,6 @@ export class WebGPUFrameConfigurationModule {
 				needsTransmissionTargets,
 				needsPlanarReflectionMask,
 				needsHiZTarget,
-				deferredGBufferLayout,
 			},
 			needsHiZBuild: hasBooleanDemand(demands, "needsHiZBuild"),
 			needsOcclusionTest: hasBooleanDemand(demands, "needsOcclusionTest"),
@@ -144,6 +133,109 @@ export class WebGPUFrameConfigurationModule {
 			diagnostics,
 		};
 	}
+}
+
+/**
+ * Resolves target demands and effective sampling without allocating frame targets.
+ *
+ * @internal WebGPU frame configuration shared by execution and warmup;
+ * applications use `Renderer.renderFrame()` and `Renderer.warmup()`.
+ * @param input Retained feature analysis, device policy, and sample-count resolver.
+ * @returns The converged configuration and its sealed configuration messages.
+ * @sideEffects May populate device sample-count capability caches through probes.
+ */
+export async function resolveWebGPUFrameConfiguration(input: {
+	readonly modules: Pick<WebGPUFrameGraphModuleRegistry, "dispatchMessages">;
+	readonly analysisMessages: WebGPUFrameMessageSnapshot;
+	readonly context: FrameContext;
+	readonly device: GPUDevice | null;
+	readonly sampleCountResolver: Pick<WebGPUSampleCountResolver, "resolveDomainSampleCount">;
+	readonly requestedSampleCount: number;
+	readonly enableEarlyZPrepass: boolean;
+	readonly supportsInFrameTextureCopy: boolean;
+}): Promise<{
+	readonly configuration: WebGPUFrameConfiguration;
+	readonly messages: WebGPUFrameMessageSnapshot;
+}> {
+	const capabilities = {
+		maxColorAttachments: input.device?.limits?.maxColorAttachments ?? 8,
+		maxColorAttachmentBytesPerSample:
+			input.device?.limits?.maxColorAttachmentBytesPerSample ?? 32,
+	};
+	let samplePlan: WebGPUFrameSamplePlan = {
+		requestedSampleCount: input.requestedSampleCount,
+		sampleCount: input.requestedSampleCount,
+		selectionSignature: "main-scene:pending",
+		runtimeFallbackActive: false,
+	};
+	const visited = new Set<string>();
+	for (let attempts = 0; attempts < 6; attempts++) {
+		const messages = await input.modules.dispatchMessages("configuration", {
+			prior: input.analysisMessages,
+			seeds: [{
+				descriptor: WEBGPU_FRAME_CONFIGURATION_REQUEST_MESSAGE,
+				value: {
+					context: input.context,
+					capabilities,
+					options: {
+						enableEarlyZPrepass: input.enableEarlyZPrepass,
+						samplePlan,
+						supportsInFrameTextureCopy: input.supportsInFrameTextureCopy,
+					},
+				},
+			}],
+		});
+		const configuration = messages.get(WEBGPU_FRAME_CONFIGURATION_MESSAGE);
+		const formats = getSampleCountProbeFormats(configuration);
+		let nextPlan: WebGPUFrameSamplePlan;
+		if (formats.length === 0) {
+			nextPlan = {
+				requestedSampleCount: input.requestedSampleCount,
+				sampleCount: 1,
+				selectionSignature: "main-scene:single",
+				runtimeFallbackActive: false,
+			};
+		} else {
+			const selection = input.sampleCountResolver.resolveDomainSampleCount(
+				"main-scene", input.requestedSampleCount, formats,
+			);
+			nextPlan = {
+				requestedSampleCount: selection.requestedSampleCount,
+				sampleCount: Math.min(samplePlan.sampleCount, selection.sampleCount),
+				selectionSignature: selection.signature,
+				runtimeFallbackActive: selection.runtimeFallbackActive,
+			};
+		}
+		if (nextPlan.sampleCount === samplePlan.sampleCount &&
+			nextPlan.selectionSignature === samplePlan.selectionSignature) {
+			return { configuration, messages };
+		}
+		const stateKey = `${nextPlan.sampleCount}|${nextPlan.selectionSignature}`;
+		if (visited.has(stateKey)) {
+			throw new Error("WebGPU scene sample-count planning did not converge.");
+		}
+		visited.add(stateKey);
+		samplePlan = nextPlan;
+	}
+	throw new Error("WebGPU scene sample-count planning exceeded its retry limit.");
+}
+
+function getSampleCountProbeFormats(
+	configuration: WebGPUFrameConfiguration,
+): GPUTextureFormat[] {
+	const requirements = configuration.targetRequirements;
+	if (!requirements) return [];
+	const formats = new Set<GPUTextureFormat>([
+		TextureFormat.RGBA16Float as GPUTextureFormat,
+		TextureFormat.Depth32Float as GPUTextureFormat,
+	]);
+	if (requirements.sceneTargetMode === "mrt") {
+		formats.add(TextureFormat.RGBA8Unorm as GPUTextureFormat);
+	}
+	if (requirements.needsPlanarReflectionMask) {
+		formats.add(TextureFormat.R8Unorm as GPUTextureFormat);
+	}
+	return Array.from(formats);
 }
 
 function mergeFeatureStates(
@@ -195,7 +287,7 @@ function mergeResourceDemands(
 }
 
 function targetRank(target: WebGPUFrameTargetClass): number {
-	return { single: 0, color: 1, mrt: 2, gbuffer: 3 }[target];
+	return { single: 0, color: 1, mrt: 2 }[target];
 }
 
 function hasResource<TValue>(

@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 
 import { createWebGPUResourceManager } from "../../helpers/fakes.mjs";
 import { ShaderCompileError } from "../../../src/foundation/Error.ts";
@@ -33,7 +32,6 @@ import { resolveWebGPUScenePassDescriptor } from "../../../src/backends/webgpu/W
 import { WebGPUPlanarReflectionPass } from "../../../src/backends/webgpu/WebGPUPlanarReflectionPass.ts";
 import { WebGPUPlanarReflectionDrawResources } from "../../../src/backends/webgpu/WebGPUPlanarReflectionDrawResources.ts";
 import { WebGPUEnvironmentResources } from "../../../src/backends/webgpu/WebGPUEnvironmentResources.ts";
-import { WebGPUDeferredResources } from "../../../src/backends/webgpu/WebGPUDeferredResources.ts";
 import { WebGPUPipelineCache } from "../../../src/backends/webgpu/WebGPUPipelineCache.ts";
 import { WebGPUObjectIdentity } from "../../../src/backends/webgpu/WebGPUObjectIdentity.ts";
 import { TextureFormat } from "../../../src/core/TextureFormat.ts";
@@ -41,6 +39,12 @@ import {
 	Logger
 } from "../../../src/foundation/Logger.ts";
 import { createBaselineFramePacketSet } from "../../../src/pipeline/FramePackets.ts";
+import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
+import {
+	WebGPUFrameExecutor,
+	createMSAAContext,
+	getFrameGraphDebugState,
+} from "../../helpers/webgpu_frame_executor_resilience.mjs";
 import {
 	WEBGPU_MODEL_BINDING_SHADER_UNIFORMS
 } from "../../../src/backends/webgpu/constants.ts";
@@ -366,7 +370,7 @@ async function testWebGPUEarlyZColorPipelineUsesReadOnlyDepthState() {
 }
 
 async function testOpaqueEqualDepthWinnerMatchesWithAndWithoutPrepass() {
-	for (const mode of ["single", "mrt", "color", "gbuffer"]) {
+	for (const mode of ["single", "mrt", "color"]) {
 		for (const alphaMode of [AlphaMode.Opaque, AlphaMode.Mask]) {
 			const backend = new FakeBackend();
 			const material = new PBRMaterial({ alphaMode });
@@ -997,9 +1001,6 @@ async function testFeatureResourceWarmupReportsCompilationFailures() {
 	const environment = new WebGPUEnvironmentResources(backend, {
 		environmentPipelineLayout: {},
 	});
-	const deferred = new WebGPUDeferredResources(backend, {
-		deferredLightingPipelineLayout: {},
-	});
 	try {
 		const environmentPhase = await environment.warmup({
 			modes: ["single"],
@@ -1008,20 +1009,12 @@ async function testFeatureResourceWarmupReportsCompilationFailures() {
 		});
 		assert.equal(environmentPhase.failed, 1);
 		assert.match(environmentPhase.errors[0].message, /feature warmup compile failure/);
-		const deferredPhase = await deferred.warmup({
-			active: true,
-			hasDecals: false,
-			yieldIfNeeded: async () => {},
-		});
-		assert.equal(deferredPhase.failed, 1);
-		assert.match(deferredPhase.errors[0].message, /feature warmup compile failure/);
 	} finally {
 		environment.destroy();
-		deferred.destroy();
 	}
 }
 
-async function testFeatureOwnedWarmupCompilesDeferredSceneVariants() {
+async function testFeatureOwnedWarmupCompilesForwardSceneVariants() {
 	const backend = new FakeBackend();
 	const packet = createPacket(createModel([new PBRMaterial()]));
 	const frame = createFrame(packet);
@@ -1069,74 +1062,40 @@ async function testFeatureOwnedWarmupCompilesDeferredSceneVariants() {
 			createBaselineFramePacketSet(context),
 			{
 				enableEarlyZPrepass: true,
-				enableDeferredLighting: true,
 				sampleCount: 1,
 			},
 		);
-		assert.ok(phases.some((phase) => phase.phase === "webgpu-deferred-scene"));
-		assert.ok(phases.some((phase) => phase.phase === "webgpu-deferred"));
-		assert.ok(backend.pipelines.some((pipeline) =>
-			pipeline.label === "WebGPUDeferredLightingPipeline",
-		));
+		assert.ok(phases.some((phase) => phase.phase === "webgpu-scene"));
 		assert.ok(backend.pipelines.some((pipeline) =>
 			pipeline.label?.startsWith("WebGPUSceneEarlyZPipeline_"),
 		));
-		assert.ok(!backend.renderPipelines.some((pipeline) =>
-			pipeline.label?.endsWith("_gbuffer-extensions")),
-		"Base-only warmup must not compile extension replay");
+		assert.ok(backend.renderPipelines.some((pipeline) =>
+			pipeline.desc.fragment?.entryPoint === "fsMainSinglePBR"),
+		"Warmup must compile the forward scene fragment entry");
 	} finally {
 		owner.destroy();
 	}
 }
 
-function createDeferredWarmupMaterial() {
-	const code = readFileSync(new URL("../../browser/fixtures/webgpu_gbuffer_custom_probe.wgsl",
-		import.meta.url), "utf8");
-	return new ShaderMaterial({
-		deferredLighting: true,
-		vertexEntryPoint: "vsProbe",
-		fragmentDeferredBaseEntryPoint: "fsProbeBase",
-		fragmentDeferredExtensionsEntryPoint: "fsProbeExtensions",
-		uniformBindings: [
-			{ name: "color", type: "vec4f", value: [1, 0, 0, 1] },
-			{ name: "ext0", type: "vec4f", value: [0.5, 0.5, 0, 0] },
-			{ name: "ext3", type: "vec4u", value: [0, 0, 0, 0] },
-			{ name: "controls", type: "vec4f", value: [-1, 0, 1, 0] },
-		],
-		chunks: [
-			{ backend: "webgpu", language: "wgsl", stage: "vertex", code },
-			{ backend: "webgpu", language: "wgsl", stage: "fragment", mode: "deferred", code },
-		],
-	});
-}
-
-async function testDeferredSceneWarmupPreparesExtensionReplay() {
-	for (const earlyZ of [false, true]) {
+async function testSceneWarmupReusesForwardPipelines() {
+	for (const mode of ["single", "color", "mrt"]) {
 		for (const custom of [false, true]) {
-			const material = custom ? createDeferredWarmupMaterial()
-				: new PBRMaterial({ anisotropyStrength: 0.8 });
+			const material = custom ? createCustomSceneMaterial() : new PBRMaterial();
 			const { backend, owner, packet, prepared } = createStaticPreparationFixture(material);
 			try {
 				const phase = await owner._sceneDraws.warmup({
-					packets: [packet], frameResources: prepared, sceneTargetMode: "gbuffer",
-					deferredGBufferLayout: "extended", sampleCount: 1,
-					enableEarlyZPrepass: earlyZ, yieldIfNeeded: async () => {},
+					packets: [packet], frameResources: prepared, sceneTargetMode: mode,
+					sampleCount: 1, enableEarlyZPrepass: true, yieldIfNeeded: async () => {},
 				});
 				assert.equal(phase.failed, 0);
-				assert.ok(backend.renderPipelines.some((pipeline) =>
-					pipeline.desc.fragment?.entryPoint ===
-						(custom ? "fsProbeExtensions" : "fsMainGBufferExtensionsPBR")),
-				"Extended scene warmup must compile its extension fragment entry");
-				assert.equal(backend.renderPipelines.some((pipeline) =>
-					pipeline.label?.startsWith("WebGPUSceneEarlyZPipeline_")), earlyZ && !custom,
-				"Deferred custom shaders must use the same early-Z policy in warmup and frames");
-				const count = backend.renderPipelines.length;
-				await owner.getDrawResources(packet, prepared, {
-					sceneTargetMode: "gbuffer", deferredGBufferLayout: "extended",
-					sampleCount: 1, drawMode: "gbuffer-extensions",
+				assert.ok(phase.compiled > 0);
+				const pipelineCount = backend.renderPipelines.length;
+				const draws = await owner.getDrawResources(packet, prepared, {
+					sceneTargetMode: mode, sampleCount: 1,
 				});
-				assert.equal(backend.renderPipelines.length, count,
-					"The first extension replay must reuse the warmed pipeline");
+				assert.ok(draws?.length > 0);
+				assert.equal(backend.renderPipelines.length, pipelineCount,
+					"First scene draw must reuse the warmed forward pipeline");
 			} finally {
 				owner.destroy();
 			}
@@ -1144,61 +1103,123 @@ async function testDeferredSceneWarmupPreparesExtensionReplay() {
 	}
 }
 
-async function testDeferredSceneWarmupReportsExtensionFailure() {
-	const { backend, owner, packet, prepared } =
-		createStaticPreparationFixture(createDeferredWarmupMaterial());
-	const createPipeline = backend.createPipeline.bind(backend);
-	backend.createPipeline = async (desc) => {
-		if (desc.fragment?.entryPoint === "fsProbeExtensions") {
-			throw new Error("invalid deferred extension output");
-		}
-		return createPipeline(desc);
-	};
+async function testSceneWarmupPreservesCompilerDiagnostics() {
+	const { backend, owner, packet, prepared } = createStaticPreparationFixture();
+	const compileError = new ShaderCompileError({
+		backend: "webgpu", language: "wgsl", stage: "fragment", sourceKind: "builtin-scene",
+		label: "invalid-scene", code: "@fragment fn invalid() {}",
+		messages: [{ type: "error", message: "invalid scene output", line: 1, column: 14 }],
+	});
+	backend.createPipeline = async () => { throw compileError; };
 	try {
 		const phase = await owner._sceneDraws.warmup({
-			packets: [packet], frameResources: prepared, sceneTargetMode: "gbuffer",
-			deferredGBufferLayout: "extended", sampleCount: 1,
-			enableEarlyZPrepass: false, yieldIfNeeded: async () => {},
+			packets: [packet], frameResources: prepared, sceneTargetMode: "mrt",
+			sampleCount: 1, enableEarlyZPrepass: false, yieldIfNeeded: async () => {},
 		});
 		assert.equal(phase.failed, 1);
-		assert.match(phase.errors[0].message, /invalid deferred extension output/);
+		assert.strictEqual(phase.errors[0], compileError,
+			"Warmup reports must retain compiler diagnostics and source locations");
 	} finally {
 		owner.destroy();
 	}
 }
 
-async function testDeferredSceneWarmupPreservesCompilerDiagnostics() {
-	const { backend, owner, packet, prepared } =
-		createStaticPreparationFixture(createDeferredWarmupMaterial());
-	const compileError = new ShaderCompileError({
-		backend: "webgpu", language: "wgsl", stage: "fragment", sourceKind: "custom-material",
-		label: "invalid-extension", code: "@fragment fn fsProbeExtensions() {}",
-		messages: [{ type: "error", message: "invalid extension interface", line: 1, column: 14 }],
-	});
-	const createShaderModule = backend.createShaderModule.bind(backend);
-	backend.createShaderModule = async (desc) => {
-		if (desc.entryPoint === "fsProbeExtensions") throw compileError;
-		return createShaderModule(desc);
-	};
-	try {
-		const phase = await owner._sceneDraws.warmup({
-			packets: [packet], frameResources: prepared, sceneTargetMode: "gbuffer",
-			deferredGBufferLayout: "extended", sampleCount: 1,
-			enableEarlyZPrepass: false, yieldIfNeeded: async () => {},
-		});
-		assert.equal(phase.failed, 1);
-		assert.strictEqual(phase.errors[0], compileError,
-			"Deferred failure classification must retain compiler locations and source maps");
-	} finally {
-		owner.destroy();
+async function testComposedWarmupReusesActualSceneConfiguration() {
+	for (const scenario of [
+		{ name: "bloom", passes: { bloom: { enabled: true } }, mode: "color" },
+		{ name: "MSAA without postprocess", samples: 4, mode: "color" },
+		{ name: "SSAO", passes: { ssao: { enabled: true } }, mode: "mrt" },
+		{ name: "transmission", transmission: true, mode: "color" },
+		{ name: "occlusion", occlusion: true, mode: "mrt" },
+		{ name: "limited MRT", passes: { ssao: { enabled: true } },
+			maxColorAttachments: 4, samples: 4, effectiveSamples: 1, mode: "single" },
+	]) {
+		const backend = new FakeBackend();
+		if (scenario.maxColorAttachments) {
+			backend.device.limits.maxColorAttachments = scenario.maxColorAttachments;
+		}
+		backend.computeFacade = createWebGPUComputeFacade(backend);
+		const owner = new WebGPURenderResources(backend, backend.computeFacade);
+		const packet = createPacket(createModel([new PBRMaterial()]));
+		const frame = createFrame(packet);
+		const context = createFrameContext(frame,
+			resolveFeatureState({}, {}, "webgpu"), {
+				width: 4, height: 4,
+				postProcess: createResolvedPostProcess(scenario.passes ?? {}, "webgpu"),
+			});
+		if (scenario.transmission) {
+			frame.transparentPackets.push(createPacket(createModel([
+				new PBRMaterial({ transmissionFactor: 1 }),
+			])));
+		}
+		if (scenario.occlusion) {
+			context.features.enableOcclusionCulling = true;
+			frame.occlusion = {
+				enabled: true,
+				sourceFrameIndex: 0,
+				candidates: [{
+					packetId: packet.submission.id,
+					packet,
+					screenRect: { x: 0, y: 0, width: 4, height: 4 },
+					worldBounds: packet.submission.worldBounds,
+					nearDepth: 0.5,
+					farDepth: 1,
+					screenAreaPx: 16,
+					signatureA: 11,
+					signatureB: 17,
+					eligible: true,
+				}],
+				culledPacketIds: [],
+				visibleCandidateCount: 1,
+				eligibleCandidateCount: 1,
+			};
+		}
+		const sampleCount = scenario.samples ?? 1;
+		const executor = new WebGPUFrameExecutor(backend, owner, createMSAAContext(sampleCount));
+		let warmupRequest;
+		const warmup = owner.warmup.bind(owner);
+		owner.warmup = async (...args) => {
+			warmupRequest = args[4];
+			return warmup(...args);
+		};
+		const scenePipelines = () => backend.renderPipelines.filter((pipeline) =>
+			pipeline.label?.startsWith("WebGPUScenePipeline_") ||
+			pipeline.label?.startsWith("WebGPUSceneEarlyZPipeline_"));
+		try {
+			const report = await executor.frameRuntime.warmup(context,
+				{ includeParticles: false }, sampleCount);
+			assert.equal(report.failed, 0, `${scenario.name}: warmup must succeed`);
+			const warmed = scenePipelines();
+			assert.ok(warmed.length > 0);
+			await executor.beginFrame(context);
+			const targetState = getFrameGraphDebugState(executor).targetManager;
+			assert.equal(targetState.sceneTargetMode, scenario.mode, scenario.name);
+			assert.equal(targetState.sampleCount,
+				scenario.effectiveSamples ?? sampleCount, scenario.name);
+			await executor.executePass(
+				{ stage: "main-opaque", executor: "backend", enabled: true }, context,
+			);
+			const compiledAfterWarmup = scenePipelines().slice(warmed.length).map((pipeline) => ({
+				entryPoint: pipeline.desc.fragment?.entryPoint,
+				targetCount: pipeline.desc.fragment?.targets.length ?? 0,
+				sampleCount: pipeline.desc.sampleCount,
+			}));
+			assert.deepEqual(compiledAfterWarmup, [],
+				`${scenario.name}: actual scene draws must reuse warmed pipelines`);
+			assert.equal(warmupRequest.sceneTargetMode, targetState.sceneTargetMode);
+			assert.equal(warmupRequest.sampleCount, targetState.sampleCount);
+		} finally {
+			executor.destroy();
+			owner.destroy();
+		}
 	}
 }
 
 async function run() {
 	try {
-		await testDeferredSceneWarmupPreservesCompilerDiagnostics();
-		await testDeferredSceneWarmupReportsExtensionFailure();
-		await testDeferredSceneWarmupPreparesExtensionReplay();
+		await testComposedWarmupReusesActualSceneConfiguration();
+		await testSceneWarmupReusesForwardPipelines();
+		await testSceneWarmupPreservesCompilerDiagnostics();
 		await testOpaqueEqualDepthWinnerMatchesWithAndWithoutPrepass();
 		await testBuiltinDepthUsesOnlyDepthResources();
 		await testDepthPreparationRejectsPolicyChangesDuringCompilation();
@@ -1220,12 +1241,11 @@ async function run() {
 		await testWebGPUOITTransparentPipelineUsesDualTargets();
 		await testWebGPUOITTransmissionMaterialsStayLegacyPipeline();
 		await testPlanarCompositeUsesReflectionOwnedPipelineAndSharedSnapshot();
-		await testFeatureOwnedWarmupCompilesDeferredSceneVariants();
+		await testFeatureOwnedWarmupCompilesForwardSceneVariants();
 		await testFeatureResourceWarmupReportsCompilationFailures();
 		await testSceneShaderModuleRequestsCoalesce();
 		await testShadowToggleReusesPipelinesAndPreparation();
 		await testCustomCompileFallbackReusesPipelineAcrossShadowToggle();
-		await testOwnerDestroyRejectsPendingDeferredPipeline();
 		await testCustomShaderModuleRequestsCoalesce();
 		await testConcurrentFeatureShaderRequestsPreservePublishedFacades();
 		await testEarlyZInvalidationDiscardsLatePipeline();
@@ -1720,8 +1740,7 @@ async function testShadowToggleReusesPipelinesAndPreparation() {
 		[new PBRMaterial(), { sampleCount: 1 }],
 		[new Material({ shading: ShadingModel.Flat }), { sampleCount: 1 }],
 		[new Material({ shading: ShadingModel.Phong }), { sampleCount: 1 }],
-		[new PBRMaterial(), { sampleCount: 1, sceneTargetMode: "gbuffer" }],
-		[new PBRMaterial(), { sampleCount: 1, sceneTargetMode: "gbuffer", deferredGBufferLayout: "base" }],
+		[new PBRMaterial(), { sampleCount: 1, sceneTargetMode: "mrt" }],
 		[new UnlitMaterial(), { sampleCount: 1 }],
 		[createCustomSceneMaterial(), { sampleCount: 1 }],
 	]) {
@@ -1773,33 +1792,6 @@ async function testCustomCompileFallbackReusesPipelineAcrossShadowToggle() {
 	} finally {
 		owner.destroy();
 	}
-}
-
-async function testOwnerDestroyRejectsPendingDeferredPipeline() {
-	const backend = new FakeBackend();
-	const owner = new WebGPURenderResources(backend, createWebGPUComputeFacade(backend));
-	const create = backend.createPipeline.bind(backend);
-	let release;
-	let entered;
-	let calls = 0;
-	const gate = new Promise(resolve => { release = resolve; });
-	const started = new Promise(resolve => { entered = resolve; });
-	backend.createPipeline = async descriptor => {
-		const pipeline = await create(descriptor);
-		if (descriptor.label === "WebGPUDeferredLightingPipeline") {
-			calls++;
-			entered();
-			await gate;
-		}
-		return pipeline;
-	};
-	const pending = owner.getDeferredLightingPipeline();
-	await started;
-	owner.destroy();
-	release();
-	await assert.rejects(pending, /destroyed/);
-	assert.equal(calls, 1, "owner teardown must not restart deferred compilation");
-	assert.equal(backend.shaderModules.at(-1).destroyed, true);
 }
 
 async function testCustomShaderModuleRequestsCoalesce() {
@@ -1998,13 +1990,6 @@ function testScenePipelineResourcesExplicitlyDestroyInvalidatedHandles() {
 	assert.equal(shaderReleases, 2);
 	assert.equal(environment._pipelines.size, 0);
 
-	const deferred = new WebGPUDeferredResources({}, {});
-	deferred._deferredLightingPipeline = acquirePipeline();
-	deferred._decalPipeline = deferred._deferredLightingPipeline;
-	deferred._deferredLightingShaderModule = acquireShader();
-	deferred.onShaderRuntimeChanged();
-	assert.equal(pipelineReleases, 4);
-	assert.equal(shaderReleases, 3);
 }
 
 function testPipelineCleanupContinuesAfterReleaseFailures() {
@@ -2062,7 +2047,6 @@ function testFeaturePipelineOwnersPreserveCleanupWarnings() {
 	const cases = [
 		[new WebGPUEnvironmentResources({}, {}), "WebGPUEnvironmentResources"],
 		[new WebGPUPlanarReflectionDrawResources({}, {}), "WebGPUPlanarReflectionDrawResources"],
-		[new WebGPUDeferredResources({}, {}), "WebGPUDeferredResources"],
 	];
 	for (const [owner, scope] of cases) {
 		const store = createWebGPUResourceManager();
@@ -2076,16 +2060,8 @@ function testFeaturePipelineOwnersPreserveCleanupWarnings() {
 			released.push("module");
 			throw "shader release failed";
 		});
-		if (owner instanceof WebGPUDeferredResources) {
-			owner._deferredLightingPipeline = pipeline;
-			owner._decalBatchPipeline = store.registerComputePipeline({}, "batch", () => {
-				released.push("batch");
-			});
-			owner._deferredLightingShaderModule = module;
-		} else {
-			owner._pipelines.set("failed", pipeline);
-			owner._shaderModule = module;
-		}
+		owner._pipelines.set("failed", pipeline);
+		owner._shaderModule = module;
 		const previousWarn = Logger.warn;
 		Logger.warn = (message, options) => warnings.push([message, options]);
 		try {
@@ -2093,8 +2069,7 @@ function testFeaturePipelineOwnersPreserveCleanupWarnings() {
 		} finally {
 			Logger.warn = previousWarn;
 		}
-		assert.deepEqual(released, owner instanceof WebGPUDeferredResources ?
-			["pipeline", "batch", "module"] : ["pipeline", "module"]);
+		assert.deepEqual(released, ["pipeline", "module"]);
 		assert.deepEqual(warnings, [
 			[
 				"[webgpu-cache-resource-destroy-failed] Failed to destroy cached pipeline: " +

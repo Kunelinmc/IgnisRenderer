@@ -19,7 +19,6 @@ const WEBGPU_SCENE_SHADER_FILES = {
 	constants: "./webgpu/common/constants.wgsl",
 	definitions: "./webgpu/common/definitions.wgsl",
 	utils: "./webgpu/common/utils.wgsl",
-	deferredGBufferCodec: "./webgpu/common/deferredGBufferCodec.wgsl",
 	surfaceLighting: "./webgpu/common/surfaceLighting.wgsl",
 	vertexStage: "./webgpu/scene/vertexStage.wgsl",
 	fragmentPrelude: "./webgpu/scene/fragmentPrelude.wgsl",
@@ -30,7 +29,6 @@ const WEBGPU_SCENE_SHADER_FILES = {
 	fragmentPbrSpot: "./webgpu/scene/fragmentPbrSpot.wgsl",
 	fragmentPbrArea: "./webgpu/scene/fragmentPbrArea.wgsl",
 	fragmentPbrAmbient: "./webgpu/scene/fragmentPbrAmbient.wgsl",
-	fragmentGBuffer: "./webgpu/scene/fragmentGBuffer.wgsl",
 	fragmentSingleTarget: "./webgpu/scene/fragmentSingleTarget.wgsl",
 } as const satisfies Record<string, string>;
 
@@ -63,7 +61,6 @@ const WEBGPU_UTILITY_SHADER_FILES = {
 	present: "./webgpu/utility/present.wgsl",
 	colorDirtyClear: "./webgpu/utility/colorDirtyClear.wgsl",
 	depthDirtyClear: "./webgpu/utility/depthDirtyClear.wgsl",
-	decal: "./webgpu/scene/decal.wgsl",
 	oitResolve: "./webgpu/utility/oitResolve.wgsl",
 	occlusionCulling: "./webgpu/utility/occlusionCulling.wgsl",
 	mipmapBlit: { path: "./webgpu/utility/mipmapBlit.wgsl", sync: true },
@@ -71,7 +68,6 @@ const WEBGPU_UTILITY_SHADER_FILES = {
 
 const WEBGPU_FIXED_SHADER_FILES = {
 	environment: "./webgpu/environment/background.wgsl",
-	deferredLighting: "./webgpu/lighting/deferredLighting.wgsl",
 	particle: "./webgpu/particles/render.wgsl",
 	particleSimulation: "./webgpu/particles/simulation.wgsl",
 	clusteredLightingCull: "./webgpu/lighting/clusteredLightingCull.wgsl",
@@ -142,11 +138,6 @@ const sources = {
 		sourceKind: "builtin-scene",
 		source: asset("scene.depthPrepass"),
 	},
-	"webgpu.utility.decal": {
-		kind: "module",
-		sourceKind: "decal",
-		source: concat(["scene.deferredGBufferCodec", "utility.decal"], "<webgpu-decal-part>"),
-	},
 	"webgpu.scene": {
 		kind: "module",
 		sourceKind: "builtin-scene",
@@ -159,23 +150,6 @@ const sources = {
 		kind: "module",
 		sourceKind: "builtin-environment",
 		source: concat(["scene.lightData", "fixed.environment"], "<webgpu-shared-light-data-part>"),
-	},
-	"webgpu.deferredLighting": {
-		kind: "module",
-		sourceKind: "builtin-scene",
-		source: concat(
-			[
-				"scene.lightData",
-				"scene.constants",
-				"scene.definitions",
-				"scene.utils",
-				"scene.shadowVisibility",
-				"scene.deferredGBufferCodec",
-				"scene.surfaceLighting",
-				"fixed.deferredLighting",
-			],
-			"<webgpu-deferred-lighting-part>",
-		),
 	},
 	"webgpu.particle": {
 		kind: "module",

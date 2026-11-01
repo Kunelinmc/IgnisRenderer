@@ -11,8 +11,7 @@ import type { IRenderPipeline, IShaderModule } from "../types";
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
 import { Logger } from "../../foundation/Logger";
-import { WebGPUDeferredShaderError } from "../../foundation/Error";
-import { GBufferSlot, WEBGPU_MRT_COLOR_FORMATS } from "./constants";
+import { WEBGPU_MRT_COLOR_FORMATS } from "./constants";
 import {
 	type WebGPUScenePassDescriptor,
 	type WebGPUSceneTargetMode,
@@ -69,7 +68,7 @@ interface WebGPUSceneProgram {
 	fragmentModule: IShaderModule;
 	vertexEntryPoint: string;
 	fragmentEntryPoint: string;
-	fragmentTargetMode: "single" | "mrt" | "deferred" | null;
+	fragmentTargetMode: "single" | "mrt" | null;
 }
 
 function resolveBuiltinFragmentEntryPoint(
@@ -82,12 +81,6 @@ function resolveBuiltinFragmentEntryPoint(
 		: family === "flat" ? "Flat"
 		: "Unlit";
 	switch (descriptor.shaderEntryMode) {
-		case "gbuffer":
-			return `fsMainGBuffer${suffix}`;
-		case "gbuffer-extensions":
-			return `fsMainGBufferExtensions${suffix}`;
-		case "gbuffer-base":
-			return `fsMainGBufferBase${suffix}`;
 		case "oit":
 			return `fsMainOIT${suffix}`;
 		case "transmission-capture":
@@ -209,21 +202,13 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 			`layout:${geometryLayout.layoutKey}|depth:${depthFormat}|msaa:${sampleCount}`;
 		const cached = this._pipelineCache.get(cacheKey);
 		if (cached) return cached;
-		let pipeline: IRenderPipeline;
-		try {
-			pipeline = await this._createPipeline(
-				materialState,
-				pass,
-				topology,
-				geometryLayout,
-				sampleCount,
-			);
-		} catch (error) {
-			if (pass.sceneTargetMode === "gbuffer" && materialState.program.kind === "custom") {
-				throw new WebGPUDeferredShaderError(materialState.diagnostic.materialName, error);
-			}
-			throw error;
-		}
+		const pipeline = await this._createPipeline(
+			materialState,
+			pass,
+			topology,
+			geometryLayout,
+			sampleCount,
+		);
 		if (this._destroyed) {
 			this._destroyResource(pipeline);
 			return null;
@@ -267,7 +252,6 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 			descriptor.depthStateMode === "early-z-color" &&
 			!isTransparent &&
 			depthWrite;
-		const isGBufferExtensions = descriptor.depthStateMode === "gbuffer-extensions";
 
 		const effectiveTopology = pipelineState.wireframe ? "line-list" : topology;
 		const triangleTopology =
@@ -300,11 +284,11 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 				format: depthFormat,
 				depthWriteEnabled:
 					isTransmissionCapture ? true
-					: isEarlyZColor || isGBufferExtensions ? false
+					: isEarlyZColor ? false
 					: depthWrite && !isTransparent,
 				// Preserve last-draw wins at equal depth with or without the prepass.
 				depthCompare: isTransparent ? "less"
-					: isEarlyZColor || isGBufferExtensions ? "equal" : "less-equal",
+					: isEarlyZColor ? "equal" : "less-equal",
 			},
 			sampleCount: resolvedSampleCount,
 		} as any);
@@ -425,39 +409,6 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 			: useTransmissionBlend ? TRANSMISSION_BLEND_STATE
 			: ALPHA_BLEND_STATE;
 		const motionBlend = !isTransparent ? undefined : ALPHA_BLEND_STATE;
-		if (fragmentTargetKind === "gbuffer-extensions") {
-			return [{ format: TextureFormat.RGBA16Float }, { format: TextureFormat.RGBA16Uint }];
-		}
-
-		if (fragmentTargetKind === "gbuffer" || fragmentTargetKind === "gbuffer-base") {
-			const targets: ColorTargetState[] = [];
-			targets[GBufferSlot.AlbedoAlpha] = {
-				format: TextureFormat.RGBA8Unorm,
-			};
-			targets[GBufferSlot.NormalRoughMetal] = {
-				format: TextureFormat.RGBA8Unorm,
-			};
-			targets[GBufferSlot.EmissiveOcclusion] = {
-				format: TextureFormat.RGBA16Float,
-			};
-			targets[GBufferSlot.MotionDepth] = {
-				format: TextureFormat.RGBA16Float,
-			};
-			if (fragmentTargetKind === "gbuffer-base") {
-				return targets;
-			}
-			targets[GBufferSlot.Specular] = {
-				format: TextureFormat.RGBA16Float,
-			};
-			targets[GBufferSlot.CoatSheen] = {
-				format: TextureFormat.RGBA16Float,
-			};
-			targets[GBufferSlot.SheenReflectance] = {
-				format: TextureFormat.RGBA8Unorm,
-			};
-			return targets;
-		}
-
 		if (fragmentTargetKind === "single") {
 			return [
 				{
@@ -518,7 +469,7 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 
 	private _disableUnwrittenFragmentTargets(
 		targets: ColorTargetState[],
-		fragmentTargetMode: "single" | "mrt" | "deferred" | null
+		fragmentTargetMode: "single" | "mrt" | null
 	): void {
 		if (fragmentTargetMode !== "single") {
 			return;
@@ -543,12 +494,6 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 			}
 			const shaderCacheKey = pipelineState.program.cacheKey;
 			const mode = descriptor.sceneTargetMode;
-			const isExtensions = descriptor.shaderEntryMode === "gbuffer-extensions";
-			const fragmentEntryPoint = isExtensions
-				? program.fragmentExtensionsEntryPoint : program.fragmentEntryPoint;
-			if (!fragmentEntryPoint) {
-				throw new Error("Custom deferred shader is missing its extension entry point.");
-			}
 			const vertexModule = await this._getCustomShaderModule(
 				`${shaderCacheKey}:${mode}:vertex`,
 				program.vertexCode,
@@ -563,18 +508,18 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 				pipelineState.program.generatedSourceBlocks.fragment,
 				`WebGPUShaderMaterialFragment_${shaderCacheKey}_${mode}`,
 				"fragment",
-				fragmentEntryPoint
+				program.fragmentEntryPoint
 			);
 
 			return {
 				vertexModule,
 				fragmentModule,
 				vertexEntryPoint: program.vertexEntryPoint,
-				fragmentEntryPoint,
+				fragmentEntryPoint: program.fragmentEntryPoint,
 				fragmentTargetMode: program.fragmentTargetMode,
 			};
 		} catch (error) {
-			if (descriptor.sceneTargetMode === "gbuffer" || pipelineState.shaderRuntime.mode !== "warn") {
+			if (pipelineState.shaderRuntime.mode !== "warn") {
 				throw error;
 			}
 			const shaderId = pipelineState.diagnostic.shaderId ?? "unknown";
@@ -788,7 +733,7 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 	}
 
 	private _resolveSceneDepthFormat(mode: WebGPUSceneTargetMode): TextureFormat {
-		if (mode === "mrt" || mode === "gbuffer" || mode === "color") {
+		if (mode === "mrt" || mode === "color") {
 			return TextureFormat.Depth32Float;
 		}
 		const backend = this._backend as {

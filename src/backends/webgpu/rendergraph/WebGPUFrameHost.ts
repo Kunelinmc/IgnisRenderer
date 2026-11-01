@@ -14,7 +14,6 @@ export interface WebGPUFrameHost extends WebGPUDeviceResourceHost {
 	readonly computeFacade: IWebGPUComputeFacade;
 	readonly postProcessRuntime: BackendPostProcessRuntime;
 	readonly enableEarlyZPrepass: boolean;
-	readonly enableDeferredLighting: boolean;
 	readonly frameGraphValidationMode: "throw" | "warn";
 	readonly displayOutputState: DisplayOutputState;
 	createCommandEncoder(): ICommandEncoder;

@@ -475,7 +475,6 @@ export class FakeWebGPUBackend {
 		this.postProcessRuntime = postProcessSupport.runtime;
 		this.computeFacade = this;
 		this.enableEarlyZPrepass = true;
-		this.enableDeferredLighting = true;
 		this.frameGraphValidationMode = "throw";
 		this.canvasFormat = "rgba8unorm";
 		this.canvasDepthFormat = "depth24plus";
@@ -618,7 +617,6 @@ export class FakeWebGPUBackend {
 	assertDeviceOperational() {}
 
 	isEarlyZPrepassEnabled() { return true; }
-	isDeferredLightingEnabled() { return true; }
 	getFrameGraphValidationMode() { return "throw"; }
 
 	async createShaderModule(desc) {

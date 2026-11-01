@@ -243,7 +243,6 @@ function createFrameResources() {
 		scopeKey: "test",
 		sceneTargetMode: "mrt",
 		frameBinding: { id: "frame" },
-		decalFrameBinding: { id: "decal-frame" },
 		environmentBinding: { id: "environment" },
 		clusteredSceneBinding: { id: "clustered" },
 	};
@@ -356,7 +355,7 @@ async function testDefaultSubmissionFiltersDirtyRectsAndTracksPackets() {
 				candidatePackets.filter((packet) => packet.submission.id !== "b")
 			:	candidatePackets.filter((packet) => packet.submission.id === "b"),
 		resolveDrawOptions: (packet, rect) => ({
-			sceneTargetMode: packet.submission.id === "a" ? "gbuffer" : "mrt",
+			sceneTargetMode: packet.submission.id === "a" ? "single" : "mrt",
 			drawMode: rect?.x === 0 ? "early-z-prepass" : "default",
 			sampleCount: 1,
 		}),
@@ -371,7 +370,7 @@ async function testDefaultSubmissionFiltersDirtyRectsAndTracksPackets() {
 			drawOptions.drawMode,
 		]),
 		[
-			["a", "gbuffer", "early-z-prepass"],
+			["a", "single", "early-z-prepass"],
 			["skip", "mrt", "early-z-prepass"],
 			["b", "mrt", "default"],
 		]
@@ -398,11 +397,11 @@ async function testSubmissionSupportsExtraAndReplacementBindings() {
 		encoder,
 		resources,
 		frameResources: createFrameResources(),
-		packets: [drawPacket("gbuffer")],
+		packets: [drawPacket("custom")],
 		resolveDrawOptions: () => ({ sampleCount: 1 }),
 		resolveBindings: (draw) => [
 			...getDefaultWebGPUDrawBindings(draw),
-			{ slot: 3, group: { id: "gbuffer-write" } },
+			{ slot: 3, group: { id: "custom-binding" } },
 		],
 	});
 	await submitWebGPUDraws({
@@ -420,10 +419,10 @@ async function testSubmissionSupportsExtraAndReplacementBindings() {
 	assert.deepEqual(
 		encoder.calls.filter((call) => call[0] === "setBindingGroup"),
 		[
-			["setBindingGroup", 0, "frame-gbuffer"],
-			["setBindingGroup", 1, "model-gbuffer"],
-			["setBindingGroup", 2, "clustered-gbuffer"],
-			["setBindingGroup", 3, "gbuffer-write"],
+			["setBindingGroup", 0, "frame-custom"],
+			["setBindingGroup", 1, "model-custom"],
+			["setBindingGroup", 2, "clustered-custom"],
+			["setBindingGroup", 3, "custom-binding"],
 			["setBindingGroup", 0, "frame-planar"],
 			["setBindingGroup", 1, "model-planar"],
 			["setBindingGroup", 2, "reflection-texture"],
@@ -545,18 +544,18 @@ async function testSharedModelGroupRebindsPerDynamicOffset() {
 }
 
 function testScenePassDescriptorsExposePipelineStateKeyParts() {
-	const gbuffer = resolveWebGPUScenePassDescriptor(
-		"gbuffer",
+	const mrt = resolveWebGPUScenePassDescriptor(
+		"mrt",
 		"default",
 		"early-z-color"
 	);
-	assert.equal(gbuffer.pipelineLayoutKind, "scene");
-	assert.equal(gbuffer.fragmentTargetKind, "gbuffer");
-	assert.equal(gbuffer.shaderEntryMode, "gbuffer");
-	assert.equal(gbuffer.depthStateMode, "early-z-color");
-	assert.equal(gbuffer.sampleCountMode, "single-sample");
-	assert.equal(gbuffer.depthFormatMode, "depth32float");
-	assert.ok(gbuffer.pipelineKeyPart.includes("gbuffer|default|early-z-color"));
+	assert.equal(mrt.pipelineLayoutKind, "scene");
+	assert.equal(mrt.fragmentTargetKind, "mrt");
+	assert.equal(mrt.shaderEntryMode, "mrt");
+	assert.equal(mrt.depthStateMode, "early-z-color");
+	assert.equal(mrt.sampleCountMode, "mrt-msaa");
+	assert.equal(mrt.depthFormatMode, "depth32float");
+	assert.ok(mrt.pipelineKeyPart.includes("mrt|default|early-z-color"));
 
 	const oit = resolveWebGPUScenePassDescriptor("mrt", "oit", "default");
 	assert.equal(oit.fragmentTargetKind, "oit");

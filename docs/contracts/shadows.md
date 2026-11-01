@@ -120,7 +120,7 @@ rather than passing the complete `ShadowData` value, including its cascade
 arrays, through fragment-stage calls. This fast path must preserve enabled
 PCF/PCSS filtering, cascade blending, and transmittance sampling.
 
-WebGPU built-in Forward lighting and the Deferred lighting resolve must use
+WebGPU built-in forward lighting must use
 runtime frame and light uniforms to control shadow sampling. Changing a shadow
 definition's `enabled` state must affect the next frame without creating another
 shader module or pipeline solely for that state change. Static draw preparation

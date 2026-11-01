@@ -63,7 +63,7 @@ async function init() {
 	let backendLabel = "";
 
 	if (requestedBackend === "webgpu" && platform.hasWebGPU) {
-		backend = new WebGPUBackend({ enableDeferredLighting: true });
+		backend = new WebGPUBackend();
 		backendLabel = "WebGPU";
 	} else if (requestedBackend === "webgl" && platform.hasWebGL2) {
 		backend = new WebGLBackend();
@@ -74,7 +74,7 @@ async function init() {
 	} else {
 		// Auto fallback based on platform support
 		if (platform.hasWebGPU) {
-			backend = new WebGPUBackend({ enableDeferredLighting: true });
+			backend = new WebGPUBackend();
 			backendLabel = "WebGPU (Auto)";
 		} else if (platform.hasWebGL2) {
 			backend = new WebGLBackend();

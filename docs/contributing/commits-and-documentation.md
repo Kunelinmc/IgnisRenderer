@@ -45,7 +45,7 @@ matter.
 Examples:
 
 ```text
-feat(webgpu): add deferred resolve resource cache
+feat(webgpu): add scene pipeline resource cache
 
 fix(postprocess): clamp TAA history rect before sampling
 

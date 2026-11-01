@@ -78,7 +78,6 @@ function resolveInputResource(port: string): RenderGraphResourceId | null {
 		case "gbuffer:roughness":
 		case "gbuffer:metallic": return renderGraphResourceId(r.gbufferNormalRoughMetal);
 		case "gbuffer:albedo": return renderGraphResourceId(r.gbufferAlbedoAlpha);
-		case "gbuffer:specular": return renderGraphResourceId(r.gbufferSpecular);
 		case "gbuffer:transmission": return renderGraphResourceId(r.transmissionSurface0);
 		case "gbuffer:emissive":
 		case "gbuffer:occlusion": return renderGraphResourceId(r.gbufferEmissiveOcclusion);

@@ -47,7 +47,6 @@ struct OpaquePBRSurfaceInput {
 }
 
 // Direct, isotropic thin-surface transmission; shared by forward light loops.
-// Keep this separate from the opaque evaluator used by deferred lighting.
 fn evaluatePBRTransmissionLight(
 	surface: OpaquePBRSurfaceInput,
 	lightDirection: vec3<f32>,

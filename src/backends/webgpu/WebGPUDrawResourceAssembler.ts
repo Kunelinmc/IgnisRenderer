@@ -141,7 +141,7 @@ export class WebGPUDrawResourceAssembler {
 		const transparentMode = options.transparentPipelineMode ?? "default";
 		const material = packet.submission.material.effective;
 		const key = `${sceneTargetMode}|${transparentMode}|${drawMode}|` +
-			`${options.sampleCount}|${options.deferredGBufferLayout ?? "extended"}`;
+			`${options.sampleCount}`;
 		let materials = scope.variants.get(key);
 		if (!materials) {
 			materials = new WeakMap();
@@ -153,7 +153,7 @@ export class WebGPUDrawResourceAssembler {
 		if (shared) shared.validatedEpoch = this._epoch;
 		if (!shared || shared.revision !== materialRevision) {
 			const descriptor = resolveWebGPUScenePassDescriptor(
-				sceneTargetMode, transparentMode, drawMode, options.deferredGBufferLayout,
+				sceneTargetMode, transparentMode, drawMode,
 			);
 			const snapshot = this._resources.resolveMaterial(material, false);
 			shared = {
@@ -206,7 +206,7 @@ export class WebGPUDrawResourceAssembler {
 			sameRuntime(runtime, readWebGPUShaderRuntimeView(this._backend));
 		if (!group) {
 			const descriptor = resolveWebGPUScenePassDescriptor(
-				sceneTargetMode, transparentMode, drawMode, options.deferredGBufferLayout,
+				sceneTargetMode, transparentMode, drawMode,
 			);
 			const pending = this._prepareStaticDraw(
 				packet, frameResources, options, pipelines, geometry, descriptor, shared,
@@ -288,7 +288,6 @@ export class WebGPUDrawResourceAssembler {
 		const pass = resolveWebGPUScenePassDescriptor(
 			options.sceneTargetMode ?? frame.sceneTargetMode,
 			options.transparentPipelineMode ?? "default", "early-z-prepass",
-			options.deferredGBufferLayout,
 		);
 		const isCurrent = () => epoch === this._epoch &&
 			!this._releasedScopes.has(scopeOwner) &&
@@ -349,7 +348,6 @@ export class WebGPUDrawResourceAssembler {
 				sceneTargetMode,
 				transparentPipelineMode,
 				drawMode,
-				options.deferredGBufferLayout,
 			);
 		const geometry = this._geometry.getGeometry(packet.submission.geometry);
 		const animationPayload = this._animation.getScenePayload(
@@ -538,7 +536,6 @@ function instantiateStaticDraw(
 
 function resolveShaderTargetMode(
 	mode: WebGPUDrawPassDescriptor["sceneTargetMode"],
-): "single" | "mrt" | "deferred" {
-	if (mode === "gbuffer") return "deferred";
+): "single" | "mrt" {
 	return mode === "color" ? "single" : mode;
 }
