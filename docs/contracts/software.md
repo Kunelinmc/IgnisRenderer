@@ -53,8 +53,11 @@ scene geometry. Pixels outside those regions must remain unchanged.
 
 Dirty regions must use clamped half-open pixel bounds. Full-frame work must be
 represented by one region covering the complete attachment extent. Every
-Software raster, particle, reflection-composite, and built-in post-process
-implementation must consume the same normalized regions.
+Software raster, particle, and reflection-composite implementation must consume
+the same normalized regions. Built-in post-process implementations must process
+the complete attachment extent without consuming dirty regions. When any
+post-process pass is enabled, the scene must be reconstructed over the complete
+attachment extent before post-processing.
 
 Frame presentation must succeed before post-process histories, temporal
 camera state, previous world matrices, and completed incremental coverage are

@@ -217,8 +217,7 @@ export class SoftwareFrameSession {
 		return (
 			frame.incrementalPartial &&
 			!frame.temporalHistoryReset &&
-			(context.postProcess.getEnabledPasses().length === 0 ||
-				this._executor.completedFramePreservesOutsideDirtyTiles)
+			context.postProcess.getEnabledPasses().length === 0
 		);
 	}
 

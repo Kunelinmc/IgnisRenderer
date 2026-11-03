@@ -6,7 +6,6 @@ import type {
 import type { FrameContext } from "../pipeline/types";
 import {
 	DEFAULT_POST_PROCESS_PLACEMENT,
-	getBuiltinPostProcessOrder,
 	getCustomPostProcessPlacementOrder,
 	isPostProcessPlacement,
 } from "./ordering";
@@ -53,7 +52,6 @@ export interface PostProcessDeclarationPlanRequest {
 	readonly backend: RenderBackendType;
 	readonly frameContext: FrameContext;
 	readonly gBuffer: LogicalGBufferBridge;
-	readonly startPassId?: string | null;
 	readonly warn?: (key: string, message: string) => void;
 	readonly resolveImplementation: (
 		pass: PostProcessPass
@@ -88,7 +86,6 @@ export interface PostProcessDeclarationPlan {
 	readonly height: number;
 	readonly orderedPasses: readonly ResolvedPostProcessPass[];
 	readonly passes: readonly PlannedPostProcessPass[];
-	readonly startPassId: string | null;
 	readonly initialColorDomain: PostProcessColorDomain;
 }
 
@@ -101,7 +98,6 @@ export interface PostProcessPlan {
 	readonly height: number;
 	readonly orderedPasses: readonly ResolvedPostProcessPass[];
 	readonly passes: readonly PlannedPostProcessPass[];
-	readonly startPassId: string | null;
 	readonly initialColorDomain: PostProcessColorDomain;
 	readonly historyDescriptors: readonly PostProcessHistoryDescriptor[];
 	readonly transientDescriptors: readonly PostProcessTransientDescriptor[];
@@ -164,18 +160,12 @@ export class PostProcessPlanner {
 				);
 			}
 		}
-		const startPassId = request.startPassId ??
-			this._resolveIncrementalStartPass(request.frameContext, orderedPasses);
-		const slicedPasses = this._sliceFromStartPass(orderedPasses, startPassId);
-		const initialColorDomain = this._resolveInitialColorDomain(
-			orderedPasses,
-			slicedPasses,
-		);
+		const initialColorDomain: PostProcessColorDomain = "scene-linear-hdr";
 		const width = Math.max(1, request.gBuffer.width);
 		const height = Math.max(1, request.gBuffer.height);
 		const passes: PlannedPostProcessPass[] = [];
 
-		for (const resolved of slicedPasses) {
+		for (const resolved of orderedPasses) {
 			const implementation = request.resolveImplementation(resolved.pass);
 			if (!implementation) {
 				warn(
@@ -227,7 +217,6 @@ export class PostProcessPlanner {
 			height,
 			orderedPasses: Object.freeze(orderedPasses),
 			passes: Object.freeze(passes),
-			startPassId,
 			initialColorDomain,
 		});
 	}
@@ -282,7 +271,6 @@ export class PostProcessPlanner {
 			height: declarations.height,
 			orderedPasses: declarations.orderedPasses,
 			passes: Object.freeze(passes),
-			startPassId: declarations.startPassId,
 			initialColorDomain: declarations.initialColorDomain,
 			historyDescriptors: Object.freeze(historyDescriptors),
 			transientDescriptors: Object.freeze(transientDescriptors),
@@ -290,21 +278,6 @@ export class PostProcessPlanner {
 			signature: this._createSignature(declarations.frameContext, passes),
 			outputColorDomain,
 		});
-	}
-
-	private _resolveInitialColorDomain(
-		orderedPasses: readonly ResolvedPostProcessPass[],
-		slicedPasses: readonly ResolvedPostProcessPass[],
-	): PostProcessColorDomain {
-		const first = slicedPasses[0];
-		if (!first) return "scene-linear-hdr";
-		let domain: PostProcessColorDomain = "scene-linear-hdr";
-		for (const pass of orderedPasses) {
-			if (pass === first) break;
-			const contract = pass.pass.colorContract;
-			if (contract?.input === domain) domain = contract.output;
-		}
-		return domain;
 	}
 
 	private _validateDeclaration(
@@ -536,29 +509,6 @@ export class PostProcessPlanner {
 		return Array.from(descriptors.values());
 	}
 
-	private _sliceFromStartPass(
-		passes: readonly ResolvedPostProcessPass[],
-		startPassId: string | null
-	): ResolvedPostProcessPass[] {
-		if (!startPassId) return Array.from(passes);
-		const index = passes.findIndex((pass) => pass.id === startPassId);
-		return index < 0 ? Array.from(passes) : passes.slice(index);
-	}
-
-	private _resolveIncrementalStartPass(
-		frameContext: FrameContext,
-		passes: readonly ResolvedPostProcessPass[]
-	): string | null {
-		const incremental = frameContext.incremental;
-		if (
-			!incremental?.enabled ||
-			incremental.forceFullFrame ||
-			incremental.firstPass !== "postprocess"
-		) return null;
-		const id = incremental.postProcessStartPass ?? null;
-		return id && passes.some((pass) => pass.id === id) ? id : null;
-	}
-
 	private _createResolveRequest<TOptions>(
 		resolved: ResolvedPostProcessPass<TOptions>,
 		request: PostProcessDeclarationPlanRequest,
@@ -653,8 +603,4 @@ function stableSerialize(value: unknown): string {
 	return `{${Object.keys(record).sort().map((key) =>
 		`${JSON.stringify(key)}:${stableSerialize(record[key])}`
 	).join(",")}}`;
-}
-
-export function isPostProcessPassStage(stage: string): boolean {
-	return stage === "postprocess" || getBuiltinPostProcessOrder(stage) !== null;
 }

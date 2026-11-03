@@ -5,9 +5,8 @@ import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 function mapSDR(color, exposure) {
 	const pixels = new Float32Array([...color, 1]);
 	new SoftwareToneMappingImplementation().execute({
-		frameContext: { attachments: { width: 1 } },
+		frameContext: { attachments: { width: 1, height: 1 } },
 	}, {
-		dirtyRects: [{ minX: 0, minY: 0, maxX: 0, maxY: 0 }],
 		displayOutput: {
 			requested: { exposure, hdrHeadroom: 4 }, activeDynamicRange: "sdr",
 		},
@@ -35,7 +34,7 @@ function createFrameContext(pixels) {
 	};
 }
 
-function testToneMappingPreservesAlphaAndDirtyRect() {
+function testToneMappingProcessesFullAttachmentAndPreservesAlpha() {
 	const pixels = new Float32Array([
 		4, 0.5, 0.25, 0.1,
 		2, 1.5, 1.25, 0.4,
@@ -47,7 +46,6 @@ function testToneMappingPreservesAlphaAndDirtyRect() {
 	implementation.execute({
 		frameContext: createFrameContext(pixels),
 	}, {
-		dirtyRects: [{ minX: 1, minY: 0, maxX: 1, maxY: 0 }],
 		displayOutput: {
 			requested: { mode: "sdr", exposure: 1, hdrHeadroom: 4 },
 			activeDynamicRange: "sdr",
@@ -58,10 +56,14 @@ function testToneMappingPreservesAlphaAndDirtyRect() {
 		},
 	});
 
-	assert.deepEqual(Array.from(pixels.slice(0, 4)), before.slice(0, 4));
-	assert.deepEqual(Array.from(pixels.slice(8, 12)), before.slice(8, 12));
-	assert.notDeepEqual(Array.from(pixels.slice(4, 7)), before.slice(4, 7));
-	assert.equal(pixels[7], before[7]);
+	for (let index = 0; index < pixels.length; index += 4) {
+		assert.notDeepEqual(
+			Array.from(pixels.slice(index, index + 3)),
+			before.slice(index, index + 3),
+			"tone mapping must transform every pixel in the attachment",
+		);
+		assert.equal(pixels[index + 3], before[index + 3]);
+	}
 	assert.ok(Math.abs(pixels[5] / pixels[4] - 0.75) < 1e-7);
 	assert.ok(Math.abs(pixels[6] / pixels[4] - 0.625) < 1e-7);
 	assert.ok(Math.abs(pixels[4] - 0.3941102756892233) < 1e-7);
@@ -116,7 +118,7 @@ function testSDRRetainsGrayscaleCurveAndHandlesZeroAndNegativeChannels() {
 function run() {
 	testSDRPreservesEmissiveColorRatiosUnderAttenuationAndExposure();
 	testSDRRetainsGrayscaleCurveAndHandlesZeroAndNegativeChannels();
-	testToneMappingPreservesAlphaAndDirtyRect();
+	testToneMappingProcessesFullAttachmentAndPreservesAlpha();
 	console.log("Software tone mapping tests passed");
 }
 

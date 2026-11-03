@@ -41,7 +41,6 @@ function createGraph(overrides = {}) {
 		height: overrides.height ?? 32,
 		orderedPasses: [],
 		passes: [],
-		startPassId: null,
 		historyDescriptors:
 			overrides.historyDescriptors ?? [
 				{ id: "history", format: "rgba16float" },

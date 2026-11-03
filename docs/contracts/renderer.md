@@ -88,7 +88,7 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
     carry conservative viewport-space `dirtyRects` for the affected output.
     The renderer must accumulate supplied rectangles until the next rendered
     frame and merge them with prepared-scene dirty coverage before tile
-    quantization, post-process inflation, and full-frame fallback evaluation.
+    quantization and full-frame fallback evaluation.
     An invalidation without usable rectangles must retain the conservative
     full-frame fallback behavior.
   - `type: "resource-lifecycle"`: emitted when backend-owned resources require renderer-side invalidation or destruction.
@@ -424,7 +424,7 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
 ### Incremental rendering
 
 - Each `Renderer` must own an independent incremental registry. Runtime pass
-  registration, ordering, dirty-reason descriptors, and post-process metadata
+  registration, ordering, and dirty-reason descriptors
   must not mutate another renderer's registry. The standalone default registry
   may seed a new runtime, but later mutations must not change that runtime.
 - Renderer-local dirty reasons must retain their local meaning when scheduling
@@ -447,9 +447,22 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
   names must have no compatibility aliases and must follow unknown-reason
   fallback when not explicitly registered as custom reasons.
 - Standalone `IncrementalFramePlanner` calls must force full-frame coverage for
-  `postfx` without requesting a temporal-history reset solely for that reason.
+  `postfx` and custom dirty reasons in the `postfx` group without requesting a
+  temporal-history reset solely for that group.
   `Renderer` must reset temporal history when constructing the complete replay
   frame context.
+- Incremental plans, frame contexts, and statistics must expose only the
+  frame-stage `firstPass`; they must not carry a post-process-specific start
+  pass. The `postfx` group must resolve to the `main-opaque` frame-stage
+  candidate when no explicit dirty-reason `firstPass` overrides it, regardless
+  of enabled effects.
+- When post-processing is supported and at least one logical pass is enabled,
+  frame coordination must force full scene coverage and clear the incremental
+  start stage. This coverage promotion alone must not reset temporal history;
+  existing dirty reasons and preparation invalidation must still reset it.
+- Scene dirty-region construction and fallback thresholds must be independent
+  of post-process passes. `PreparedSceneCache` must not consume post-process
+  snapshots or post-process metadata registries.
 - When scene work changes while shadows or visible planar-reflection surfaces
   are active, the renderer must conservatively rebuild full-frame coverage and
   execute the shadow and reflection producers before their scene consumers.
@@ -554,7 +567,7 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
   orthographic cameras. A bound that crosses the camera plane must use
   full-viewport coverage rather than an underestimated projected radius.
 - Backend-supplied dirty rectangles must participate in the same clamping,
-  merging, post-process inflation, tile quantization, and area-ratio fallback
+  merging, tile quantization, and area-ratio fallback
   as prepared-scene packet rectangles. Backend events must not directly mutate
   the active frame's immutable incremental context.
 - `IncrementalFrameStatus.plan` must describe the planner inputs and selected
@@ -575,9 +588,8 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
 - `IRenderBackend.getCompletedFrameCoverage()` is internal. It must return
   `"dirty-tiles"` only after a successful frame that preserved non-dirty tiles;
   otherwise it must return `"full-frame"`.
-- A post-process pass must return `preservesOutsideDirtyTiles: true` to take
-  part in a local-preservation guarantee. Omitted declarations must be treated
-  conservatively as full-frame output work.
+- Frames with enabled post-processing must report full-frame output coverage.
+  Post-process pass results must not declare preservation of non-dirty tiles.
 
 ### Warmup scheduling
 

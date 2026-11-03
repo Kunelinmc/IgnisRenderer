@@ -209,15 +209,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		});
 
 		this.postProcess = new PostProcessPassRegistry();
-		this.postProcess.on("change", (change) => {
-			if (change.reason === "register") {
-				const pass = this.postProcess.getPass(change.passId);
-				if (pass) {
-					this.pipeline.registerPostProcessPass(pass);
-				}
-			} else if (change.reason === "unregister" && !change.builtIn) {
-				this.pipeline.unregisterPostProcessPass(change.passId);
-			}
+		this.postProcess.on("change", () => {
 			if (this._scene) {
 				this._markFrameDirty("postfx");
 			} else {
@@ -1108,7 +1100,6 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 			dirtyTiles: fullFrameTiles.dirtyTiles.slice(),
 			dirtyAreaRatio: 1,
 			firstPass: null,
-			postProcessStartPass: null,
 			reasonMask,
 			temporalHistoryReset: true,
 		};

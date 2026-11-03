@@ -51,7 +51,6 @@ function createIncremental(width, height) {
 		dirtyTiles: [0],
 		dirtyAreaRatio: 1,
 		firstPass: null,
-		postProcessStartPass: null,
 		reasonMask: 0,
 		temporalHistoryReset: false,
 	};
@@ -168,7 +167,6 @@ function createSoftwareExecutor() {
 			}
 			return {
 				attachments: request.frameContext.attachments,
-				dirtyRects: [{ minX: 0, minY: 0, maxX: 2, maxY: 2 }],
 				resources: {
 					color: {
 						input: request.frameContext.sceneColor,
@@ -197,7 +195,6 @@ function createPassRequest(frameContext, pass) {
 		pass,
 		passId: "ssao",
 		options: frameContext.postProcess.getOptions("ssao"),
-		startPassId: null,
 	};
 }
 
@@ -252,7 +249,6 @@ function testSoftwareSSAOModifiesPixelsAndSkipsMissingBuffers() {
 		createPassRequest(frameContext, pass),
 		{
 			attachments: frameContext.attachments,
-			dirtyRects: [{ minX: 0, minY: 0, maxX: 2, maxY: 2 }],
 			resources: {
 				color: { input: frameContext.sceneColor, output: frameContext.sceneColor },
 			},
@@ -268,13 +264,38 @@ function testSoftwareSSAOModifiesPixelsAndSkipsMissingBuffers() {
 		createPassRequest(missing, pass),
 		{
 			attachments: missing.attachments,
-			dirtyRects: [{ minX: 0, minY: 0, maxX: 2, maxY: 2 }],
 			resources: {
 				color: { input: missing.sceneColor, output: missing.sceneColor },
 			},
 		}
 	);
 	assert.deepEqual(skipped, { ran: false });
+}
+
+function testSoftwareSSAOProcessesFullAttachment() {
+	const pass = new ScreenSpaceAmbientOcclusionPass({ enabled: true });
+	const implementation = new SoftwareScreenSpaceAmbientOcclusionImplementation();
+	implementation._kernel = new Array(4).fill({ x: 0, y: 0, z: -1 });
+	implementation._noise = new Array(16).fill({ x: 1, y: 0, z: 0 });
+	const frameContext = createSoftwareFrameContext({
+		samples: 4,
+		radius: 1,
+		bias: 0.01,
+		intensity: 1,
+		blurRadius: 1,
+	});
+	frameContext.attachments.depthBuffer.fill(1);
+	const result = implementation.execute(createPassRequest(frameContext, pass), {
+		attachments: frameContext.attachments,
+		resources: {
+			color: { input: frameContext.sceneColor, output: frameContext.sceneColor },
+		},
+	});
+	assert.equal(result.ran, true);
+	for (let index = 0; index < frameContext.sceneColor.length; index += 4) {
+		assert.deepEqual(Array.from(frameContext.sceneColor.slice(index, index + 4)),
+			[0, 0, 0, 1], "SSAO must evaluate and composite every attachment pixel");
+	}
 }
 
 function testSSAOOptionHelpersClampAndPackParams() {
@@ -405,6 +426,7 @@ function testGPUSSAOTransientDescriptorsFollowDownsample() {
 	);
 }
 
+testSoftwareSSAOProcessesFullAttachment();
 await testSSAOPipelineUsesPassOwnedImplementation();
 testSoftwareSSAOModifiesPixelsAndSkipsMissingBuffers();
 testSSAOOptionHelpersClampAndPackParams();

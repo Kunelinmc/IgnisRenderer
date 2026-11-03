@@ -125,8 +125,30 @@ retain the existing `postfx` policy: full-frame coverage without independently
 requesting a temporal-history reset. Callers that relied on the removed
 cinematic reason's planner reset can register a custom reason with
 `groups: ["postfx"]`, `forceFullFrame: true`, and `temporalHistoryReset: true`.
-Enabled pass metadata continues to determine `PostProcessGrade`, dirty-region
-inflation, and fallback scaling.
+Post-process schedules contain placement and order only. Remove incremental
+metadata and secondary pass registrations from callers.
+`PostProcessSchedule.incremental`, `PostProcessIncrementalMetadata`,
+`PostProcessGrade`, `GAMMA_PASS_INCREMENTAL`, and `TONE_MAPPING_PASS_INCREMENTAL`
+are removed. Register logical passes with `renderer.postProcess.registerPass()`;
+remove calls to pipeline or incremental-registry `registerPostProcessPass()` and
+`unregisterPostProcessPass()`. Scene preparation and standalone incremental
+planning no longer accept a post-process snapshot. Remove
+`PostProcessPassResult.preservesOutsideDirtyTiles`; enabled effects always
+produce full-frame output coverage.
+
+The unused `IncrementalDirtyRect` type and `isPostProcessPassStage()` helper are
+removed. Logical effect IDs are not frame stages; use the frame pipeline's
+registered stages for stage queries.
+`getEnabledCustomPostProcessPassIds()`, `hasEnabledCustomPostProcessPass()`, and
+`PostProcessPassRegistrySnapshot.hasEnabledCustomPass()` are also removed.
+Enumerate enabled passes with `snapshot.getEnabledPasses()` and filter or test
+`!resolved.pass.builtIn` to query custom passes. Read each resolved pass's `id`
+when IDs are needed.
+
+When post-processing is supported and any pass is enabled, the renderer reconstructs the complete
+scene and runs the complete enabled chain. Disable all post-process passes to
+retain incremental scene coverage. Full coverage for enabled post-processing
+alone preserves valid temporal history.
 
 See the [renderer contract](../contracts/renderer.md) and
 [post-process contract](../contracts/postprocess.md).

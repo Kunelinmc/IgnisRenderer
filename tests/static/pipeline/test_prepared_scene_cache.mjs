@@ -14,7 +14,6 @@ import {
 } from "../../../src/pipeline/PreparedSceneBuilder.ts";
 import { PreparedSceneCache } from "../../../src/pipeline/PreparedSceneCache.ts";
 import { DEFAULT_INCREMENTAL_RENDERING_OPTIONS } from "../../../src/pipeline/incremental.ts";
-import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
 function createFeatures(overrides = {}) {
@@ -178,9 +177,6 @@ function testPacketDiffLifecycle() {
 			viewportWidth: 320,
 			viewportHeight: 180,
 			features: createFeatures(),
-			postProcess: createResolvedPostProcess({
-				fxaa: { enabled: true },
-			}),
 			incrementalOptions: {
 				...DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
 				enabled: true,
@@ -233,7 +229,6 @@ function testBackendDirtyRectsJoinPreparedCoverage() {
 			viewportWidth: 320,
 			viewportHeight: 180,
 			features: createFeatures(),
-			postProcess: createResolvedPostProcess(),
 			incrementalOptions: {
 				...DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
 				enabled: true,
@@ -275,7 +270,7 @@ function testMergedExecutionCoverageIncludesExpandedTiles() {
 			const cache = new PreparedSceneCache();
 			const input = {
 				viewportWidth: 128, viewportHeight: 128,
-				features: createFeatures(), postProcess: createResolvedPostProcess(),
+				features: createFeatures(),
 				incrementalOptions: {
 					...DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
 					fullFrameFallbackAreaRatio: fallbackRatio,
@@ -341,7 +336,7 @@ function testCompleteMaterialChangesDirtyEveryAffectedPacket() {
 		const cache = new PreparedSceneCache();
 		const input = {
 			source: fixture.source, viewportWidth: 640, viewportHeight: 360,
-			features: createFeatures(), postProcess: createResolvedPostProcess(),
+			features: createFeatures(),
 			incrementalOptions: {
 				...DEFAULT_INCREMENTAL_RENDERING_OPTIONS, fullFrameFallbackAreaRatio: 1,
 			},
@@ -376,7 +371,7 @@ function testCompleteMaterialChangesDirtyEveryAffectedDecal() {
 			const cache = new PreparedSceneCache();
 			const input = {
 				viewportWidth: 320, viewportHeight: 180,
-				features: createFeatures(), postProcess: createResolvedPostProcess(),
+				features: createFeatures(),
 				incrementalOptions: {
 					...DEFAULT_INCREMENTAL_RENDERING_OPTIONS, fullFrameFallbackAreaRatio: 1,
 				},
@@ -428,9 +423,6 @@ function testDecalDiffLifecycle() {
 			viewportWidth: 320,
 			viewportHeight: 180,
 			features: createFeatures(),
-			postProcess: createResolvedPostProcess({
-				fxaa: { enabled: true },
-			}),
 			incrementalOptions: {
 				...DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
 				enabled: true,
@@ -496,9 +488,6 @@ function testDecalStateDiffDetectsBlendAndOpacityChanges() {
 			viewportWidth: 320,
 			viewportHeight: 180,
 			features: createFeatures(),
-			postProcess: createResolvedPostProcess({
-				fxaa: { enabled: true },
-			}),
 			incrementalOptions: {
 				...DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
 				enabled: true,
@@ -541,9 +530,6 @@ function testAreaFallbackToFullFrame() {
 			viewportWidth: 256,
 			viewportHeight: 256,
 			features: createFeatures(),
-			postProcess: createResolvedPostProcess({
-				fxaa: { enabled: true },
-			}),
 			incrementalOptions: {
 				...DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
 				enabled: true,
@@ -589,9 +575,6 @@ function testOcclusionHideRevealDirtyRects() {
 			viewportHeight: 180,
 			features: createFeatures({
 				enableOcclusionCulling: true,
-			}),
-			postProcess: createResolvedPostProcess({
-				fxaa: { enabled: true },
 			}),
 			incrementalOptions: {
 				...DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
@@ -653,9 +636,6 @@ function testMatrixDiffDetectsSmallFloatChanges() {
 			viewportWidth: 320,
 			viewportHeight: 180,
 			features: createFeatures(),
-			postProcess: createResolvedPostProcess({
-				fxaa: { enabled: true },
-			}),
 			incrementalOptions: {
 				...DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
 				enabled: true,
@@ -700,9 +680,6 @@ function testMaterialDiffDetectsSmallFloatChanges() {
 			viewportWidth: 320,
 			viewportHeight: 180,
 			features: createFeatures(),
-			postProcess: createResolvedPostProcess({
-				fxaa: { enabled: true },
-			}),
 			incrementalOptions: {
 				...DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
 				enabled: true,
@@ -747,9 +724,6 @@ function testMaterialDiffDetectsDepthWriteChanges() {
 			viewportWidth: 320,
 			viewportHeight: 180,
 			features: createFeatures(),
-			postProcess: createResolvedPostProcess({
-				fxaa: { enabled: true },
-			}),
 			incrementalOptions: {
 				...DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
 				enabled: true,
@@ -803,7 +777,6 @@ function testDeformationRevisionAndBoundsDirtyPreviousAndCurrentCoverage() {
 			viewportWidth: 320,
 			viewportHeight: 180,
 			features: createFeatures(),
-			postProcess: createResolvedPostProcess(),
 			incrementalOptions: {
 				...DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
 				enabled: true,
@@ -848,7 +821,6 @@ function testFullFrameBuildSkipsDiffAndRebasesState() {
 			viewportWidth: 320,
 			viewportHeight: 180,
 			features: createFeatures(),
-			postProcess: createResolvedPostProcess(),
 			incrementalOptions: {
 				...DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
 				enabled: true,
@@ -964,7 +936,6 @@ function testCameraMatrixChangeForcesFullFrameAndRebasesPacketRects() {
 			viewportWidth: 320,
 			viewportHeight: 180,
 			features: createFeatures(),
-			postProcess: createResolvedPostProcess(),
 			incrementalOptions: {
 				...DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
 				enabled: true,
@@ -1037,7 +1008,6 @@ function testMainViewReusesCameraIndependentPreparedState() {
 			viewportWidth: 320,
 			viewportHeight: 180,
 			features: createFeatures(),
-			postProcess: createResolvedPostProcess(),
 			incrementalOptions: {
 				...DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
 				enabled: true,
@@ -1264,7 +1234,7 @@ function testDirtySignaturesAreSharedOnlyWithinOneBuild() {
 		const cache = new PreparedSceneCache();
 		const input = {
 			viewportWidth: 320, viewportHeight: 180,
-			features: createFeatures(), postProcess: createResolvedPostProcess(),
+			features: createFeatures(),
 			incrementalOptions: {
 				...DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
 				enabled, fullFrameFallbackAreaRatio: 1,
@@ -1343,7 +1313,7 @@ function testDecalOnlyMemoDoesNotMixOtherDecals() {
 	try {
 		const input = {
 			viewportWidth: 320, viewportHeight: 180,
-			features: createFeatures(), postProcess: createResolvedPostProcess(),
+			features: createFeatures(),
 			incrementalOptions: {
 				...DEFAULT_INCREMENTAL_RENDERING_OPTIONS, enabled: true, fullFrameFallbackAreaRatio: 1,
 			},
@@ -1366,7 +1336,7 @@ function testFallbackConsumesSuccessfulValidationOnce() {
 		const cache = new PreparedSceneCache();
 		const input = {
 			source: fixture.source, viewportWidth: 320, viewportHeight: 180,
-			features: createFeatures(), postProcess: createResolvedPostProcess(),
+			features: createFeatures(),
 			incrementalOptions: { ...DEFAULT_INCREMENTAL_RENDERING_OPTIONS, enabled: false },
 		};
 		const first = cache.build(input);
@@ -1538,7 +1508,6 @@ function testDisabledIncrementalRebasesBeforePartialUpdates() {
 	const cache = new PreparedSceneCache();
 	const input = {
 		viewportWidth: 320, viewportHeight: 180, features: createFeatures(),
-		postProcess: createResolvedPostProcess(),
 		incrementalOptions: { ...DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
 			enabled: true, fullFrameFallbackAreaRatio: 1 },
 	};

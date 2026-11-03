@@ -2,15 +2,6 @@ import {
 	type FramePassStage,
 	type ResolvedFeatureState,
 } from "./types";
-import {
-	type PostProcessPass,
-	type PostProcessPassId,
-	type PostProcessPassRegistrySnapshot,
-	getEnabledCustomPostProcessPassIds,
-} from "../postprocess/PostProcessPass";
-
-type ResolvedPostProcessState = PostProcessPassRegistrySnapshot;
-
 export const RENDER_DIRTY_REASON_MASK = {
 	unknown: 1 << 0,
 	resize: 1 << 1,
@@ -50,13 +41,6 @@ export interface DirtyRect {
 	height: number;
 }
 
-export interface IncrementalDirtyRect {
-	minX: number;
-	minY: number;
-	maxX: number;
-	maxY: number;
-}
-
 export interface DirtyTileCoverage {
 	tileSize: number;
 	tileColumns: number;
@@ -78,7 +62,6 @@ export interface IncrementalFrameStats {
 	forceFullFrame: boolean;
 	temporalHistoryReset: boolean;
 	firstPass: FramePassStage | null;
-	postProcessStartPass: string | null;
 	dirtyRectCount: number;
 	dirtyTileCount: number;
 	dirtyTileSize: number;
@@ -237,7 +220,6 @@ export interface IncrementalFrameContext {
 	dirtyTiles: number[];
 	dirtyAreaRatio: number;
 	firstPass: FramePassStage | null;
-	postProcessStartPass: string | null;
 	reasonMask: number;
 	temporalHistoryReset: boolean;
 }
@@ -249,25 +231,15 @@ export interface IncrementalPlanInput {
 	hasEnabledShadows?: boolean;
 	/** Whether the prepared view contains enabled planar-reflection receivers. */
 	hasEnabledReflections?: boolean;
-	postProcess: ResolvedPostProcessState;
 	registry?: IncrementalRegistry;
 }
 
 export interface IncrementalPlan {
 	firstPass: FramePassStage | null;
-	postProcessStartPass: string | null;
 	forceFullFrame: boolean;
 	temporalHistoryReset: boolean;
 	reasonMask: number;
 }
-
-export const POST_PROCESS_GRADES = [
-	"none",
-	"light",
-	"standard",
-	"cinematic",
-] as const;
-export type PostProcessGrade = (typeof POST_PROCESS_GRADES)[number];
 
 export type IncrementalDirtyReasonGroup =
 	| "simulation"
@@ -295,14 +267,6 @@ export interface IncrementalFramePassDescriptor {
 	readonly order?: number;
 }
 
-export interface PostProcessIncrementalMetadata {
-	readonly firstPass?: FramePassStage | null;
-	readonly grade?: PostProcessGrade;
-	readonly inflationRadius?: number;
-	readonly fallbackScale?: number;
-	readonly isEnabled?: (postProcess: ResolvedPostProcessState) => boolean;
-}
-
 interface RegisteredDirtyReasonDescriptor
 	extends IncrementalDirtyReasonDescriptor {
 	readonly mask: number;
@@ -313,17 +277,6 @@ interface RegisteredDirtyReasonDescriptor
 interface RegisteredFramePassDescriptor extends IncrementalFramePassDescriptor {
 	readonly order: number;
 	readonly builtIn: boolean;
-}
-
-interface RegisteredPostProcessIncrementalMetadata
-	extends Required<
-		Omit<PostProcessIncrementalMetadata, "firstPass" | "isEnabled">
-	> {
-	readonly id: string;
-	readonly firstPass: FramePassStage | null;
-	readonly order: number;
-	readonly builtIn: boolean;
-	readonly isEnabled?: (postProcess: ResolvedPostProcessState) => boolean;
 }
 
 interface DirtyReasonSeed extends IncrementalDirtyReasonDescriptor {
@@ -339,22 +292,6 @@ const BUILTIN_FRAME_PASS_STAGE_ORDER: FramePassStage[] = [
 	"particles",
 	"postprocess",
 ];
-
-type PostProcessStage = PostProcessPassId | (string & {});
-
-const POST_PROCESS_GRADE_INFLATION_RADIUS: Record<PostProcessGrade, number> = {
-	none: 0,
-	light: 2,
-	standard: 12,
-	cinematic: 24,
-};
-
-const POST_PROCESS_GRADE_FALLBACK_SCALE: Record<PostProcessGrade, number> = {
-	none: 1,
-	light: 1,
-	standard: 0.9,
-	cinematic: 0.8,
-};
 
 export const DEFAULT_INCREMENTAL_DIRTY_TILE_SIZE = 32;
 
@@ -469,33 +406,12 @@ const DIRTY_REASON_SEEDS: readonly DirtyReasonSeed[] = [
 	},
 ];
 
-const POST_PROCESS_GRADE_INDEX: Record<PostProcessGrade, number> = {
-	none: 0,
-	light: 1,
-	standard: 2,
-	cinematic: 3,
-};
-
-const DEFAULT_CUSTOM_POST_PROCESS_INCREMENTAL_METADATA: Required<
-	Omit<PostProcessIncrementalMetadata, "firstPass" | "isEnabled">
-> & {
-	firstPass: null;
-} = {
-	firstPass: null,
-	grade: "light",
-	inflationRadius: 2,
-	fallbackScale: 1,
-};
-
 export class IncrementalRegistry {
 	private _dirtyReasons = new Map<string, RegisteredDirtyReasonDescriptor>();
 	private _dirtyReasonsByMask = new Map<number, RegisteredDirtyReasonDescriptor>();
 	private _framePasses = new Map<FramePassStage, RegisteredFramePassDescriptor>();
-	private _postProcessPasses =
-		new Map<string, RegisteredPostProcessIncrementalMetadata>();
 	private _nextCustomDirtyReasonBit = 15;
 	private _nextFramePassOrder = 0;
-	private _nextPostProcessOrder = 0;
 
 	constructor() {
 		for (const descriptor of DIRTY_REASON_SEEDS) {
@@ -524,10 +440,8 @@ export class IncrementalRegistry {
 		registry._dirtyReasons = new Map(this._dirtyReasons);
 		registry._dirtyReasonsByMask = new Map(this._dirtyReasonsByMask);
 		registry._framePasses = new Map(this._framePasses);
-		registry._postProcessPasses = new Map(this._postProcessPasses);
 		registry._nextCustomDirtyReasonBit = this._nextCustomDirtyReasonBit;
 		registry._nextFramePassOrder = this._nextFramePassOrder;
-		registry._nextPostProcessOrder = this._nextPostProcessOrder;
 		return registry;
 	}
 
@@ -679,176 +593,6 @@ export class IncrementalRegistry {
 		return this._framePasses.get(stage)?.order ?? Number.MAX_SAFE_INTEGER;
 	}
 
-	/**
-	 * Registers incremental metadata for a logical post-process pass.
-	 *
-	 * @param pass Pass instance. Built-in pass metadata cannot be removed;
-	 * manually registered passes can be removed.
-	 * @returns Nothing.
-	 * @sideEffects Mutates post-process incremental planning metadata.
-	 */
-	public registerPostProcessPass(pass: PostProcessPass): void {
-		const id = pass.id;
-		const passMetadata = {
-			...(pass.schedule.order === undefined ? {} : {
-				order: pass.schedule.order,
-			}),
-			...(pass.schedule.incremental ?? {}),
-		};
-		const builtIn = pass.builtIn === true;
-		const current = this._postProcessPasses.get(id);
-		if (current?.builtIn && !builtIn) {
-			throw new Error(
-				`Cannot register built-in post-process incremental metadata "${id}".`
-			);
-		}
-		if (
-			current &&
-			!current.builtIn &&
-			!builtIn &&
-			pass.schedule.incremental === undefined &&
-			pass.schedule.order === undefined
-		) {
-			return;
-		}
-		if (
-			current?.builtIn &&
-			builtIn &&
-			pass.schedule.incremental === undefined
-		) {
-			return;
-		}
-		this._registerPostProcessPass({ id, ...passMetadata }, builtIn);
-	}
-
-	public unregisterPostProcessPass(id: string): void {
-		const metadata = this._postProcessPasses.get(id);
-		if (!metadata) {
-			return;
-		}
-		if (metadata.builtIn) {
-			throw new Error(
-				`Cannot unregister built-in post-process incremental metadata "${id}".`
-			);
-		}
-		this._postProcessPasses.delete(id);
-	}
-
-	/**
-	 * Identifies post-process stages using registered metadata and, when
-	 * supplied, the current post-process snapshot.
-	 *
-	 * @param id Candidate post-process pass id.
-	 * @param postProcess Current snapshot; registered built-ins must be present
-	 * in this snapshot when it is supplied.
-	 * @returns `true` when the id belongs to the post-process sequence.
-	 * @sideEffects None.
-	 */
-	public isPostProcessPass(
-		id: string,
-		postProcess?: ResolvedPostProcessState
-	): boolean {
-		const metadata = this._postProcessPasses.get(id);
-		if (metadata && !metadata.builtIn) {
-			return true;
-		}
-		if (isBuiltInPostProcessStage(id, postProcess)) {
-			return true;
-		}
-		return metadata?.builtIn === true && postProcess === undefined;
-	}
-
-	public resolveFirstEnabledPostProcessStage(
-		postProcess: ResolvedPostProcessState
-	): FramePassStage | null {
-		const candidates: FramePassStage[] = [];
-		for (const metadata of this.getEnabledPostProcessMetadata(postProcess)) {
-			if (metadata.firstPass) {
-				candidates.push(metadata.firstPass);
-			}
-		}
-		return candidates.length > 0 ? this.pickEarliestPass(candidates) : null;
-	}
-
-	public resolvePostProcessGrade(
-		postProcess: ResolvedPostProcessState
-	): PostProcessGrade {
-		let grade: PostProcessGrade = "none";
-		for (const metadata of this.getEnabledPostProcessMetadata(postProcess)) {
-			if (
-				POST_PROCESS_GRADE_INDEX[metadata.grade] >
-				POST_PROCESS_GRADE_INDEX[grade]
-			) {
-				grade = metadata.grade;
-			}
-		}
-		return grade;
-	}
-
-	public computePostProcessInflationRadius(
-		postProcess: ResolvedPostProcessState
-	): number {
-		let radius = getPostProcessGradeInflationRadius(
-			this.resolvePostProcessGrade(postProcess)
-		);
-		for (const metadata of this.getEnabledPostProcessMetadata(postProcess)) {
-			radius = Math.max(radius, metadata.inflationRadius);
-		}
-		return radius;
-	}
-
-	public scaleFullFrameFallbackAreaRatioForPostProcess(
-		baseRatio: number,
-		postProcess: ResolvedPostProcessState
-	): number {
-		const normalizedBaseRatio = clampNumber(
-			baseRatio,
-			0.01,
-			1,
-			DEFAULT_INCREMENTAL_RENDERING_OPTIONS.fullFrameFallbackAreaRatio
-		);
-		let scale =
-			POST_PROCESS_GRADE_FALLBACK_SCALE[
-				this.resolvePostProcessGrade(postProcess)
-			] ?? 1;
-		for (const metadata of this.getEnabledPostProcessMetadata(postProcess)) {
-			scale = Math.min(scale, metadata.fallbackScale);
-		}
-		return clampNumber(normalizedBaseRatio * scale, 0.01, 1, normalizedBaseRatio);
-	}
-
-	private getEnabledPostProcessMetadata(
-		postProcess: ResolvedPostProcessState
-	): RegisteredPostProcessIncrementalMetadata[] {
-		const metadataList: RegisteredPostProcessIncrementalMetadata[] = [];
-		const seen = new Set<string>();
-		for (const metadata of this._postProcessPasses.values()) {
-			if (!this._isPostProcessMetadataEnabled(metadata, postProcess)) {
-				continue;
-			}
-			metadataList.push(metadata);
-			seen.add(metadata.id);
-		}
-		for (const id of getEnabledCustomPostProcessPassIds(postProcess)) {
-			if (seen.has(id)) {
-				continue;
-			}
-			metadataList.push(this._createDefaultCustomPostProcessMetadata(id));
-		}
-		metadataList.sort((left, right) => left.order - right.order);
-		return metadataList;
-	}
-
-	private _isPostProcessMetadataEnabled(
-		metadata: RegisteredPostProcessIncrementalMetadata,
-		postProcess: ResolvedPostProcessState
-	): boolean {
-		if (metadata.isEnabled) {
-			return metadata.isEnabled(postProcess);
-		}
-		return postProcess.isEnabled(metadata.id);
-	}
-
 	private _registerDirtyReason(
 		descriptor: IncrementalDirtyReasonDescriptor & { readonly mask?: number },
 		builtIn: boolean
@@ -892,75 +636,13 @@ export class IncrementalRegistry {
 		this._nextCustomDirtyReasonBit++;
 		return mask >>> 0;
 	}
-
-	private _registerPostProcessPass(
-		metadata: PostProcessIncrementalMetadata & {
-			readonly id: string;
-			readonly order?: number;
-			readonly isEnabled?: (postProcess: ResolvedPostProcessState) => boolean;
-		},
-		builtIn: boolean
-	): void {
-		if (!metadata.id) {
-			throw new Error("Post-process incremental metadata id is required.");
-		}
-		const current = this._postProcessPasses.get(metadata.id);
-		if (current?.builtIn && !builtIn) {
-			throw new Error(
-				`Cannot register built-in post-process incremental metadata "${metadata.id}".`
-			);
-		}
-		const order =
-			typeof metadata.order === "number" && Number.isFinite(metadata.order) ?
-				metadata.order
-			:	this._nextPostProcessOrder++;
-		this._nextPostProcessOrder = Math.max(
-			this._nextPostProcessOrder,
-			order + 1
-		);
-		const normalized =
-			builtIn ?
-				normalizeBuiltInPostProcessMetadata(metadata, order)
-			:	this._createDefaultCustomPostProcessMetadata(metadata.id, metadata, order);
-		this._postProcessPasses.set(metadata.id, {
-			...normalized,
-			order,
-			builtIn,
-			isEnabled: metadata.isEnabled,
-		});
-	}
-
-	private _createDefaultCustomPostProcessMetadata(
-		id: string,
-		metadata: PostProcessIncrementalMetadata = {},
-		order = this._nextPostProcessOrder
-	): RegisteredPostProcessIncrementalMetadata {
-		return {
-			id,
-			firstPass:
-				metadata.firstPass === undefined ?
-					id
-				:	metadata.firstPass,
-			grade:
-				metadata.grade ??
-				DEFAULT_CUSTOM_POST_PROCESS_INCREMENTAL_METADATA.grade,
-			inflationRadius:
-				metadata.inflationRadius ??
-				DEFAULT_CUSTOM_POST_PROCESS_INCREMENTAL_METADATA.inflationRadius,
-			fallbackScale:
-				metadata.fallbackScale ??
-				DEFAULT_CUSTOM_POST_PROCESS_INCREMENTAL_METADATA.fallbackScale,
-			order,
-			builtIn: false,
-		};
-	}
 }
 
 const DEFAULT_INCREMENTAL_REGISTRY = new IncrementalRegistry();
 
 /**
  * Returns the standalone incremental registry used to seed renderer-local
- * registries. Post-process metadata requires explicit logical-pass registration.
+ * registries for frame stages and dirty reasons.
  */
 export function getDefaultIncrementalRegistry(): IncrementalRegistry {
 	return DEFAULT_INCREMENTAL_REGISTRY;
@@ -1047,7 +729,6 @@ export class IncrementalFramePlanner {
 		if (!input.enabled) {
 			return {
 				firstPass: null,
-				postProcessStartPass: null,
 				forceFullFrame: true,
 				temporalHistoryReset: true,
 				reasonMask,
@@ -1057,7 +738,6 @@ export class IncrementalFramePlanner {
 		if (reasonMask === 0) {
 			return {
 				firstPass: null,
-				postProcessStartPass: null,
 				forceFullFrame: requiresSceneReplay,
 				temporalHistoryReset: requiresSceneReplay,
 				reasonMask,
@@ -1068,7 +748,8 @@ export class IncrementalFramePlanner {
 		let temporalHistoryReset = requiresSceneReplay;
 		let forceFullFrame = requiresSceneReplay;
 		for (const descriptor of registry.getDirtyReasonDescriptorsForMask(reasonMask)) {
-			forceFullFrame ||= descriptor.forceFullFrame === true;
+			forceFullFrame ||= descriptor.forceFullFrame === true ||
+				descriptor.groups.includes("postfx");
 			temporalHistoryReset ||= descriptor.temporalHistoryReset === true;
 			const firstPass = resolveDirtyReasonFirstPass(
 				descriptor,
@@ -1084,39 +765,13 @@ export class IncrementalFramePlanner {
 			candidates.push("main-opaque");
 		}
 
-		const firstPass = registry.pickEarliestPass(candidates);
-		const postProcessStartPass =
-			isPostProcessStage(firstPass, registry, input.postProcess) ?
-				firstPass
-			:	null;
-		// In-place implementations cannot replay from the previous display output.
-		forceFullFrame ||= postProcessStartPass !== null;
 		return {
-			firstPass: postProcessStartPass ? "postprocess" : firstPass,
-			postProcessStartPass,
+			firstPass: registry.pickEarliestPass(candidates),
 			forceFullFrame,
 			temporalHistoryReset,
 			reasonMask,
 		};
 	}
-}
-
-function isPostProcessStage(
-	stage: FramePassStage | null,
-	registry: IncrementalRegistry,
-	postProcess: ResolvedPostProcessState
-): stage is PostProcessStage {
-	if (stage && registry.isPostProcessPass(stage, postProcess)) {
-		return true;
-	}
-	return stage ? postProcess.isEnabled(stage) : false;
-}
-
-function isBuiltInPostProcessStage(
-	stage: FramePassStage | null,
-	postProcess?: ResolvedPostProcessState
-): stage is PostProcessStage {
-	return !!stage && postProcess?.getPass(stage)?.pass.builtIn === true;
 }
 
 export function makeFullScreenRect(width: number, height: number): DirtyRect {
@@ -1367,12 +1022,6 @@ export function mergeDirtyRects(
 	return merged;
 }
 
-function getPostProcessGradeInflationRadius(
-	grade: PostProcessGrade
-): number {
-	return POST_PROCESS_GRADE_INFLATION_RADIUS[grade] ?? 0;
-}
-
 function unionDirtyRect(left: DirtyRect, right: DirtyRect): DirtyRect {
 	const minX = Math.min(left.x, right.x);
 	const minY = Math.min(left.y, right.y);
@@ -1405,7 +1054,7 @@ function resolveDirtyReasonFirstPass(
 				return input.hasEnabledShadows ? "shadow" :
 					input.hasEnabledReflections ? "reflection" : "main-opaque";
 			case "postfx":
-				return registry.resolveFirstEnabledPostProcessStage(input.postProcess);
+				return "main-opaque";
 			case "interaction":
 				return null;
 			default:
@@ -1413,26 +1062,6 @@ function resolveDirtyReasonFirstPass(
 		}
 	}
 	return null;
-}
-
-function normalizeBuiltInPostProcessMetadata(
-	metadata: PostProcessIncrementalMetadata & {
-		readonly id: string;
-		readonly order?: number;
-		readonly isEnabled?: (postProcess: ResolvedPostProcessState) => boolean;
-	},
-	order: number
-): RegisteredPostProcessIncrementalMetadata {
-	return {
-		id: metadata.id,
-		firstPass: metadata.firstPass ?? null,
-		grade: metadata.grade ?? "none",
-		inflationRadius: metadata.inflationRadius ?? 0,
-		fallbackScale: metadata.fallbackScale ?? 1,
-		order,
-		builtIn: true,
-		isEnabled: metadata.isEnabled,
-	};
 }
 
 function getDirtyRectArea(rect: DirtyRect): number {

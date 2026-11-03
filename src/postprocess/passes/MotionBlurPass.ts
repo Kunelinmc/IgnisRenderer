@@ -63,11 +63,6 @@ export const MOTION_BLUR_PASS_ORDER = {
 	id: MOTION_BLUR_PASS_ID,
 	placement: "camera",
 	order: 400,
-	incremental: {
-		firstPass: "motion-blur",
-		grade: "cinematic",
-		inflationRadius: 24,
-	},
 } as const satisfies PostProcessScheduleEntry;
 export interface MotionBlurOptions {
 	/** Virtual shutter duration multiplier. Higher values lengthen blur trails. */
@@ -470,7 +465,6 @@ export class MotionBlurPass extends PostProcessPass<
 			schedule: {
 				placement: config.schedule?.placement ?? MOTION_BLUR_PASS_ORDER.placement,
 				order: config.schedule?.order ?? MOTION_BLUR_PASS_ORDER.order,
-				incremental: config.schedule?.incremental ?? MOTION_BLUR_PASS_ORDER.incremental,
 			},
 			label: "motion blur",
 			colorContract: config.colorContract ?? {

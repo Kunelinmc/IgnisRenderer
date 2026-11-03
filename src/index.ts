@@ -183,10 +183,6 @@ export type {
 	ShadowDiagnostic,
 	ShadowFramePlan,
 } from "./lights/shadows/ShadowFramePlan";
-export {
-	getEnabledCustomPostProcessPassIds,
-	hasEnabledCustomPostProcessPass,
-} from "./postprocess";
 export type {
 	BloomOptions,
 	ColorFilterOptions,
@@ -232,8 +228,6 @@ export type {
 	IncrementalPlan,
 	IncrementalPlanInput,
 	IncrementalRenderingOptions,
-	PostProcessGrade,
-	PostProcessIncrementalMetadata,
 	RenderDirtyReason,
 } from "./pipeline/incremental";
 export {

@@ -30,13 +30,65 @@ function createResources(color) {
 	return { color: { input: color, output: color } };
 }
 
+function testPointEffectsProcessEveryAttachmentRow() {
+	for (const [implementation, options, expected] of [
+		[new SoftwareColorFilterImplementation(), { brightness: 0.1 }, 0.175],
+		[new SoftwareGammaImplementation(), {}, 0.2685493652415971],
+	]) {
+		const color = new Float32Array([
+			0.125, 0.125, 0.125, 0.5,
+			0.125, 0.125, 0.125, 0.5,
+			0.125, 0.125, 0.125, 0.5,
+			0.125, 0.125, 0.125, 0.5,
+		]);
+		const request = createRequest(color, options);
+		request.frameContext.attachments.width = 2;
+		request.frameContext.attachments.height = 2;
+		const result = implementation.execute(request, {
+			resources: createResources(color),
+		});
+		assert.equal(result.ran, true);
+		for (let index = 0; index < color.length; index += 4) {
+			for (let channel = 0; channel < 3; channel++) {
+				assert.ok(Math.abs(color[index + channel] - expected) < 1e-7,
+					`${implementation.id} must transform every attachment pixel`);
+			}
+			assert.equal(color[index + 3], 0.5);
+		}
+	}
+}
+
+function testFXAAProcessesFullAttachment() {
+	const color = new Float32Array([
+		0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1,
+		0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 1,
+		0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1,
+	]);
+	const request = createRequest(color);
+	request.frameContext.attachments.width = 3;
+	request.frameContext.attachments.height = 3;
+	const result = new SoftwareFastApproximateAntiAliasingImplementation().execute(
+		request,
+		{
+			attachments: { width: 3, height: 3 },
+			canvasContext: null,
+			resources: createResources(color),
+		},
+	);
+	assert.equal(result.ran, true);
+	assert.ok(color[16] > 0 && color[16] < 1, "FXAA must filter the center edge");
+	assert.ok(color[4] > 0, "FXAA must filter the neighboring row");
+	for (let index = 3; index < color.length; index += 4) {
+		assert.equal(color[index], 1);
+	}
+}
+
 function testHDRDomainBuiltInsPreserveRadiance() {
 	const colorFilterColor = new Float32Array([4, 2, 1, 1]);
 	const colorFilter = new SoftwareColorFilterImplementation();
 	const colorResult = colorFilter.execute(
 		createRequest(colorFilterColor),
 		{
-			dirtyRects: [{ minX: 0, minY: 0, maxX: 0, maxY: 0 }],
 			displayOutput: {
 				requested: { mode: "hdr", exposure: 1, hdrHeadroom: 6 },
 				activeDynamicRange: "hdr",
@@ -57,7 +109,6 @@ function testHDRDomainBuiltInsPreserveRadiance() {
 	const fxaaResult = fxaa.execute(createRequest(fxaaColor), {
 		attachments: { width: 3, height: 1 },
 		canvasContext: null,
-		dirtyRects: [{ minX: 0, minY: 0, maxX: 2, maxY: 0 }],
 		resources: createResources(fxaaColor),
 	});
 	assert.equal(fxaaResult.ran, true);
@@ -66,7 +117,6 @@ function testHDRDomainBuiltInsPreserveRadiance() {
 	const gammaColor = new Float32Array([4, 2, 1, 1]);
 	const gamma = new SoftwareGammaImplementation();
 	const gammaResult = gamma.execute(createRequest(gammaColor), {
-		dirtyRects: [{ minX: 0, minY: 0, maxX: 0, maxY: 0 }],
 		displayOutput: {
 			requested: { mode: "hdr", exposure: 1, hdrHeadroom: 6 },
 			activeDynamicRange: "hdr",
@@ -119,7 +169,7 @@ function testAuthoritativeColorResourceAndDomainTracking() {
 			width: 1,
 			height: 1,
 		},
-		clipRegions: [{ minX: 0, minY: 0, maxXExclusive: 1, maxYExclusive: 1 }],
+		clipRegions: [],
 	};
 	executor.bindSoftwareFrame(frame);
 	const frameContext = {
@@ -153,6 +203,9 @@ function testAuthoritativeColorResourceAndDomainTracking() {
 	const context = executor.createPassExecutionContext(request);
 	assert.equal(context.resources.color.input, color);
 	assert.notEqual(context.resources.color.input, frameContext.attachments.pixels);
+	assert.equal(new SoftwareToneMappingImplementation().execute(request, context).ran, true);
+	assert.ok(color[0] > 1 && color[0] < 4,
+		"post-processing must execute the full attachment when scene clip regions are empty");
 
 	executor.completePass(request, { ran: false });
 	assert.equal(executor.outputColorDomain, "scene-linear-hdr");
@@ -221,8 +274,7 @@ function testAdditiveParticlesPreserveHDRWithoutShadowServices() {
 
 function runHDRPass(implementation, color, exposure = 1, hdrHeadroom = 4) {
 	const pixels = new Float32Array([...color, 1]);
-	implementation.execute({ frameContext: { attachments: { width: 1 } } }, {
-		dirtyRects: [{ minX: 0, minY: 0, maxX: 0, maxY: 0 }],
+	implementation.execute({ frameContext: { attachments: { width: 1, height: 1 } } }, {
 		displayOutput: { requested: { exposure, hdrHeadroom }, activeDynamicRange: "hdr" },
 		resources: { color: { input: pixels, output: pixels } },
 	});
@@ -261,6 +313,8 @@ function testDisplayMappingNumerics() {
 }
 
 function run() {
+	testPointEffectsProcessEveryAttachmentRow();
+	testFXAAProcessesFullAttachment();
 	testDisplayMappingNumerics();
 	testSyntheticGBufferBridgeDoesNotResolveSceneColor();
 	testHDRDomainBuiltInsPreserveRadiance();

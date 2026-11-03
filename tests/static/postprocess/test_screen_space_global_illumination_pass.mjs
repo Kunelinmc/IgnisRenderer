@@ -55,7 +55,6 @@ function createRequest(options = {}, historyValid = false, cameraType = CameraTy
 		},
 		passId: "ssgi",
 		options,
-		startPassId: null,
 	};
 }
 
@@ -226,9 +225,6 @@ function testExecutionDeclaration() {
 			},
 		]
 	);
-	assert.equal(pass.schedule.incremental.grade, "cinematic");
-	assert.equal(pass.schedule.incremental.firstPass, "ssgi");
-	assert.equal(pass.schedule.incremental.inflationRadius, 8);
 	pass.destroy();
 }
 

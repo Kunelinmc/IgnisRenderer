@@ -281,7 +281,6 @@ export interface PostProcessPassRequest<TOptions = unknown>
 		| PostProcessPassImplementation<unknown, TOptions>
 		| null;
 	readonly options: TOptions;
-	readonly startPassId: string | null;
 	readonly declaration: PostProcessExecutionDeclaration;
 }
 
@@ -300,7 +299,6 @@ export interface PostProcessPassExecutionContextRequest<TOptions = unknown>
 
 export interface PostProcessPassResult {
 	readonly ran: boolean;
-	readonly preservesOutsideDirtyTiles?: boolean;
 	readonly updatedHistoryIds?: readonly string[];
 }
 

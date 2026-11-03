@@ -1,6 +1,5 @@
 import { EventEmitter } from "../core/EventEmitter";
 import type { FeatureWarning, FrameContext } from "../pipeline/types";
-import type { PostProcessIncrementalMetadata } from "../pipeline/incremental";
 import type { PostProcessPlacement } from "./ordering";
 import type {
 	IRenderBackend,
@@ -33,7 +32,6 @@ export type PostProcessPassImplementationFactory = (
 export interface PostProcessSchedule {
 	readonly placement?: PostProcessPlacement;
 	readonly order?: number;
-	readonly incremental?: PostProcessIncrementalMetadata;
 }
 
 export interface PostProcessPassConfig<TRawOptions = unknown> {
@@ -487,15 +485,6 @@ export class PostProcessPassRegistrySnapshot {
 		return Array.from(this._passes.values());
 	}
 
-	public hasEnabledCustomPass(): boolean {
-		for (const pass of this._passes.values()) {
-			if (!pass.pass.builtIn) {
-				return true;
-			}
-		}
-		return false;
-	}
-
 	public getWarnings(): readonly FeatureWarning[] {
 		return this._warnings.slice();
 	}
@@ -508,21 +497,6 @@ export class PostProcessPassRegistrySnapshot {
 			this._warnings
 		);
 	}
-}
-
-export function getEnabledCustomPostProcessPassIds(
-	postProcess: PostProcessPassRegistrySnapshot
-): string[] {
-	return postProcess
-		.getEnabledPasses()
-		.filter((pass) => !pass.pass.builtIn)
-		.map((pass) => pass.id);
-}
-
-export function hasEnabledCustomPostProcessPass(
-	postProcess: PostProcessPassRegistrySnapshot
-): boolean {
-	return postProcess.hasEnabledCustomPass();
 }
 
 function clonePlainOptions<TOptions>(options?: Partial<TOptions>): Partial<TOptions> {

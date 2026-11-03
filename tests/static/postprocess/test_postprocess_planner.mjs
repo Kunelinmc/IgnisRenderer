@@ -44,7 +44,6 @@ function frame(incremental = {}) {
 			enabled: false,
 			forceFullFrame: false,
 			firstPass: null,
-			postProcessStartPass: null,
 			...incremental,
 		},
 	};
@@ -111,7 +110,6 @@ function plan(registry, overrides = {}) {
 		backend: "software",
 		frameContext: context,
 		gBuffer: overrides.gBuffer ?? gBuffer(),
-		startPassId: overrides.startPassId,
 		resolveImplementation: (pass) => overrides.missingIds?.has(pass.id) ?
 			null : pass.getImplementation("software"),
 		isSharedResourceAvailable: overrides.isSharedResourceAvailable,
@@ -120,7 +118,7 @@ function plan(registry, overrides = {}) {
 	return { result, warnings, snapshot };
 }
 
-function testOrderingSlicingAvailabilityAndSingleDescribe() {
+function testOrderingAvailabilityAndCompleteIncrementalSequence() {
 	let descriptions = 0;
 	const registry = new PostProcessPassRegistry();
 	registry.registerPass(new TestPass({
@@ -176,16 +174,18 @@ function testOrderingSlicingAvailabilityAndSingleDescribe() {
 		"postprocess-requirement-missing-required-motion",
 	]);
 
-	const sliced = plan(registry, {
+	const incremental = plan(registry, {
 		missingIds: new Set(["missing"]),
 		frameContext: frame({
 			enabled: true,
 			firstPass: "postprocess",
-			postProcessStartPass: "optional-motion",
 		}),
 	});
-	assert.equal(sliced.result.startPassId, "optional-motion");
-	assert.deepEqual(sliced.result.passes.map((entry) => entry.id), ["optional-motion"]);
+	assert.deepEqual(incremental.result.passes.map((entry) => entry.id), [
+		"spatial",
+		"optional-motion",
+	]);
+	assert.equal(descriptions, 2);
 }
 
 function testDescriptorsAndDeterministicSignature() {
@@ -265,7 +265,7 @@ function testDeclarationPlanFinalizesAvailabilityWithoutRedescribing() {
 	assert.deepEqual(available.passes.map((entry) => entry.id), ["shared-reader"]);
 }
 
-testOrderingSlicingAvailabilityAndSingleDescribe();
+testOrderingAvailabilityAndCompleteIncrementalSequence();
 testDescriptorsAndDeterministicSignature();
 testDeclarationPlanFinalizesAvailabilityWithoutRedescribing();
 testTransparentOutputAlphaCompatibility();

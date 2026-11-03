@@ -46,7 +46,6 @@ function createFXAAPassRequest(
 		pass,
 		passId: "fxaa",
 		options: frameContext.postProcess.getOptions("fxaa"),
-		startPassId: null,
 	};
 }
 
@@ -60,7 +59,6 @@ function createBloomPassRequest(frameContext) {
 		pass,
 		passId: "bloom",
 		options: frameContext.postProcess.getOptions("bloom"),
-		startPassId: null,
 	};
 }
 
@@ -74,7 +72,6 @@ function createFogPassRequest(frameContext) {
 		pass,
 		passId: "fog",
 		options: frameContext.postProcess.getOptions("fog"),
-		startPassId: null,
 	};
 }
 
@@ -87,7 +84,6 @@ function createMotionBlurPassRequest(frameContext, pass) {
 		pass,
 		passId: "motion-blur",
 		options: frameContext.postProcess.getOptions("motion-blur"),
-		startPassId: null,
 	};
 }
 
@@ -100,7 +96,6 @@ function createDepthOfFieldPassRequest(frameContext, pass) {
 		pass,
 		passId: "dof",
 		options: frameContext.postProcess.getOptions("dof"),
-		startPassId: null,
 	};
 }
 
@@ -113,7 +108,6 @@ function createToneMappingPassRequest(frameContext, pass) {
 		pass,
 		passId: "tonemap",
 		options: frameContext.postProcess.getOptions("tonemap"),
-		startPassId: null,
 	};
 }
 
@@ -126,7 +120,6 @@ function createColorFilterPassRequest(frameContext, pass) {
 		pass,
 		passId: "color-filter",
 		options: frameContext.postProcess.getOptions("color-filter"),
-		startPassId: null,
 	};
 }
 

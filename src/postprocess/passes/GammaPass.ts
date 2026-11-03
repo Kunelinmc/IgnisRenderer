@@ -13,7 +13,6 @@ import type {
 	WebGLProgramSlot,
 } from "../../backends/webgl/WebGLProgramCompiler";
 import { ShaderSource } from "../../shaders/ShaderSource";
-import type { PostProcessIncrementalMetadata } from "../../pipeline/incremental";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
 import type { PostProcessScheduleEntry } from "../ordering";
 import {
@@ -28,7 +27,6 @@ import type {
 } from "../types";
 import {
 	bindWebGLPostTarget,
-	forEachSoftwareDirtyRect,
 	resolveWebGLTarget,
 	resolveWebGPUTarget,
 	type EmptyOptions,
@@ -40,16 +38,10 @@ import {
 const ALPHA_EPSILON = 1e-6;
 
 export const GAMMA_PASS_ID = "gamma";
-export const GAMMA_PASS_INCREMENTAL = {
-	firstPass: GAMMA_PASS_ID,
-	grade: "light",
-	inflationRadius: 0,
-} as const satisfies PostProcessIncrementalMetadata;
 export const GAMMA_PASS_ORDER = {
 	id: GAMMA_PASS_ID,
 	placement: "present",
 	order: 900,
-	incremental: GAMMA_PASS_INCREMENTAL,
 } as const satisfies PostProcessScheduleEntry;
 
 /**
@@ -92,42 +84,39 @@ export class SoftwareGammaImplementation implements PostProcessPassImplementatio
 		if (!context) {
 			return { ran: false };
 		}
-		const width = request.frameContext.attachments.width;
+		const { width, height } = request.frameContext.attachments;
 		const pixels = context.resources.color.input;
 		if (!(pixels instanceof Float32Array) || pixels.length === 0) {
 			return { ran: false };
 		}
-		const dirtyRects = context.dirtyRects;
 		const hdr = context.displayOutput?.activeDynamicRange === "hdr";
 		const upperBound = hdr ? (context.displayOutput?.requested.hdrHeadroom ?? 4) : 1;
-		forEachSoftwareDirtyRect(dirtyRects, (rect) => {
-			for (let y = rect.minY; y <= rect.maxY; y++) {
-				const row = y * width;
-				for (let x = rect.minX; x <= rect.maxX; x++) {
-					const i = (row + x) << 2;
-					const alpha = Math.min(1, Math.max(0, pixels[i + 3]));
-					const inverseAlpha = alpha > ALPHA_EPSILON ? 1 / alpha : 0;
-					this._inputColor[0] = pixels[i] * inverseAlpha;
-					this._inputColor[1] = pixels[i + 1] * inverseAlpha;
-					this._inputColor[2] = pixels[i + 2] * inverseAlpha;
-					const linear = hdr
-						? linearSrgbToDisplayP3(this._inputColor, this._p3Color)
-						: this._inputColor;
-					pixels[i] = encodeLinearSRGB(
-						Math.min(upperBound, Math.max(0, linear[0])),
-						hdr,
-					) * alpha;
-					pixels[i + 1] = encodeLinearSRGB(
-						Math.min(upperBound, Math.max(0, linear[1])),
-						hdr,
-					) * alpha;
-					pixels[i + 2] = encodeLinearSRGB(
-						Math.min(upperBound, Math.max(0, linear[2])),
-						hdr,
-					) * alpha;
-				}
+		for (let y = 0; y < height; y++) {
+			const row = y * width;
+			for (let x = 0; x < width; x++) {
+				const i = (row + x) << 2;
+				const alpha = Math.min(1, Math.max(0, pixels[i + 3]));
+				const inverseAlpha = alpha > ALPHA_EPSILON ? 1 / alpha : 0;
+				this._inputColor[0] = pixels[i] * inverseAlpha;
+				this._inputColor[1] = pixels[i + 1] * inverseAlpha;
+				this._inputColor[2] = pixels[i + 2] * inverseAlpha;
+				const linear = hdr
+					? linearSrgbToDisplayP3(this._inputColor, this._p3Color)
+					: this._inputColor;
+				pixels[i] = encodeLinearSRGB(
+					Math.min(upperBound, Math.max(0, linear[0])),
+					hdr,
+				) * alpha;
+				pixels[i + 1] = encodeLinearSRGB(
+					Math.min(upperBound, Math.max(0, linear[1])),
+					hdr,
+				) * alpha;
+				pixels[i + 2] = encodeLinearSRGB(
+					Math.min(upperBound, Math.max(0, linear[2])),
+					hdr,
+				) * alpha;
 			}
-		});
+		}
 		return { ran: true };
 	}
 }
@@ -374,7 +363,6 @@ export class GammaPass extends PostProcessPass<EmptyOptions, EmptyOptions> {
 			schedule: {
 				placement: config.schedule?.placement ?? GAMMA_PASS_ORDER.placement,
 				order: config.schedule?.order ?? GAMMA_PASS_ORDER.order,
-				incremental: config.schedule?.incremental ?? GAMMA_PASS_ORDER.incremental,
 			},
 			builtIn: true,
 			label: "gamma correction",

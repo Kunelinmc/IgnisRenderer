@@ -45,12 +45,6 @@ export const FOG_PASS_ORDER = {
 	id: FOG_PASS_ID,
 	placement: "atmosphere",
 	order: 310,
-	incremental: {
-		firstPass: "fog",
-		grade: "cinematic",
-		inflationRadius: 20,
-		isEnabled: (postProcess) => postProcess.isEnabled(FOG_PASS_ID),
-	},
 } as const satisfies PostProcessScheduleEntry;
 
 export interface FogOptions {
@@ -508,7 +502,6 @@ export class FogPass extends PostProcessPass<FogOptions, FogOptions> {
 			schedule: {
 				placement: config.schedule?.placement ?? FOG_PASS_ORDER.placement,
 				order: config.schedule?.order ?? FOG_PASS_ORDER.order,
-				incremental: config.schedule?.incremental ?? FOG_PASS_ORDER.incremental,
 			},
 			label: "fog",
 			colorContract: config.colorContract ?? {

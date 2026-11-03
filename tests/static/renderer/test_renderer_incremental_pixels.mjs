@@ -57,7 +57,6 @@ async function testPostProcessReplayPreservesScenePixels() {
 		const replay = await renderer.renderFrame(16);
 		assert.equal(replay.incremental.plan.forceFullFrame, true);
 		assert.equal(replay.incremental.plan.firstPass, null);
-		assert.equal(replay.incremental.plan.postProcessStartPass, null);
 		assert.equal(replay.incremental.plan.temporalHistoryReset, true);
 		assert.deepEqual(pixels(), initial,
 			"postprocess replay must reconstruct scene input rather than clear it or convert it twice");
@@ -97,6 +96,8 @@ async function testGlobalExposureAndLocalEditMatchFullReplay() {
 async function testPartialSceneReconstructsExposedEnvironment() {
 	const { renderer, meshes, pixels } = createScene({ background: true });
 	try {
+		renderer.postProcess.getPass("tonemap").disable();
+		renderer.postProcess.getPass("gamma").disable();
 		await renderer.renderFrame(0);
 		const initial = pixels();
 		meshes[0].position.x += 0.3;
@@ -116,9 +117,44 @@ async function testPartialSceneReconstructsExposedEnvironment() {
 	}
 }
 
+async function testEnabledPostProcessReconstructsCompleteScene() {
+	const { renderer, meshes, pixels } = createScene({ background: true, secondMesh: true });
+	try {
+		await renderer.renderFrame(0);
+		meshes[0].position.x += 0.3;
+		renderer.requestRender("transform");
+		const frame = await renderer.renderFrame(16);
+		assert.equal(frame.incremental.plan.forceFullFrame, true);
+		assert.equal(frame.incremental.plan.firstPass, null);
+		assert.equal(frame.incremental.plan.dirtyAreaRatio, 1);
+		const changed = pixels();
+		renderer.requestRender("unknown");
+		await renderer.renderFrame(32);
+		assert.deepEqual(changed, pixels(),
+			"local edits with post-processing must match complete scene reconstruction");
+
+		renderer.postProcess.getPass("tonemap").disable();
+		renderer.postProcess.getPass("gamma").disable();
+		await renderer.renderFrame(48);
+		meshes[0].position.x += 0.1;
+		renderer.requestRender("transform");
+		const sceneOnly = await renderer.renderFrame(64);
+		assert.equal(sceneOnly.incremental.plan.forceFullFrame, false);
+		assert.ok(sceneOnly.incremental.plan.dirtyAreaRatio < 1,
+			"disabling all effects must restore incremental scene coverage");
+		const partial = pixels();
+		renderer.requestRender("unknown");
+		await renderer.renderFrame(80);
+		assert.deepEqual(partial, pixels());
+	} finally {
+		await renderer.destroy();
+	}
+}
+
 const originalWindow = globalThis.window;
 try {
 	globalThis.window = { devicePixelRatio: 1 };
+	await testEnabledPostProcessReconstructsCompleteScene();
 	await testPostProcessReplayPreservesScenePixels();
 	await testGlobalExposureAndLocalEditMatchFullReplay();
 	await testPartialSceneReconstructsExposedEnvironment();

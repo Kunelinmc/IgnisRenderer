@@ -43,11 +43,6 @@ export const SCREEN_SPACE_REFRACTIONS_PASS_ORDER = {
 	id: SCREEN_SPACE_REFRACTIONS_PASS_ID,
 	placement: "temporal",
 	order: 215,
-	incremental: {
-		firstPass: "ssrefraction",
-		grade: "cinematic",
-		inflationRadius: 16,
-	},
 } as const satisfies PostProcessScheduleEntry;
 const WEBGPU_SSREFRACTION_RAW_TRANSIENT_ID = "ssrefraction:raw";
 const WEBGPU_SSREFRACTION_DENOISE_SCRATCH_ID =
@@ -664,8 +659,6 @@ export class ScreenSpaceRefractionsPass extends PostProcessPass<
 				placement:
 					config.schedule?.placement ?? SCREEN_SPACE_REFRACTIONS_PASS_ORDER.placement,
 				order: config.schedule?.order ?? SCREEN_SPACE_REFRACTIONS_PASS_ORDER.order,
-				incremental:
-					config.schedule?.incremental ?? SCREEN_SPACE_REFRACTIONS_PASS_ORDER.incremental,
 			},
 			label: "screen-space refractions",
 			colorContract: config.colorContract ?? {

@@ -245,14 +245,12 @@ function testPresentationAndTargetLifecycle() {
 		clipRegions: [{ minX: 0, minY: 0, maxXExclusive: 1, maxYExclusive: 1 }],
 	};
 	new SoftwareToneMappingImplementation().execute({ frameContext: sdrFrame }, {
-		dirtyRects: [{ minX: 0, minY: 0, maxX: 0, maxY: 0 }],
 		displayOutput: sdrConfigured.state,
 		resources: { color: { input: sdrColor, output: sdrColor } },
 	});
 	sdrSurface.present(sdrFrame, "display-linear");
 	assert.deepEqual(Array.from(sdrAttachments.pixels), [248, 31, 16, 255]);
 	new SoftwareGammaImplementation().execute({ frameContext: sdrFrame }, {
-		dirtyRects: [{ minX: 0, minY: 0, maxX: 0, maxY: 0 }],
 		displayOutput: sdrConfigured.state,
 		resources: { color: { input: sdrColor, output: sdrColor } },
 	});

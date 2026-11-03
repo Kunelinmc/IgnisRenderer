@@ -137,7 +137,6 @@ function createPostProcessFrameContext(postProcess) {
 			dirtyTiles: [0],
 			dirtyAreaRatio: 1,
 			firstPass: null,
-			postProcessStartPass: null,
 			reasonMask: 0,
 			temporalHistoryReset: false,
 		},

@@ -54,11 +54,6 @@ export const SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ORDER = {
 	id: SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ID,
 	placement: "spatial",
 	order: 110,
-	incremental: {
-		firstPass: "ssgi",
-		grade: "cinematic",
-		inflationRadius: 8,
-	},
 } as const satisfies PostProcessScheduleEntry;
 
 export interface SSGIOptions {
@@ -829,9 +824,6 @@ export class ScreenSpaceGlobalIlluminationPass extends PostProcessPass<
 					config.schedule?.placement ??
 					SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ORDER.placement,
 				order: config.schedule?.order ?? SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ORDER.order,
-				incremental:
-					config.schedule?.incremental ??
-					SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ORDER.incremental,
 			},
 			label: "SSGI",
 			colorContract: config.colorContract ?? {

@@ -275,7 +275,6 @@ export class FrameCoordinator {
 			forceFullFrame: false,
 			temporalHistoryReset: false,
 			firstPass: null,
-			postProcessStartPass: null,
 			dirtyRectCount: 0,
 			dirtyTileCount: 0,
 			dirtyTileSize: fullFrameTiles.tileSize,
@@ -506,9 +505,7 @@ export class FrameCoordinator {
 			viewportWidth: delegate.canvas.width,
 			viewportHeight: delegate.canvas.height,
 			features: state.resolved,
-			postProcess: state.resolvedPostProcess,
 			incrementalOptions: delegate.incrementalOptions,
-			incrementalRegistry: delegate.pipeline.incremental,
 			occlusionVisibilityProvider: this._occlusionCullingController.getVisibilityProvider(
 				state.resolved,
 			),
@@ -526,7 +523,6 @@ export class FrameCoordinator {
 			),
 			hasEnabledReflections: state.resolved.enableReflection &&
 				state.frame.reflectivePackets.length > 0,
-			postProcess: state.resolvedPostProcess,
 			registry: delegate.pipeline.incremental,
 		});
 		state.incrementalFrameContext = this._buildIncrementalFrameContext(
@@ -535,6 +531,8 @@ export class FrameCoordinator {
 			preparedResult,
 			state.initialFullFrameRect,
 			state.initialFullFrameTiles,
+			this._backend.profile.capabilities.postProcess &&
+				state.resolvedPostProcess.getEnabledPasses().length > 0,
 		);
 		state.incrementalStartStageIndex =
 			state.incrementalFrameContext.enabled &&
@@ -714,7 +712,6 @@ export class FrameCoordinator {
 			forceFullFrame: incrementalFrameContext.forceFullFrame,
 			temporalHistoryReset: incrementalFrameContext.temporalHistoryReset,
 			firstPass: incrementalFrameContext.firstPass,
-			postProcessStartPass: incrementalFrameContext.postProcessStartPass,
 			dirtyRectCount: incrementalFrameContext.dirtyRects.length,
 			dirtyTileCount: incrementalFrameContext.dirtyTiles.length,
 			dirtyTileSize: incrementalFrameContext.dirtyTileSize,
@@ -788,7 +785,6 @@ export class FrameCoordinator {
 			dirtyTiles: fullFrameTiles.dirtyTiles.slice(),
 			dirtyAreaRatio: 1,
 			firstPass: null,
-			postProcessStartPass: null,
 			reasonMask,
 			temporalHistoryReset: true,
 		};
@@ -957,9 +953,12 @@ export class FrameCoordinator {
 		prepared: PreparedSceneCacheBuildResult,
 		initialFullFrameRect: ReturnType<typeof makeFullScreenRect>,
 		initialFullFrameTiles: DirtyTileCoverage,
+		hasEnabledPostProcess: boolean,
 	): IncrementalFrameContext {
 		const enabled = delegate.incrementalOptions.enabled;
-		const forceFullFrame = plan.forceFullFrame || prepared.forceFullFrame;
+		const requiresHistoryReset = plan.forceFullFrame || prepared.forceFullFrame;
+		// In-place effects need fresh scene input, while valid temporal history survives.
+		const forceFullFrame = requiresHistoryReset || hasEnabledPostProcess;
 		const fullFrameRect = initialFullFrameRect;
 		const fullFrameTiles = initialFullFrameTiles;
 		let dirtyRects = enabled && !forceFullFrame ? prepared.dirtyRects.slice() : [fullFrameRect];
@@ -992,9 +991,8 @@ export class FrameCoordinator {
 			dirtyTiles,
 			dirtyAreaRatio,
 			firstPass: forceFullFrame ? null : plan.firstPass,
-			postProcessStartPass: forceFullFrame ? null : plan.postProcessStartPass,
 			reasonMask: plan.reasonMask,
-			temporalHistoryReset: plan.temporalHistoryReset || forceFullFrame,
+			temporalHistoryReset: plan.temporalHistoryReset || requiresHistoryReset,
 		};
 	}
 

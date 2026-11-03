@@ -66,11 +66,6 @@ export const TEMPORAL_ANTI_ALIASING_PASS_ORDER = {
 	id: TEMPORAL_ANTI_ALIASING_PASS_ID,
 	placement: "temporal",
 	order: 200,
-	incremental: {
-		firstPass: "taa",
-		grade: "cinematic",
-		inflationRadius: 8,
-	},
 } as const satisfies PostProcessScheduleEntry;
 
 export const TAA_HISTORY_WEIGHT_RANGE: [number, number] = [0, 0.99];
@@ -911,7 +906,6 @@ export class TemporalAntiAliasingPass extends PostProcessPass<
 			schedule: {
 				placement: config.schedule?.placement ?? TEMPORAL_ANTI_ALIASING_PASS_ORDER.placement,
 				order: config.schedule?.order ?? TEMPORAL_ANTI_ALIASING_PASS_ORDER.order,
-				incremental: config.schedule?.incremental ?? TEMPORAL_ANTI_ALIASING_PASS_ORDER.incremental,
 			},
 			label: "TAA",
 			colorContract: config.colorContract ?? {

@@ -174,10 +174,12 @@ async function testManagedBufferCollectionPreservesExplicitTeardown() {
 	}
 	const reference = createWeakBuffer();
 	assert.equal(unmaps, 1, "live buffer facades must still unmap their native allocation");
-	for (let attempt = 0; attempt < 30; attempt++) {
+	for (let attempt = 0; attempt < 300; attempt++) {
 		// WeakRef targets stay alive within one job; collect only after a job boundary.
 		await new Promise((resolve) => setTimeout(resolve, 0));
 		Bun.gc(true);
+		// GC timing varies with earlier allocations; stop as soon as collection succeeds.
+		if (reference.deref() === undefined) break;
 	}
 	assert.equal(reference.deref(), undefined,
 		"managed disposal must not retain an otherwise unreachable buffer facade");

@@ -1,4 +1,3 @@
-import type { IncrementalDirtyRect } from "../../pipeline/incremental";
 import type { ICommandEncoder } from "../../backends/ICommandEncoder";
 import type { IRenderTexture } from "../../backends/types";
 import type {
@@ -9,7 +8,6 @@ import type { WebGLProgramCompiler } from "../../backends/webgl/WebGLProgramComp
 import type { WebGPUVolumetricLightingData } from "../../backends/webgpu/types";
 import type { PostProcessResourceAccessor } from "../types";
 import type { DisplayOutputState } from "../../rendering/DisplayOutput";
-export type { IncrementalDirtyRect } from "../../pipeline/incremental";
 
 export type EmptyOptions = Record<string, never>;
 
@@ -18,7 +16,6 @@ export interface SoftwareBuiltinPostProcessContext {
 	readonly canvasContext: CanvasRenderingContext2D | null;
 	readonly displayOutput?: DisplayOutputState;
 	readonly resources: PostProcessResourceAccessor<ArrayBufferView>;
-	readonly dirtyRects: readonly IncrementalDirtyRect[];
 }
 
 /** @internal WebGPU context supplied to built-in screen post-process implementations. */
@@ -55,38 +52,6 @@ export interface WebGLScreenPostProcessContext {
 export interface ResolvedWebGLTarget {
 	readonly source: WebGLTexture;
 	readonly texture: WebGLTexture;
-}
-
-export function forEachSoftwareDirtyRect(
-	dirtyRects: readonly IncrementalDirtyRect[],
-	callback: (rect: IncrementalDirtyRect) => void
-): void {
-	for (const rect of dirtyRects) {
-		if (rect.minX > rect.maxX || rect.minY > rect.maxY) {
-			continue;
-		}
-		callback(rect);
-	}
-}
-
-export function softwareRectIntersectsDirtyRects(
-	minX: number,
-	minY: number,
-	maxX: number,
-	maxY: number,
-	dirtyRects: readonly IncrementalDirtyRect[]
-): boolean {
-	for (const rect of dirtyRects) {
-		if (
-			maxX >= rect.minX &&
-			minX <= rect.maxX &&
-			maxY >= rect.minY &&
-			minY <= rect.maxY
-		) {
-			return true;
-		}
-	}
-	return false;
 }
 
 export function resolveWebGPUTarget(

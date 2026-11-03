@@ -116,7 +116,6 @@ function createTemporalRequest(overrides = {}) {
 		gBuffer: overrides.gBuffer ?? { channels: {} },
 		transients: overrides.transients ?? {},
 		options: overrides.options ?? {},
-		startPassId: null,
 	};
 }
 

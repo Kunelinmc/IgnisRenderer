@@ -3,7 +3,6 @@ import { Camera } from "../../../src/cameras/Camera.ts";
 import { Logger } from "../../../src/foundation/Logger.ts";
 import { Renderer } from "../../../src/rendering/Renderer.ts";
 import { PostProcessPass } from "../../../src/postprocess/index.ts";
-import { getDefaultIncrementalRegistry } from "../../../src/pipeline/incremental.ts";
 import {
 	createResolvedPostProcess,
 	installNoopPostProcessAdapter,
@@ -168,33 +167,10 @@ async function run() {
 				return { width: 320, height: 180 };
 			},
 		};
-		const incremental = getDefaultIncrementalRegistry();
-		const standalonePostProcess = createResolvedPostProcess({
-			tonemap: { enabled: true },
-			gamma: { enabled: true },
-		}, "webgpu");
-		assert.equal(
-			incremental.resolveFirstEnabledPostProcessStage(standalonePostProcess),
-			null
-		);
 		const renderer = new Renderer(canvas, backend, new Camera());
 		const defaults = renderer.postProcess.createSnapshot("webgpu");
 		assert.equal(defaults.isEnabled("tonemap"), true);
 		assert.equal(defaults.isEnabled("gamma"), true);
-		assert.equal(
-			renderer.pipeline.incremental.resolveFirstEnabledPostProcessStage(defaults),
-			"tonemap"
-		);
-		assert.equal(renderer.pipeline.incremental.resolvePostProcessGrade(defaults), "light");
-		assert.equal(renderer.pipeline.incremental.computePostProcessInflationRadius(defaults), 2);
-		renderer.postProcess.getPass("tonemap").disable();
-		assert.equal(
-			renderer.pipeline.incremental.resolveFirstEnabledPostProcessStage(
-				renderer.postProcess.createSnapshot("webgpu")
-			),
-			"gamma"
-		);
-		renderer.postProcess.getPass("tonemap").enable();
 		renderer.features.enableReflection = false;
 		renderer.features.enableEnvironment = false;
 
@@ -204,11 +180,6 @@ async function run() {
 					id: "custom-edge",
 					schedule: {
 						placement: "overlay",
-						incremental: {
-							firstPass: "tonemap",
-							grade: "standard",
-							inflationRadius: 18,
-						},
 					},
 					enabled: true,
 					options: { strength: 0.5 },
@@ -235,18 +206,6 @@ async function run() {
 		assert.equal(postProcess.isEnabled("tonemap"), false);
 		assert.equal(postProcess.isEnabled("gamma"), false);
 		assert.deepEqual(postProcess.getOptions("custom-edge"), { strength: 0.5 });
-		assert.equal(
-			renderer.pipeline.incremental.resolveFirstEnabledPostProcessStage(
-				postProcess
-			),
-			"tonemap"
-		);
-		assert.equal(
-			renderer.pipeline.incremental.computePostProcessInflationRadius(
-				postProcess
-			),
-			18
-		);
 		assert.equal(backend.executedPasses.includes("postprocess"), true);
 		assert.equal(
 			backend.executionEvents.some(
@@ -325,7 +284,6 @@ async function run() {
 		const historySnapshots = [];
 		const historyBackend = new RegistryBackend();
 		const historyRenderer = new Renderer(canvas, historyBackend, new Camera());
-		historyRenderer.setIncrementalRendering({ enabled: false });
 		historyRenderer.features.enableReflection = false;
 		historyRenderer.features.enableEnvironment = false;
 		historyRenderer.postProcess.getPass("tonemap")?.disable();
@@ -362,15 +320,25 @@ async function run() {
 			})()
 		);
 		await historyRenderer.renderFrame(0);
-		await historyRenderer.renderFrame(16);
+		historyRenderer.requestRender("interaction");
+		const historyFrame = await historyRenderer.renderFrame(16);
+		assert.equal(historyFrame.incremental.plan.forceFullFrame, true);
+		assert.equal(historyFrame.incremental.plan.temporalHistoryReset, false);
 		assert.equal(historySnapshots.length, 2);
 		assert.deepEqual(historySnapshots[0], {
 			valid: false,
 			read: "probe:read",
 			write: "probe:write",
 		});
+		assert.equal(historySnapshots[1].valid, true,
+			"full coverage for post-processing must preserve valid temporal history");
 		assert.equal(historySnapshots[1].read, "probe:write");
 		assert.equal(historySnapshots[1].write, "probe:read");
+		historyRenderer.requestRender("postfx");
+		const invalidatedHistoryFrame = await historyRenderer.renderFrame(32);
+		assert.equal(invalidatedHistoryFrame.incremental.plan.temporalHistoryReset, true);
+		assert.equal(historySnapshots[2].valid, false,
+			"post-process invalidation must still reset temporal history");
 
 		const throwingBackend = new RegistryBackend();
 		const throwingRenderer = new Renderer(canvas, throwingBackend, new Camera());

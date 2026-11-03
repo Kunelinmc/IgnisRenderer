@@ -8,15 +8,12 @@ import {
 } from "../decals";
 import {
 	buildDirtyTileCoverage,
-	getDefaultIncrementalRegistry,
 	getDirtyTileCoverageAreaRatio,
-	inflateDirtyRects,
 	makeFullScreenRect,
 	mergeDirtyRects,
 	tileCoverageToDirtyRects,
 	type DirtyRect,
 	type IncrementalRenderingOptions,
-	type IncrementalRegistry,
 } from "./incremental";
 import type {
 	DecalPacket,
@@ -28,7 +25,6 @@ import type {
 } from "./types";
 import type { OcclusionVisibilityProvider } from "./OcclusionCulling";
 import { normalizeOcclusionCullingOptions } from "./OcclusionCulling";
-import type { ResolvedPostProcessState } from "../postprocess";
 import {
 	PreparedSceneBuilder,
 	PreparedScenePacketCache,
@@ -113,10 +109,7 @@ export interface PreparedSceneCacheBuildInput {
 	viewportWidth: number;
 	viewportHeight: number;
 	features: ResolvedFeatureState;
-	postProcess: ResolvedPostProcessState;
 	incrementalOptions: IncrementalRenderingOptions;
-	/** Runtime-local metadata; omitted only by standalone preparation callers. */
-	incrementalRegistry?: IncrementalRegistry;
 	occlusionVisibilityProvider?: OcclusionVisibilityProvider | null;
 	occlusionCullingOptions?: OcclusionCullingOptions;
 	/** Renderer-accumulated backend invalidation regions for this frame. */
@@ -388,23 +381,12 @@ export class PreparedSceneCache {
 			};
 		}
 
-		let dirtyRects = mergeDirtyRects(
+		const dirtyRects = mergeDirtyRects(
 			dirtyCandidates,
 			input.incrementalOptions.maxDirtyRects,
 			width,
 			height
 		);
-		const registry = input.incrementalRegistry ?? getDefaultIncrementalRegistry();
-		const inflationRadius = registry.computePostProcessInflationRadius(input.postProcess);
-		if (inflationRadius > 0) {
-			dirtyRects = mergeDirtyRects(
-				inflateDirtyRects(dirtyRects, inflationRadius, width, height),
-				input.incrementalOptions.maxDirtyRects,
-				width,
-				height
-			);
-		}
-
 		const dirtyTileCoverage = buildDirtyTileCoverage(
 			dirtyRects,
 			width,
@@ -429,11 +411,7 @@ export class PreparedSceneCache {
 			width,
 			height
 		);
-		const fallbackAreaRatio = registry.scaleFullFrameFallbackAreaRatioForPostProcess(
-			input.incrementalOptions.fullFrameFallbackAreaRatio,
-			input.postProcess
-		);
-		if (dirtyAreaRatio > fallbackAreaRatio) {
+		if (dirtyAreaRatio > input.incrementalOptions.fullFrameFallbackAreaRatio) {
 			return {
 				frame,
 				dirtyRects: [fullScreenRect],

@@ -64,11 +64,6 @@ export const DEPTH_OF_FIELD_PASS_ORDER = {
 	id: DEPTH_OF_FIELD_PASS_ID,
 	placement: "camera",
 	order: 410,
-	incremental: {
-		firstPass: "dof",
-		grade: "cinematic",
-		inflationRadius: 32,
-	},
 } as const satisfies PostProcessScheduleEntry;
 export interface DOFOptions {
 	/** Focus plane distance in the depth units consumed by the backend. */
@@ -512,7 +507,6 @@ export class DepthOfFieldPass extends PostProcessPass<DOFOptions, DOFOptions> {
 			schedule: {
 				placement: config.schedule?.placement ?? DEPTH_OF_FIELD_PASS_ORDER.placement,
 				order: config.schedule?.order ?? DEPTH_OF_FIELD_PASS_ORDER.order,
-				incremental: config.schedule?.incremental ?? DEPTH_OF_FIELD_PASS_ORDER.incremental,
 			},
 			label: "depth of field",
 			colorContract: config.colorContract ?? {

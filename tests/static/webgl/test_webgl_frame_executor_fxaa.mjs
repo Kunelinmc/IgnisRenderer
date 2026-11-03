@@ -450,7 +450,6 @@ function testFXAAPassUsesLatestPostSourceAndRebindsPostTarget() {
 		pass,
 		passId: "fxaa",
 		options: frameContext.postProcess.getOptions("fxaa"),
-		startPassId: null,
 	};
 	const context = createExecutionContext(executor, request);
 	const result = pass.getImplementation("webgl").execute(
@@ -514,7 +513,6 @@ function testFXAAPassSkipsWhileProgramPending() {
 		pass,
 		passId: "fxaa",
 		options: frameContext.postProcess.getOptions("fxaa"),
-		startPassId: null,
 	};
 	const context = createExecutionContext(executor, request);
 	const result = pass.getImplementation("webgl").execute(request, context);
@@ -569,7 +567,6 @@ function testToneMappingPassUsesLatestPostSourceAndRebindsPostTarget() {
 		pass,
 		passId: "tonemap",
 		options: {},
-		startPassId: null,
 	};
 	const result = pass
 		.getImplementation("webgl")
@@ -626,7 +623,6 @@ function testWebGLContextUsesDeclarationForCustomPassId() {
 		passId: "custom-pass",
 		implementation,
 		options: {},
-		startPassId: null,
 	};
 	const context = createExecutionContext(executor, request, implementation);
 
@@ -654,7 +650,6 @@ function testWebGLContextRejectsUndeclaredResourceAccess() {
 		pass: { id: "custom-pass" },
 		passId: "custom-pass",
 		options: {},
-		startPassId: null,
 	};
 
 	const implementation = {
@@ -767,7 +762,6 @@ function testGammaPassUsesScreenPostProcessFlow() {
 		pass,
 		passId: "renamed-gamma-stage",
 		options: {},
-		startPassId: null,
 		implementation: pass.getImplementation("webgl"),
 	};
 	const context = createExecutionContext(executor, request);
@@ -1257,7 +1251,6 @@ function testTAAPassDetachesMotionAttachmentAndSanitizesOptions() {
 		pass,
 		passId: "taa",
 		options: frameContext.postProcess.getOptions("taa"),
-		startPassId: null,
 	};
 	const context = createExecutionContext(executor, request);
 	assert.equal(context.resources.getHistory("taa").read.id, "history-a");
@@ -1381,7 +1374,6 @@ function testSSAOPassDetachesSecondaryAttachmentForDownsampleTargets() {
 		pass,
 		passId: "ssao",
 		options: context.postProcess.getOptions("ssao"),
-		startPassId: null,
 	};
 	const passContext = createExecutionContext(executor, request);
 	assert.equal(passContext.resources.getGBuffer("normal").id, "scene-normal");

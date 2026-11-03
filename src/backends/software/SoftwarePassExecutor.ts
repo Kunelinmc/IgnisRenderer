@@ -231,10 +231,6 @@ export class SoftwarePassExecutor {
 		return this._postProcessRuntime.getDebugState();
 	}
 
-	public get completedFramePreservesOutsideDirtyTiles(): boolean {
-		return this._postProcessRuntime.completedFramePreservesOutsideDirtyTiles;
-	}
-
 	public get outputColorDomain(): import("../../postprocess/PostProcessPass").PostProcessColorDomain {
 		return this._softwarePostProcessExecutor.outputColorDomain;
 	}

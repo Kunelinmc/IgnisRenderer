@@ -176,12 +176,17 @@ nearer surfaces can refract already-composited farther transparent surfaces.
 ## Post-Processing
 
 `Renderer` owns the public post-process registry; backends own execution.
-Logical pass registration also forwards each pass's schedule to the incremental
-registry. The default tone-mapping and gamma passes follow this same path;
-the incremental registry has no pre-registered post-process effects.
+Logical pass registration owns effect configuration and order independently of
+the incremental scene registry. Passes do not describe scene dirty-region
+inflation or fallback policy.
 `PostProcessPlanner` resolves logical order and resource declarations once per
 frame. GPU backends compose the resulting subgraph into their authoritative
 whole-frame graph, while Software executes the logical plan directly.
+Enabled post-processing causes frame coordination to reconstruct the complete
+scene and execute the full enabled post-process sequence. When all effects are
+disabled, scene rendering may retain incremental coverage. Full coverage and
+temporal-history invalidation are separate decisions, so ordinary full-frame
+post-processing can reuse valid history.
 
 WebGPU feature modules exchange backend-private typed frame messages during
 analysis, configuration, and graph planning. Message handlers declare their

@@ -50,10 +50,6 @@ import type {
 	PostProcessResourceAccessor,
 	PostProcessTransientDescriptor,
 } from "../types";
-import {
-	forEachSoftwareDirtyRect,
-	type IncrementalDirtyRect,
-} from "./ScreenPassShared";
 
 const SSAO_NOISE_SIZE = 4;
 const SSAO_SOFTWARE_MAX_SAMPLES = 48;
@@ -62,11 +58,6 @@ export const SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ORDER = {
 	id: SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ID,
 	placement: "spatial",
 	order: 100,
-	incremental: {
-		firstPass: "ssao",
-		grade: "standard",
-		inflationRadius: 8,
-	},
 } as const satisfies PostProcessScheduleEntry;
 const SSAO_RAW_TRANSIENT_ID = "ssao:raw";
 const SSAO_BLUR_TRANSIENT_ID = "ssao:blur";
@@ -127,7 +118,6 @@ export type ResolvedSSAOOptions = Required<
 /** @internal Software context supplied to the built-in SSAO implementation. */
 export interface SoftwareSSAOContext {
 	readonly attachments: FrameAttachments;
-	readonly dirtyRects: readonly IncrementalDirtyRect[];
 	readonly resources: PostProcessResourceAccessor<ArrayBufferView>;
 }
 
@@ -382,10 +372,6 @@ export class SoftwareScreenSpaceAmbientOcclusionImplementation
 		if (!(pixels instanceof Float32Array) || !depthBuffer || !normalBuffer) {
 			return { ran: false };
 		}
-		const dirtyRects = context.dirtyRects;
-		if (dirtyRects.length === 0) {
-			return { ran: false };
-		}
 
 		const width = context.attachments.width;
 		const height = context.attachments.height;
@@ -398,129 +384,125 @@ export class SoftwareScreenSpaceAmbientOcclusionImplementation
 		const camera = frameContext.viewCamera;
 		const projection = camera.projectionMatrix.elements;
 
-		forEachSoftwareDirtyRect(dirtyRects, (rect) => {
-			for (let y = rect.minY; y <= rect.maxY; y++) {
-				for (let x = rect.minX; x <= rect.maxX; x++) {
-					const idx = y * width + x;
-					const originDepth = depthBuffer[idx];
-					if (originDepth === Infinity || originDepth <= 0) {
-						aoBuffer[idx] = 1;
-						continue;
-					}
+		for (let y = 0; y < height; y++) {
+			for (let x = 0; x < width; x++) {
+				const idx = y * width + x;
+				const originDepth = depthBuffer[idx];
+				if (originDepth === Infinity || originDepth <= 0) {
+					aoBuffer[idx] = 1;
+					continue;
+				}
 
-					const ndcX = (x / width) * 2 - 1;
-					const ndcY = 1 - (y / height) * 2;
-					const posView = reconstructViewPos(ndcX, ndcY, originDepth, camera);
+				const ndcX = (x / width) * 2 - 1;
+				const ndcY = 1 - (y / height) * 2;
+				const posView = reconstructViewPos(ndcX, ndcY, originDepth, camera);
 
-					const nIdx = idx * 3;
-					const normal = {
-						x: normalBuffer[nIdx],
-						y: normalBuffer[nIdx + 1],
-						z: normalBuffer[nIdx + 2],
+				const nIdx = idx * 3;
+				const normal = {
+					x: normalBuffer[nIdx],
+					y: normalBuffer[nIdx + 1],
+					z: normalBuffer[nIdx + 2],
+				};
+				const noiseIdx =
+					(y % SSAO_NOISE_SIZE) * SSAO_NOISE_SIZE +
+					(x % SSAO_NOISE_SIZE);
+				const randomVec = this._noise[noiseIdx];
+				const randomNormalDot = Vector3.dot(randomVec, normal);
+				const tangent = {
+					x: randomVec.x - normal.x * randomNormalDot,
+					y: randomVec.y - normal.y * randomNormalDot,
+					z: randomVec.z - normal.z * randomNormalDot,
+				};
+				const tangentLen = Math.hypot(tangent.x, tangent.y, tangent.z) || 1;
+				tangent.x /= tangentLen;
+				tangent.y /= tangentLen;
+				tangent.z /= tangentLen;
+
+				const bitangent = Vector3.cross(normal, tangent);
+				const tbn = [
+					[tangent.x, bitangent.x, normal.x],
+					[tangent.y, bitangent.y, normal.y],
+					[tangent.z, bitangent.z, normal.z],
+				];
+
+				let occlusion = 0;
+				for (let i = 0; i < options.samples; i++) {
+					const sample = this._kernel[i];
+					const sampleViewOffset = {
+						x:
+							tbn[0][0] * sample.x +
+							tbn[0][1] * sample.y +
+							tbn[0][2] * sample.z,
+						y:
+							tbn[1][0] * sample.x +
+							tbn[1][1] * sample.y +
+							tbn[1][2] * sample.z,
+						z:
+							tbn[2][0] * sample.x +
+							tbn[2][1] * sample.y +
+							tbn[2][2] * sample.z,
 					};
-					const noiseIdx =
-						(y % SSAO_NOISE_SIZE) * SSAO_NOISE_SIZE +
-						(x % SSAO_NOISE_SIZE);
-					const randomVec = this._noise[noiseIdx];
-					const randomNormalDot = Vector3.dot(randomVec, normal);
-					const tangent = {
-						x: randomVec.x - normal.x * randomNormalDot,
-						y: randomVec.y - normal.y * randomNormalDot,
-						z: randomVec.z - normal.z * randomNormalDot,
+					const samplePos = {
+						x: posView.x + sampleViewOffset.x * options.radius,
+						y: posView.y + sampleViewOffset.y * options.radius,
+						z: posView.z + sampleViewOffset.z * options.radius,
 					};
-					const tangentLen = Math.hypot(tangent.x, tangent.y, tangent.z) || 1;
-					tangent.x /= tangentLen;
-					tangent.y /= tangentLen;
-					tangent.z /= tangentLen;
 
-					const bitangent = Vector3.cross(normal, tangent);
-					const tbn = [
-						[tangent.x, bitangent.x, normal.x],
-						[tangent.y, bitangent.y, normal.y],
-						[tangent.z, bitangent.z, normal.z],
-					];
-
-					let occlusion = 0;
-					for (let i = 0; i < options.samples; i++) {
-						const sample = this._kernel[i];
-						const sampleViewOffset = {
+					let screenX: number;
+					let screenY: number;
+					if (camera.type === CameraType.Orthographic) {
+						const sx = projection[0][0] * samplePos.x + projection[0][3];
+						const sy = projection[1][1] * samplePos.y + projection[1][3];
+						screenX = Math.round((sx * 0.5 + 0.5) * width - 0.5);
+						screenY = Math.round((0.5 - sy * 0.5) * height - 0.5);
+					} else {
+						const offsetNDC = {
 							x:
-								tbn[0][0] * sample.x +
-								tbn[0][1] * sample.y +
-								tbn[0][2] * sample.z,
+								(projection[0][0] * samplePos.x +
+									projection[0][2] * samplePos.z) /
+								-samplePos.z,
 							y:
-								tbn[1][0] * sample.x +
-								tbn[1][1] * sample.y +
-								tbn[1][2] * sample.z,
-							z:
-								tbn[2][0] * sample.x +
-								tbn[2][1] * sample.y +
-								tbn[2][2] * sample.z,
+								(projection[1][1] * samplePos.y +
+									projection[1][2] * samplePos.z) /
+								-samplePos.z,
 						};
-						const samplePos = {
-							x: posView.x + sampleViewOffset.x * options.radius,
-							y: posView.y + sampleViewOffset.y * options.radius,
-							z: posView.z + sampleViewOffset.z * options.radius,
-						};
-
-						let screenX: number;
-						let screenY: number;
-						if (camera.type === CameraType.Orthographic) {
-							const sx = projection[0][0] * samplePos.x + projection[0][3];
-							const sy = projection[1][1] * samplePos.y + projection[1][3];
-							screenX = Math.round((sx * 0.5 + 0.5) * width - 0.5);
-							screenY = Math.round((0.5 - sy * 0.5) * height - 0.5);
-						} else {
-							const offsetNDC = {
-								x:
-									(projection[0][0] * samplePos.x +
-										projection[0][2] * samplePos.z) /
-									-samplePos.z,
-								y:
-									(projection[1][1] * samplePos.y +
-										projection[1][2] * samplePos.z) /
-									-samplePos.z,
-							};
-							screenX = Math.round((offsetNDC.x * 0.5 + 0.5) * width - 0.5);
-							screenY = Math.round((0.5 - offsetNDC.y * 0.5) * height - 0.5);
-						}
-
-						if (
-							screenX >= 0 &&
-							screenX < width &&
-							screenY >= 0 &&
-							screenY < height
-						) {
-							const sampleDepth = depthBuffer[screenY * width + screenX];
-							const samplePosDepth = -samplePos.z;
-							const rangeCheck =
-								Math.abs(originDepth - sampleDepth) < options.radius ? 1 : 0;
-							occlusion +=
-								(sampleDepth <= samplePosDepth - options.bias ? 1 : 0) *
-								rangeCheck;
-						}
+						screenX = Math.round((offsetNDC.x * 0.5 + 0.5) * width - 0.5);
+						screenY = Math.round((0.5 - offsetNDC.y * 0.5) * height - 0.5);
 					}
 
-					aoBuffer[idx] =
-						1 - (occlusion / Math.max(options.samples, 1)) * options.intensity;
+					if (
+						screenX >= 0 &&
+						screenX < width &&
+						screenY >= 0 &&
+						screenY < height
+					) {
+						const sampleDepth = depthBuffer[screenY * width + screenX];
+						const samplePosDepth = -samplePos.z;
+						const rangeCheck =
+							Math.abs(originDepth - sampleDepth) < options.radius ? 1 : 0;
+						occlusion +=
+							(sampleDepth <= samplePosDepth - options.bias ? 1 : 0) *
+							rangeCheck;
+					}
 				}
-			}
-		});
 
-		this._blur(aoBuffer, width, height, dirtyRects, options.blurRadius);
-		forEachSoftwareDirtyRect(dirtyRects, (rect) => {
-			for (let y = rect.minY; y <= rect.maxY; y++) {
-				const row = y * width;
-				for (let x = rect.minX; x <= rect.maxX; x++) {
-					const i = row + x;
-					const factor = aoBuffer[i];
-					const idx = i << 2;
-					pixels[idx] *= factor;
-					pixels[idx + 1] *= factor;
-					pixels[idx + 2] *= factor;
-				}
+				aoBuffer[idx] =
+					1 - (occlusion / Math.max(options.samples, 1)) * options.intensity;
 			}
-		});
+		}
+
+		this._blur(aoBuffer, width, height, options.blurRadius);
+		for (let y = 0; y < height; y++) {
+			const row = y * width;
+			for (let x = 0; x < width; x++) {
+				const i = row + x;
+				const factor = aoBuffer[i];
+				const idx = i << 2;
+				pixels[idx] *= factor;
+				pixels[idx + 1] *= factor;
+				pixels[idx + 2] *= factor;
+			}
+		}
 		return { ran: true };
 	}
 
@@ -559,7 +541,6 @@ export class SoftwareScreenSpaceAmbientOcclusionImplementation
 		buffer: Float32Array,
 		width: number,
 		height: number,
-		dirtyRects: readonly IncrementalDirtyRect[],
 		blurRadius: number
 	): void {
 		if (!this._blurTemp || this._blurTemp.length !== buffer.length) {
@@ -568,25 +549,23 @@ export class SoftwareScreenSpaceAmbientOcclusionImplementation
 		const temp = this._blurTemp;
 		temp.set(buffer);
 		const radius = Math.max(1, Math.min(4, Math.round(blurRadius)));
-		forEachSoftwareDirtyRect(dirtyRects, (rect) => {
-			for (let y = rect.minY; y <= rect.maxY; y++) {
-				for (let x = rect.minX; x <= rect.maxX; x++) {
-					let sum = 0;
-					let count = 0;
-					for (let dy = -radius; dy <= radius; dy++) {
-						for (let dx = -radius; dx <= radius; dx++) {
-							const nx = x + dx;
-							const ny = y + dy;
-							if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-								sum += temp[ny * width + nx];
-								count++;
-							}
+		for (let y = 0; y < height; y++) {
+			for (let x = 0; x < width; x++) {
+				let sum = 0;
+				let count = 0;
+				for (let dy = -radius; dy <= radius; dy++) {
+					for (let dx = -radius; dx <= radius; dx++) {
+						const nx = x + dx;
+						const ny = y + dy;
+						if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+							sum += temp[ny * width + nx];
+							count++;
 						}
 					}
-					buffer[y * width + x] = sum / Math.max(count, 1);
 				}
+				buffer[y * width + x] = sum / Math.max(count, 1);
 			}
-		});
+		}
 	}
 }
 
@@ -1222,9 +1201,6 @@ export class ScreenSpaceAmbientOcclusionPass extends PostProcessPass<
 					config.schedule?.placement ??
 					SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ORDER.placement,
 				order: config.schedule?.order ?? SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ORDER.order,
-				incremental:
-					config.schedule?.incremental ??
-					SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ORDER.incremental,
 			},
 			label: "SSAO",
 			colorContract: config.colorContract ?? {

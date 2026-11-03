@@ -1,5 +1,4 @@
 import type { FrameAttachments } from "../../pipeline/types";
-import type { IncrementalDirtyRect } from "../../pipeline/incremental";
 import type { ICommandEncoder } from "../../backends/ICommandEncoder";
 import {
 	FXAA_EDGE_THRESHOLD_MIN,
@@ -41,20 +40,12 @@ import type {
 	PostProcessPassResult,
 	PostProcessResourceAccessor,
 } from "../types";
-import {
-	forEachSoftwareDirtyRect,
-} from "./ScreenPassShared";
 
 export const FAST_APPROXIMATE_ANTI_ALIASING_PASS_ID = "fxaa";
 export const FAST_APPROXIMATE_ANTI_ALIASING_PASS_ORDER = {
 	id: FAST_APPROXIMATE_ANTI_ALIASING_PASS_ID,
 	placement: "ldr",
 	order: 710,
-	incremental: {
-		firstPass: "fxaa",
-		grade: "light",
-		inflationRadius: 2,
-	},
 } as const satisfies PostProcessScheduleEntry;
 
 interface SampledByteColor {
@@ -68,7 +59,6 @@ interface SampledByteColor {
 export interface SoftwareFXAAContext {
 	readonly attachments: FrameAttachments;
 	readonly canvasContext: CanvasRenderingContext2D | null;
-	readonly dirtyRects: readonly IncrementalDirtyRect[];
 	readonly resources: PostProcessResourceAccessor<ArrayBufferView>;
 }
 
@@ -171,11 +161,6 @@ export class SoftwareFastApproximateAntiAliasingImplementation
 			this._output = new Float32Array(pixels.length);
 		}
 		const output = this._output;
-		output.set(pixels);
-		const dirtyRects = context.dirtyRects;
-		if (dirtyRects.length === 0) {
-			return { ran: false };
-		}
 
 		const lumaSize = width * height;
 		if (!this._luma || this._luma.length !== lumaSize) {
@@ -191,132 +176,130 @@ export class SoftwareFastApproximateAntiAliasingImplementation
 		}
 
 		const outCol: SampledByteColor = { r: 0, g: 0, b: 0, a: 0 };
-		forEachSoftwareDirtyRect(dirtyRects, (rect) => {
-			for (let y = rect.minY; y <= rect.maxY; y++) {
-				const row = y * width;
-				for (let x = rect.minX; x <= rect.maxX; x++) {
-					const i = row + x;
-					const idx = i << 2;
-					const l = luma[i];
-					const ln = y > 0 ? luma[i - width] : l;
-					const ls = y < height - 1 ? luma[i + width] : l;
-					const le = x < width - 1 ? luma[i + 1] : l;
-					const lw = x > 0 ? luma[i - 1] : l;
-					const lMin = Math.min(l, ln, ls, le, lw);
-					const lMax = Math.max(l, ln, ls, le, lw);
-					const lRange = lMax - lMin;
+		for (let y = 0; y < height; y++) {
+			const row = y * width;
+			for (let x = 0; x < width; x++) {
+				const i = row + x;
+				const idx = i << 2;
+				const l = luma[i];
+				const ln = y > 0 ? luma[i - width] : l;
+				const ls = y < height - 1 ? luma[i + width] : l;
+				const le = x < width - 1 ? luma[i + 1] : l;
+				const lw = x > 0 ? luma[i - 1] : l;
+				const lMin = Math.min(l, ln, ls, le, lw);
+				const lMax = Math.max(l, ln, ls, le, lw);
+				const lRange = lMax - lMin;
 
-					if (
-						lRange <
-						Math.max(FXAA_EDGE_THRESHOLD_MIN, lMax * FXAA_EDGE_THRESHOLD_MULTIPLIER)
-					) {
-						output[idx] = pixels[idx];
-						output[idx + 1] = pixels[idx + 1];
-						output[idx + 2] = pixels[idx + 2];
-						output[idx + 3] = pixels[idx + 3];
-						continue;
-					}
-
-					const lnw = y > 0 && x > 0 ? luma[i - width - 1] : ln;
-					const lne = y > 0 && x < width - 1 ? luma[i - width + 1] : ln;
-					const lsw = y < height - 1 && x > 0 ? luma[i + width - 1] : ls;
-					const lse =
-						y < height - 1 && x < width - 1 ? luma[i + width + 1] : ls;
-
-					let lFiltered = 2 * (ln + ls + le + lw);
-					lFiltered += lne + lnw + lse + lsw;
-					lFiltered /= 12;
-					const subpixOffset1 = Math.abs(lFiltered - l);
-					const subpixOffset2 = clamp(subpixOffset1 / Math.max(lRange, 1e-4), 0, 1);
-					const subpixOffset3 =
-						(-2 * subpixOffset2 + 3) * subpixOffset2 * subpixOffset2;
-					const subpixOffset = subpixOffset3 * subpixOffset3 * FXAA_SUBPIX_QUALITY;
-
-					const edgeHorz =
-						Math.abs(-2 * lw + lnw + lsw) +
-						Math.abs(-2 * l + ln + ls) * 2 +
-						Math.abs(-2 * le + lne + lse);
-					const edgeVert =
-						Math.abs(-2 * ln + lnw + lne) +
-						Math.abs(-2 * l + lw + le) * 2 +
-						Math.abs(-2 * ls + lsw + lse);
-					const isHorz = edgeHorz >= edgeVert;
-
-					const l1 = isHorz ? ln : lw;
-					const l2 = isHorz ? ls : le;
-					const gradient1 = Math.abs(l1 - l);
-					const gradient2 = Math.abs(l2 - l);
-					const is1Steeper = gradient1 >= gradient2;
-					const gradientScaled = 0.25 * Math.max(gradient1, gradient2);
-					const stepSign = is1Steeper ? -1 : 1;
-					const lEdge = is1Steeper ? (l1 + l) * 0.5 : (l2 + l) * 0.5;
-
-					let posNX = x;
-					let posNY = y;
-					if (isHorz) {
-						posNY += stepSign * 0.5;
-					} else {
-						posNX += stepSign * 0.5;
-					}
-					let posPX = posNX;
-					let posPY = posNY;
-					const offX = isHorz ? 1 : 0;
-					const offY = isHorz ? 0 : 1;
-					let doneN = false;
-					let doneP = false;
-					let lEndN = 0;
-					let lEndP = 0;
-					for (let j = 0; j < FXAA_QUALITY.length; j++) {
-						if (!doneN) {
-							lEndN = sampleLumaBilinear(luma, width, height, posNX, posNY);
-							doneN = Math.abs(lEndN - lEdge) >= gradientScaled;
-						}
-						if (!doneP) {
-							lEndP = sampleLumaBilinear(luma, width, height, posPX, posPY);
-							doneP = Math.abs(lEndP - lEdge) >= gradientScaled;
-						}
-						if (doneN && doneP) {
-							break;
-						}
-						if (!doneN) {
-							posNX -= offX * FXAA_QUALITY[j];
-							posNY -= offY * FXAA_QUALITY[j];
-						}
-						if (!doneP) {
-							posPX += offX * FXAA_QUALITY[j];
-							posPY += offY * FXAA_QUALITY[j];
-						}
-					}
-
-					const distN = isHorz ? x - posNX : y - posNY;
-					const distP = isHorz ? posPX - x : posPY - y;
-					const isNDistSmaller = distN < distP;
-					const distMin = Math.min(distN, distP);
-					const lEndMin = isNDistSmaller ? lEndN : lEndP;
-					const isLPositive = l - lEdge >= 0;
-					const isEndPositive = lEndMin - lEdge >= 0;
-					const reachedProperly = isEndPositive !== isLPositive;
-					let edgeOffset = -distMin / Math.max(distN + distP, 1e-4) + 0.5;
-					if (!reachedProperly) {
-						edgeOffset = 0;
-					}
-
-					const pixelOffset = Math.max(subpixOffset, edgeOffset);
-					let finalX = x;
-					let finalY = y;
-					if (isHorz) {
-						finalY += stepSign * pixelOffset;
-					} else {
-						finalX += stepSign * pixelOffset;
-					}
-					sampleByteBilinear(pixels, width, height, finalX, finalY, outCol);
-					output[idx] = outCol.r;
-					output[idx + 1] = outCol.g;
-					output[idx + 2] = outCol.b;
-					output[idx + 3] = outCol.a;
+				if (
+					lRange <
+					Math.max(FXAA_EDGE_THRESHOLD_MIN, lMax * FXAA_EDGE_THRESHOLD_MULTIPLIER)
+				) {
+					output[idx] = pixels[idx];
+					output[idx + 1] = pixels[idx + 1];
+					output[idx + 2] = pixels[idx + 2];
+					output[idx + 3] = pixels[idx + 3];
+					continue;
 				}
+
+				const lnw = y > 0 && x > 0 ? luma[i - width - 1] : ln;
+				const lne = y > 0 && x < width - 1 ? luma[i - width + 1] : ln;
+				const lsw = y < height - 1 && x > 0 ? luma[i + width - 1] : ls;
+				const lse =
+					y < height - 1 && x < width - 1 ? luma[i + width + 1] : ls;
+
+				let lFiltered = 2 * (ln + ls + le + lw);
+				lFiltered += lne + lnw + lse + lsw;
+				lFiltered /= 12;
+				const subpixOffset1 = Math.abs(lFiltered - l);
+				const subpixOffset2 = clamp(subpixOffset1 / Math.max(lRange, 1e-4), 0, 1);
+				const subpixOffset3 =
+					(-2 * subpixOffset2 + 3) * subpixOffset2 * subpixOffset2;
+				const subpixOffset = subpixOffset3 * subpixOffset3 * FXAA_SUBPIX_QUALITY;
+
+				const edgeHorz =
+					Math.abs(-2 * lw + lnw + lsw) +
+					Math.abs(-2 * l + ln + ls) * 2 +
+					Math.abs(-2 * le + lne + lse);
+				const edgeVert =
+					Math.abs(-2 * ln + lnw + lne) +
+					Math.abs(-2 * l + lw + le) * 2 +
+					Math.abs(-2 * ls + lsw + lse);
+				const isHorz = edgeHorz >= edgeVert;
+
+				const l1 = isHorz ? ln : lw;
+				const l2 = isHorz ? ls : le;
+				const gradient1 = Math.abs(l1 - l);
+				const gradient2 = Math.abs(l2 - l);
+				const is1Steeper = gradient1 >= gradient2;
+				const gradientScaled = 0.25 * Math.max(gradient1, gradient2);
+				const stepSign = is1Steeper ? -1 : 1;
+				const lEdge = is1Steeper ? (l1 + l) * 0.5 : (l2 + l) * 0.5;
+
+				let posNX = x;
+				let posNY = y;
+				if (isHorz) {
+					posNY += stepSign * 0.5;
+				} else {
+					posNX += stepSign * 0.5;
+				}
+				let posPX = posNX;
+				let posPY = posNY;
+				const offX = isHorz ? 1 : 0;
+				const offY = isHorz ? 0 : 1;
+				let doneN = false;
+				let doneP = false;
+				let lEndN = 0;
+				let lEndP = 0;
+				for (let j = 0; j < FXAA_QUALITY.length; j++) {
+					if (!doneN) {
+						lEndN = sampleLumaBilinear(luma, width, height, posNX, posNY);
+						doneN = Math.abs(lEndN - lEdge) >= gradientScaled;
+					}
+					if (!doneP) {
+						lEndP = sampleLumaBilinear(luma, width, height, posPX, posPY);
+						doneP = Math.abs(lEndP - lEdge) >= gradientScaled;
+					}
+					if (doneN && doneP) {
+						break;
+					}
+					if (!doneN) {
+						posNX -= offX * FXAA_QUALITY[j];
+						posNY -= offY * FXAA_QUALITY[j];
+					}
+					if (!doneP) {
+						posPX += offX * FXAA_QUALITY[j];
+						posPY += offY * FXAA_QUALITY[j];
+					}
+				}
+
+				const distN = isHorz ? x - posNX : y - posNY;
+				const distP = isHorz ? posPX - x : posPY - y;
+				const isNDistSmaller = distN < distP;
+				const distMin = Math.min(distN, distP);
+				const lEndMin = isNDistSmaller ? lEndN : lEndP;
+				const isLPositive = l - lEdge >= 0;
+				const isEndPositive = lEndMin - lEdge >= 0;
+				const reachedProperly = isEndPositive !== isLPositive;
+				let edgeOffset = -distMin / Math.max(distN + distP, 1e-4) + 0.5;
+				if (!reachedProperly) {
+					edgeOffset = 0;
+				}
+
+				const pixelOffset = Math.max(subpixOffset, edgeOffset);
+				let finalX = x;
+				let finalY = y;
+				if (isHorz) {
+					finalY += stepSign * pixelOffset;
+				} else {
+					finalX += stepSign * pixelOffset;
+				}
+				sampleByteBilinear(pixels, width, height, finalX, finalY, outCol);
+				output[idx] = outCol.r;
+				output[idx + 1] = outCol.g;
+				output[idx + 2] = outCol.b;
+				output[idx + 3] = outCol.a;
 			}
-		});
+		}
 
 		pixels.set(output);
 		return { ran: true };
@@ -589,8 +572,6 @@ export class FastApproximateAntiAliasingPass extends PostProcessPass<
 					FAST_APPROXIMATE_ANTI_ALIASING_PASS_ORDER.placement,
 				order: config.schedule?.order ??
 					FAST_APPROXIMATE_ANTI_ALIASING_PASS_ORDER.order,
-				incremental: config.schedule?.incremental ??
-					FAST_APPROXIMATE_ANTI_ALIASING_PASS_ORDER.incremental,
 			},
 			label: "FXAA",
 			colorContract: config.colorContract ?? {

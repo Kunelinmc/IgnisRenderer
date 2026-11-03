@@ -17,11 +17,9 @@ import {
 	type IncrementalDirtyReasonDescriptor,
 	type IncrementalFrameContext,
 	type IncrementalRegistry,
-	type PostProcessIncrementalMetadata,
 	type RenderDirtyReason,
 } from "./incremental";
 import type {
-	PostProcessPass,
 	ResolvedPostProcessState,
 } from "../postprocess";
 import type {
@@ -173,21 +171,6 @@ export class RenderPipelineRegistry {
 		return resolveRendererStageOrder(this._stages, context, warn);
 	}
 
-	/**
-	 * Registers post-process incremental metadata from a logical pass.
-	 *
-	 * @param pass Logical post-process pass. Renderer-default built-ins cannot be
-	 * unregistered; manually registered passes can.
-	 * @returns Nothing.
-	 * @sideEffects Mutates the incremental post-process metadata registry.
-	 */
-	public registerPostProcessPass(pass: PostProcessPass): void {
-		this._incrementalRegistry.registerPostProcessPass(pass);
-	}
-
-	public unregisterPostProcessPass(id: string): void {
-		this._incrementalRegistry.unregisterPostProcessPass(id);
-	}
 
 	public getStageKind(stageId: FramePassStage): RenderPipelineStageKind | null {
 		return this._stages.get(stageId)?.kind ?? null;
@@ -325,5 +308,3 @@ export class RenderPipelineRegistry {
 		}
 	}
 }
-
-export type { PostProcessIncrementalMetadata };

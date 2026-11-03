@@ -236,7 +236,6 @@ function createRuntime(events, options = {}) {
 				height: 16,
 				orderedPasses: [],
 				passes: [],
-				startPassId: null,
 			};
 		},
 		buildRenderGraphFrame() {

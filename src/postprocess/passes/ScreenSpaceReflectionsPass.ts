@@ -50,11 +50,6 @@ export const SCREEN_SPACE_REFLECTIONS_PASS_ORDER = {
 	id: SCREEN_SPACE_REFLECTIONS_PASS_ID,
 	placement: "temporal",
 	order: 210,
-	incremental: {
-		firstPass: "ssr",
-		grade: "cinematic",
-		inflationRadius: 16,
-	},
 } as const satisfies PostProcessScheduleEntry;
 
 export interface SSROptions {
@@ -683,8 +678,6 @@ export class ScreenSpaceReflectionsPass extends PostProcessPass<SSROptions, Reso
 				placement:
 					config.schedule?.placement ?? SCREEN_SPACE_REFLECTIONS_PASS_ORDER.placement,
 				order: config.schedule?.order ?? SCREEN_SPACE_REFLECTIONS_PASS_ORDER.order,
-				incremental:
-					config.schedule?.incremental ?? SCREEN_SPACE_REFLECTIONS_PASS_ORDER.incremental,
 			},
 			label: "SSR",
 			colorContract: config.colorContract ?? {

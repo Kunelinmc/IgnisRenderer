@@ -69,11 +69,6 @@ export const VOLUMETRIC_LIGHTING_PASS_ORDER = {
 	id: VOLUMETRIC_LIGHTING_PASS_ID,
 	placement: "atmosphere",
 	order: 300,
-	incremental: {
-		firstPass: "volumetric",
-		grade: "cinematic",
-		inflationRadius: 16,
-	},
 } as const satisfies PostProcessScheduleEntry;
 export interface VolumetricOptions {
 	/** Ray-march step count. Higher values reduce banding at higher GPU cost. */
@@ -686,7 +681,6 @@ export class VolumetricLightingPass extends PostProcessPass<
 			schedule: {
 				placement: config.schedule?.placement ?? VOLUMETRIC_LIGHTING_PASS_ORDER.placement,
 				order: config.schedule?.order ?? VOLUMETRIC_LIGHTING_PASS_ORDER.order,
-				incremental: config.schedule?.incremental ?? VOLUMETRIC_LIGHTING_PASS_ORDER.incremental,
 			},
 			label: "volumetric effects",
 			colorContract: config.colorContract ?? {

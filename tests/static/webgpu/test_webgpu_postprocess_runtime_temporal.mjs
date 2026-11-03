@@ -94,7 +94,6 @@ function createSSRPassRequest(frameContext, histories, historyValid = true) {
 		pass: resolvedPass?.pass ?? SSR_PASS,
 		passId: "ssr",
 		options: resolvedPass?.options ?? frameContext.postProcess.getOptions("ssr"),
-		startPassId: null,
 	};
 }
 
@@ -126,7 +125,6 @@ function createVolumetricPassRequest(frameContext, histories, historyValid = tru
 		passId: "volumetric",
 		options:
 			resolvedPass?.options ?? frameContext.postProcess.getOptions("volumetric"),
-		startPassId: null,
 	};
 }
 

@@ -135,6 +135,7 @@ async function run() {
 		camera.position.set(0, 0, 5);
 		const renderer = new Renderer(canvas, backend, camera);
 		renderer.features.worldMatrix = Matrix4.identity();
+		renderer.postProcess.getPass("tonemap")?.disable();
 		renderer.postProcess.getPass("gamma")?.disable();
 		renderer.features.enableReflection = false;
 		renderer.features.enableEnvironment = false;

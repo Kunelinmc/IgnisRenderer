@@ -5,28 +5,6 @@ import {
 	getDefaultIncrementalRegistry,
 	renderDirtyReasonToMask,
 } from "../../../src/pipeline/incremental.ts";
-import {
-	PostProcessPass,
-	PostProcessPassRegistry,
-} from "../../../src/postprocess/index.ts";
-import {
-	createPostProcessRegistryFromRequest,
-	createResolvedPostProcess,
-} from "../../helpers/postprocess.mjs";
-
-class TestBuiltInPostProcessPass extends PostProcessPass {
-	constructor() {
-		super({
-			id: "test-built-in",
-			builtIn: true,
-			enabled: true,
-			implementations: {
-				test: {},
-			},
-		});
-	}
-}
-
 function createFeatures(overrides = {}) {
 	return {
 		enableLighting: true,
@@ -39,122 +17,37 @@ function createFeatures(overrides = {}) {
 	};
 }
 
-function createPostProcess(overrides = {}) {
-	return createResolvedPostProcess(overrides, "test");
-}
-
-function createRegisteredPostProcess(overrides = {}) {
-	const postProcessRegistry = createPostProcessRegistryFromRequest(
-		overrides,
-		"test"
-	);
+function testPostFxAlwaysReplaysScene() {
 	const registry = new IncrementalRegistry();
-	for (const pass of postProcessRegistry.getPasses()) {
-		registry.registerPostProcessPass(pass);
-	}
-	return {
-		postProcess: postProcessRegistry.createSnapshot("test"),
-		registry,
-	};
-}
-
-function testDisplayPassMetadataRequiresRegistration() {
-	for (const registry of [new IncrementalRegistry(), getDefaultIncrementalRegistry()]) {
-		const postProcessRegistry = createPostProcessRegistryFromRequest({
-			tonemap: { enabled: true },
-			gamma: { enabled: true },
-		});
-		const postProcess = postProcessRegistry.createSnapshot("test");
-		assert.equal(registry.resolveFirstEnabledPostProcessStage(postProcess), null);
-		assert.equal(registry.resolvePostProcessGrade(postProcess), "none");
-		assert.equal(registry.computePostProcessInflationRadius(postProcess), 0);
-		assert.equal(
-			registry.scaleFullFrameFallbackAreaRatioForPostProcess(0.3, postProcess),
-			0.3
-		);
-
-		for (const pass of postProcessRegistry.getPasses()) {
-			registry.registerPostProcessPass(pass);
-		}
+	for (const sceneReason of [0, registry.getDirtyReasonMask("transform")]) {
 		const plan = IncrementalFramePlanner.plan({
 			enabled: true,
-			reasonMask: registry.getDirtyReasonMask("postfx"),
+			reasonMask: registry.getDirtyReasonMask("postfx") | sceneReason,
 			features: createFeatures(),
-			postProcess,
 			registry,
 		});
-		assert.equal(plan.firstPass, "postprocess");
-		assert.equal(plan.postProcessStartPass, "tonemap");
-		assert.equal(registry.resolvePostProcessGrade(postProcess), "light");
-		assert.equal(registry.computePostProcessInflationRadius(postProcess), 2);
-
-		postProcessRegistry.getPass("tonemap").disable();
-		const gammaOnly = postProcessRegistry.createSnapshot("test");
-		assert.equal(registry.resolveFirstEnabledPostProcessStage(gammaOnly), "gamma");
-		postProcessRegistry.getPass("gamma").disable();
-		const disabled = postProcessRegistry.createSnapshot("test");
-		assert.equal(registry.resolveFirstEnabledPostProcessStage(disabled), null);
-		assert.equal(registry.resolvePostProcessGrade(disabled), "none");
-		assert.equal(registry.computePostProcessInflationRadius(disabled), 0);
+		assert.equal(plan.firstPass, "main-opaque");
+		assert.equal(plan.forceFullFrame, true);
+		assert.equal(plan.temporalHistoryReset, sceneReason !== 0);
 	}
 }
 
-function testUnregisteredGammaDoesNotChoosePostProcessStart() {
+function testCustomPostFxGroupRequiresSceneReplay() {
 	const registry = new IncrementalRegistry();
+	const reasonMask = registry.registerDirtyReason({ id: "custom-postfx", groups: ["postfx"] });
 	const plan = IncrementalFramePlanner.plan({
-		enabled: true,
-		reasonMask: registry.getDirtyReasonMask("postfx"),
-		features: createFeatures(),
-		postProcess: createPostProcess({ gamma: { enabled: true } }),
-		registry,
+		enabled: true, reasonMask, features: createFeatures(), registry,
 	});
 	assert.equal(plan.firstPass, "main-opaque");
-	assert.equal(plan.postProcessStartPass, null);
-}
-
-function testDisplayPassPlanningUsesRegisteredSchedules() {
-	const registered = createRegisteredPostProcess({
-		tonemap: { enabled: true },
-		gamma: {
-			enabled: true,
-			schedule: {
-				order: 500,
-				incremental: {
-					firstPass: "gamma",
-					grade: "cinematic",
-					inflationRadius: 40,
-					fallbackScale: 0.5,
-				},
-			},
-		},
-	});
-	const { registry, postProcess } = registered;
-	const plan = IncrementalFramePlanner.plan({
-		enabled: true,
-		reasonMask: registry.getDirtyReasonMask("postfx"),
-		features: createFeatures(),
-		postProcess,
-		registry,
-	});
-	assert.equal(plan.firstPass, "postprocess");
-	assert.equal(plan.postProcessStartPass, "gamma");
-	assert.equal(registry.resolvePostProcessGrade(postProcess), "cinematic");
-	assert.equal(registry.computePostProcessInflationRadius(postProcess), 40);
-	assert.equal(
-		registry.scaleFullFrameFallbackAreaRatioForPostProcess(0.3, postProcess),
-		0.15
-	);
+	assert.equal(plan.forceFullFrame, true);
+	assert.equal(plan.temporalHistoryReset, false);
 }
 
 function testNoDirtyReasonsReturnsNoPass() {
 	const plan = IncrementalFramePlanner.plan({
-		enabled: true,
-		reasonMask: 0,
-		features: createFeatures(),
-		postProcess: createPostProcess(),
+		enabled: true, reasonMask: 0, features: createFeatures(),
 	});
 	assert.equal(plan.firstPass, null);
-	assert.equal(plan.postProcessStartPass, null);
 	assert.equal(plan.forceFullFrame, false);
 	assert.equal(plan.temporalHistoryReset, false);
 }
@@ -164,124 +57,14 @@ function testParticlesStartAtParticleSim() {
 		enabled: true,
 		reasonMask: renderDirtyReasonToMask("particles"),
 		features: createFeatures(),
-		postProcess: createPostProcess(),
 	});
 	assert.equal(plan.firstPass, "particle-sim");
-	assert.equal(plan.postProcessStartPass, null);
 	assert.equal(plan.forceFullFrame, true);
 	assert.equal(plan.temporalHistoryReset, true);
 }
 
-function testPostFxStartsAtFirstEnabledPostStage() {
-	const registered = createRegisteredPostProcess({
-		bloom: { enabled: true },
-		fxaa: { enabled: true },
-	});
-	const plan = IncrementalFramePlanner.plan({
-		enabled: true,
-		reasonMask: renderDirtyReasonToMask("postfx"),
-		features: createFeatures(),
-		postProcess: registered.postProcess,
-		registry: registered.registry,
-	});
-	assert.equal(plan.firstPass, "postprocess");
-	assert.equal(plan.postProcessStartPass, "bloom");
-	assert.equal(plan.forceFullFrame, true, "global postprocess changes require scene replay");
-}
-
-function testBuiltInPostProcessStageUsesPassMetadata() {
-	const registry = new IncrementalRegistry();
-	const reasonMask = registry.registerDirtyReason({
-		id: "test-built-in-dirty",
-		firstPass: "test-built-in",
-	});
-	const postProcessRegistry = new PostProcessPassRegistry();
-	postProcessRegistry.registerPass(new TestBuiltInPostProcessPass());
-
-	const plan = IncrementalFramePlanner.plan({
-		enabled: true,
-		reasonMask,
-		features: createFeatures(),
-		postProcess: postProcessRegistry.createSnapshot("test"),
-		registry,
-	});
-
-	assert.equal(plan.firstPass, "postprocess");
-	assert.equal(plan.postProcessStartPass, "test-built-in");
-}
-
-function testPostFxStartsAtEarliestEnabledScreenSpaceStage() {
-	const registered = createRegisteredPostProcess({
-		ssao: { enabled: true },
-		bloom: { enabled: true },
-		fxaa: { enabled: true },
-	});
-	const plan = IncrementalFramePlanner.plan({
-		enabled: true,
-		reasonMask: renderDirtyReasonToMask("postfx"),
-		features: createFeatures(),
-		postProcess: registered.postProcess,
-		registry: registered.registry,
-	});
-	assert.equal(plan.firstPass, "postprocess");
-	assert.equal(plan.postProcessStartPass, "ssao");
-}
-
-function testPostFxStartsAtFogWhenOnlyFogPostProcessEnabled() {
-	const registered = createRegisteredPostProcess({
-		fog: { enabled: true },
-		fxaa: { enabled: true },
-	});
-	const plan = IncrementalFramePlanner.plan({
-		enabled: true,
-		reasonMask: renderDirtyReasonToMask("postfx"),
-		features: createFeatures(),
-		postProcess: registered.postProcess,
-		registry: registered.registry,
-	});
-	assert.equal(plan.firstPass, "postprocess");
-	assert.equal(plan.postProcessStartPass, "fog");
-}
-
-function testPostFxSkipsToneMappingWhenDisabled() {
-	const registered = createRegisteredPostProcess({
-		fog: { enabled: false },
-		tonemap: { enabled: false },
-		fxaa: { enabled: true },
-	});
-	const plan = IncrementalFramePlanner.plan({
-		enabled: true,
-		reasonMask: renderDirtyReasonToMask("postfx"),
-		features: createFeatures(),
-		postProcess: registered.postProcess,
-		registry: registered.registry,
-	});
-	assert.equal(plan.firstPass, "postprocess");
-	assert.equal(plan.postProcessStartPass, "fxaa");
-}
-
-function testPostFxWithTemporalPassPreservesPlannerResetPolicy() {
-	const registered = createRegisteredPostProcess({
-		taa: { enabled: true },
-		fxaa: { enabled: true },
-	});
-	const plan = IncrementalFramePlanner.plan({
-		enabled: true,
-		reasonMask: renderDirtyReasonToMask("postfx"),
-		features: createFeatures(),
-		postProcess: registered.postProcess,
-		registry: registered.registry,
-	});
-	assert.equal(plan.firstPass, "postprocess");
-	assert.equal(plan.postProcessStartPass, "taa");
-	assert.equal(plan.forceFullFrame, true);
-	assert.equal(plan.temporalHistoryReset, false);
-}
-
 function testRemovedPostFxReasonsUseConservativeUnknownFallback() {
-	const { registry, postProcess } = createRegisteredPostProcess({
-		bloom: { enabled: true },
-	});
+	const registry = new IncrementalRegistry();
 	for (const reason of [
 		"postfx-light",
 		"postfx-standard",
@@ -293,12 +76,10 @@ function testRemovedPostFxReasonsUseConservativeUnknownFallback() {
 			enabled: true,
 			reasonMask,
 			features: createFeatures(),
-			postProcess,
 			registry,
 		});
 		assert.deepEqual(plan, {
 			firstPass: "main-opaque",
-			postProcessStartPass: null,
 			forceFullFrame: true,
 			temporalHistoryReset: true,
 			reasonMask,
@@ -318,12 +99,10 @@ function testCompactDirtyMasksRetainPlanningSemantics() {
 			reasonMask,
 			features: createFeatures(),
 			hasEnabledShadows,
-			postProcess: createPostProcess(),
 			registry,
 		});
 		assert.deepEqual(plan, {
 			firstPass,
-			postProcessStartPass: null,
 			forceFullFrame,
 			temporalHistoryReset: true,
 			reasonMask,
@@ -344,7 +123,6 @@ function testCustomDirtyReasonCapacityRetainsIndependentPlanning() {
 			enabled: true,
 			reasonMask,
 			features: createFeatures(),
-			postProcess: createPostProcess(),
 			registry,
 		});
 		assert.equal(plan.firstPass, passId);
@@ -360,10 +138,8 @@ function testCameraForcesFullAndResetsTemporal() {
 		reasonMask: renderDirtyReasonToMask("camera"),
 		features: createFeatures(),
 		hasEnabledShadows: true,
-		postProcess: createPostProcess(),
 	});
 	assert.equal(plan.firstPass, "shadow");
-	assert.equal(plan.postProcessStartPass, null);
 	assert.equal(plan.forceFullFrame, true);
 	assert.equal(plan.temporalHistoryReset, true);
 }
@@ -378,10 +154,8 @@ function testGeometryFallsBackToMainWhenShadowsDisabled() {
 		reasonMask: mask,
 		features: createFeatures(),
 		hasEnabledShadows: false,
-		postProcess: createPostProcess(),
 	});
 	assert.equal(plan.firstPass, "main-opaque");
-	assert.equal(plan.postProcessStartPass, null);
 	assert.equal(plan.forceFullFrame, false);
 	assert.equal(plan.temporalHistoryReset, true);
 }
@@ -391,10 +165,8 @@ function testDisabledIncrementalAlwaysFullFrame() {
 		enabled: false,
 		reasonMask: renderDirtyReasonToMask("interaction"),
 		features: createFeatures(),
-		postProcess: createPostProcess(),
 	});
 	assert.equal(plan.firstPass, null);
-	assert.equal(plan.postProcessStartPass, null);
 	assert.equal(plan.forceFullFrame, true);
 	assert.equal(plan.temporalHistoryReset, true);
 }
@@ -405,10 +177,8 @@ function testDecalWithShadowsRequiresFullReceiverReplay() {
 		reasonMask: renderDirtyReasonToMask("decal"),
 		features: createFeatures(),
 		hasEnabledShadows: true,
-		postProcess: createPostProcess(),
 	});
 	assert.equal(plan.firstPass, "main-opaque");
-	assert.equal(plan.postProcessStartPass, null);
 	assert.equal(plan.forceFullFrame, true);
 	assert.equal(plan.temporalHistoryReset, true);
 }
@@ -430,11 +200,9 @@ function testCustomDirtyReasonAllocatesMaskAndPlansFirstPass() {
 			enabled: true,
 			reasonMask: mask,
 			features: createFeatures(),
-			postProcess: createPostProcess(),
 			registry,
 		});
 		assert.equal(plan.firstPass, passId);
-		assert.equal(plan.postProcessStartPass, null);
 		assert.equal(plan.forceFullFrame, false);
 		assert.equal(plan.temporalHistoryReset, true);
 	} finally {
@@ -450,10 +218,8 @@ function testProbeCaptureForcesFullFrameAndResetsTemporal() {
 			reasonMask: renderDirtyReasonToMask("probe-capture"),
 			features: createFeatures(),
 			hasEnabledShadows,
-			postProcess: createPostProcess(),
 		});
 		assert.equal(plan.firstPass, hasEnabledShadows ? "shadow" : "main-opaque");
-		assert.equal(plan.postProcessStartPass, null);
 		assert.equal(plan.forceFullFrame, true);
 		assert.equal(plan.temporalHistoryReset, true);
 	}
@@ -481,11 +247,9 @@ function testCustomDirtyReasonUsesGroups() {
 			reasonMask: mask,
 			features: createFeatures(),
 			hasEnabledShadows: false,
-			postProcess: createPostProcess(),
 			registry,
 		});
 		assert.equal(plan.firstPass, "main-opaque");
-		assert.equal(plan.postProcessStartPass, null);
 		assert.equal(plan.forceFullFrame, true);
 	} finally {
 		registry.unregisterDirtyReason(reasonId);
@@ -493,17 +257,10 @@ function testCustomDirtyReasonUsesGroups() {
 }
 
 function run() {
-	testDisplayPassMetadataRequiresRegistration();
-	testUnregisteredGammaDoesNotChoosePostProcessStart();
-	testDisplayPassPlanningUsesRegisteredSchedules();
+	testPostFxAlwaysReplaysScene();
+	testCustomPostFxGroupRequiresSceneReplay();
 	testNoDirtyReasonsReturnsNoPass();
 	testParticlesStartAtParticleSim();
-	testPostFxStartsAtFirstEnabledPostStage();
-	testBuiltInPostProcessStageUsesPassMetadata();
-	testPostFxStartsAtEarliestEnabledScreenSpaceStage();
-	testPostFxStartsAtFogWhenOnlyFogPostProcessEnabled();
-	testPostFxSkipsToneMappingWhenDisabled();
-	testPostFxWithTemporalPassPreservesPlannerResetPolicy();
 	testRemovedPostFxReasonsUseConservativeUnknownFallback();
 	testCompactDirtyMasksRetainPlanningSemantics();
 	testCustomDirtyReasonCapacityRetainsIndependentPlanning();

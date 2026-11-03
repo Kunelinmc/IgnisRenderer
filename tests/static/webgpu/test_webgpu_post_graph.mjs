@@ -45,7 +45,6 @@ function createFrameContext(postProcess, incremental = {}) {
 			dirtyTiles: [0],
 			dirtyAreaRatio: 1,
 			firstPass: null,
-			postProcessStartPass: null,
 			reasonMask: 0,
 			temporalHistoryReset: false,
 			...incremental,
@@ -129,7 +128,7 @@ function testLegacyFogApplicationCannotSkipPostProcessing() {
 	assert.deepEqual(order.map((pass) => pass.id), ["volumetric", "fog", "motion-blur"]);
 }
 
-function testIncrementalStartPassIsResolvedByPlanner() {
+function testIncrementalFramePlansCompletePostProcessSequence() {
 	const postProcess = createPostProcess({
 		bloom: { enabled: true },
 		tonemap: { enabled: true },
@@ -141,7 +140,6 @@ function testIncrementalStartPassIsResolvedByPlanner() {
 		enabled: true,
 		forceFullFrame: false,
 		firstPass: "postprocess",
-		postProcessStartPass: "color-filter",
 	});
 	const graph = new PostProcessPlanner().plan({
 		frameContext,
@@ -152,12 +150,11 @@ function testIncrementalStartPassIsResolvedByPlanner() {
 		isSharedResourceAvailable: () => true,
 	});
 
-	assert.equal(graph.startPassId, "color-filter");
+	assert.equal(graph.initialColorDomain, "scene-linear-hdr");
 	assert.deepEqual(
 		graph.passes.map((pass) => pass.id),
-		["color-filter", "fxaa", "gamma"]
+		["bloom", "tonemap", "color-filter", "fxaa", "gamma"]
 	);
-	assert.equal(graph.frameContext.incremental.postProcessStartPass, "color-filter");
 }
 
 function testSSGIRequiresHiZAndSharesMotionHistory() {
@@ -302,7 +299,7 @@ function testUndeclaredHDRCustomPassWarnsButRuns() {
 async function run() {
 	testBuiltInOrderUsesPipelineAuthority();
 	testLegacyFogApplicationCannotSkipPostProcessing();
-	testIncrementalStartPassIsResolvedByPlanner();
+	testIncrementalFramePlansCompletePostProcessSequence();
 	testSSGIRequiresHiZAndSharesMotionHistory();
 	testColorDomainPlanning();
 	testUndeclaredHDRCustomPassWarnsButRuns();

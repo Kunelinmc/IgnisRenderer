@@ -182,7 +182,6 @@ function createLifecycleHarness() {
 			forceFullFrame: false,
 			dirtyRects: [],
 			firstPass: null,
-			postProcessStartPass: null,
 			temporalHistoryReset: false,
 		},
 	};

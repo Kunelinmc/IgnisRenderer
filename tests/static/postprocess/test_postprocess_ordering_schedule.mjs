@@ -1,12 +1,9 @@
 import assert from "node:assert/strict";
 import * as ordering from "../../../src/postprocess/ordering.ts";
-import { isPostProcessPassStage } from "../../../src/postprocess/PostProcessPlanner.ts";
 import {
-	TONE_MAPPING_PASS_INCREMENTAL,
 	TONE_MAPPING_PASS_ORDER,
 } from "../../../src/postprocess/passes/ToneMappingPass.ts";
 import {
-	GAMMA_PASS_INCREMENTAL,
 	GAMMA_PASS_ORDER,
 } from "../../../src/postprocess/passes/GammaPass.ts";
 
@@ -19,13 +16,11 @@ function testBuiltinOrderIsDefinedOnPassModules() {
 		id: "tonemap",
 		placement: "hdr",
 		order: 600,
-		incremental: TONE_MAPPING_PASS_INCREMENTAL,
 	});
 	assert.deepEqual(GAMMA_PASS_ORDER, {
 		id: "gamma",
 		placement: "present",
 		order: 900,
-		incremental: GAMMA_PASS_INCREMENTAL,
 	});
 	assert.deepEqual(getBuiltinPostProcessOrder("tonemap"), {
 		id: "tonemap",
@@ -38,17 +33,8 @@ function testBuiltinOrderIsDefinedOnPassModules() {
 	assert.equal("defineBuiltinPostProcessOrder" in ordering, false);
 }
 
-function testPipelineStageHelperWorksWithoutPassBarrelImport() {
-	assert.equal(isPostProcessPassStage("postprocess"), true);
-	assert.equal(isPostProcessPassStage("ssao"), false);
-	assert.equal(isPostProcessPassStage("tonemap"), true);
-	assert.equal(isPostProcessPassStage("gamma"), true);
-	assert.equal(isPostProcessPassStage("custom"), false);
-}
-
 function run() {
 	testBuiltinOrderIsDefinedOnPassModules();
-	testPipelineStageHelperWorksWithoutPassBarrelImport();
 	console.log("Postprocess ordering schedule tests passed");
 }
 

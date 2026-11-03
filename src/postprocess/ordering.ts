@@ -1,4 +1,3 @@
-import type { PostProcessIncrementalMetadata } from "../pipeline/incremental";
 import { GAMMA_PASS_ORDER } from "./passes/GammaPass";
 import { TONE_MAPPING_PASS_ORDER } from "./passes/ToneMappingPass";
 
@@ -23,10 +22,7 @@ export interface BuiltinPostProcessOrderEntry {
 	readonly order: number;
 }
 
-export interface PostProcessScheduleEntry
-	extends BuiltinPostProcessOrderEntry {
-	readonly incremental: PostProcessIncrementalMetadata;
-}
+export type PostProcessScheduleEntry = BuiltinPostProcessOrderEntry;
 
 const BUILTIN_POST_PROCESS_PASS_ORDER_BY_ID = new Map(
 	[

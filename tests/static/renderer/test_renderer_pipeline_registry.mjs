@@ -6,10 +6,7 @@ import { Material } from "../../../src/materials/Material.ts";
 import { MeshAsset } from "../../../src/meshes/MeshAsset.ts";
 import { MeshInstance } from "../../../src/meshes/MeshInstance.ts";
 import { DirectionalLight } from "../../../src/lights/DirectionalLight.ts";
-import {
-	createPostProcessRegistryFromRequest,
-	installNoopPostProcessAdapter,
-} from "../../helpers/postprocess.mjs";
+import { installNoopPostProcessAdapter } from "../../helpers/postprocess.mjs";
 import { getDefaultIncrementalRegistry } from "../../../src/pipeline/incremental.ts";
 import { TestRenderBackend } from "../../helpers/TestRenderBackend.mjs";
 
@@ -83,7 +80,7 @@ class RegistryBackend extends TestRenderBackend {
 	}
 }
 
-function createRenderer(backend) {
+function createRenderer(backend, { postProcess = false } = {}) {
 	const canvas = {
 		width: 320,
 		height: 180,
@@ -92,6 +89,10 @@ function createRenderer(backend) {
 		},
 	};
 	const renderer = new Renderer(canvas, backend, new Camera());
+	if (!postProcess) {
+		renderer.postProcess.getPass("tonemap").disable();
+		renderer.postProcess.getPass("gamma").disable();
+	}
 	renderer.features.enableReflection = false;
 	renderer.features.enableEnvironment = false;
 	return renderer;
@@ -140,7 +141,7 @@ async function testRendererAbortsPartialBeginFrameFailure() {
 
 async function testRendererSuccessfulFrameEndsWithoutScheduling() {
 	const backend = new RegistryBackend();
-	const renderer = createRenderer(backend);
+	const renderer = createRenderer(backend, { postProcess: true });
 	let frameEndEvents = 0;
 	let scheduledFrames = 0;
 	renderer.on("frameend", () => {
@@ -295,37 +296,8 @@ async function testFailedFramesRetryWithFullCoverage() {
 async function testRendererRegistrationsRemainIndependent() {
 	const backends = [new RegistryBackend(), new RegistryBackend()];
 	const renderers = backends.map(createRenderer);
-	const passId = "isolated-region-pass";
 	try {
-		for (const [index, renderer] of renderers.entries()) {
-			const passes = createPostProcessRegistryFromRequest({
-				[passId]: {
-					enabled: true,
-					incremental: { grade: "none", inflationRadius: index === 0 ? 80 : 2 },
-				},
-			}, "webgpu");
-			renderer.postProcess.registerPass(passes.getPass(passId));
-			await renderer.renderFrame(0);
-		}
-		const radius = (renderer) => renderer.pipeline.incremental
-			.computePostProcessInflationRadius(renderer.postProcess.createSnapshot("webgpu"));
-		assert.equal(radius(renderers[0]), 80, "another renderer must not replace pass metadata");
-		assert.equal(radius(renderers[1]), 2);
-		for (const backend of backends) {
-			backend.attachContext.events.emit({
-				type: "render-invalidated", reason: "texture",
-				dirtyRects: [{ x: 128, y: 64, width: 1, height: 1 }],
-			});
-		}
-		const expanded = await renderers[0].renderFrame(4);
-		const local = await renderers[1].renderFrame(4);
-		assert.equal(expanded.incremental.plan.forceFullFrame, true,
-			"preparation must consume this renderer's larger inflation radius");
-		assert.equal(local.incremental.plan.forceFullFrame, false);
-		assert.ok(local.incremental.plan.dirtyAreaRatio < 1);
-		renderers[1].postProcess.unregisterPass(passId);
-		assert.equal(radius(renderers[0]), 80, "another renderer must not unregister this pass");
-		await renderers[1].renderFrame(8);
+		for (const renderer of renderers) await renderer.renderFrame(0);
 
 		for (const [index, renderer] of renderers.entries()) {
 			const stage = `isolated-stage-${index}`;

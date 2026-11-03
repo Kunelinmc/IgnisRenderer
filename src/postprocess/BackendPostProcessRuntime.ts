@@ -83,7 +83,6 @@ export interface PostProcessGraphExecutionResult {
 	readonly resolvedOutputColor: string;
 	readonly executedPassIds: readonly string[];
 	readonly skippedPassIds: readonly string[];
-	readonly preservesOutsideDirtyTiles: boolean;
 }
 
 /** @internal Internal diagnostic snapshots without native resource handles. */
@@ -113,7 +112,6 @@ export class BackendPostProcessRuntime {
 	private readonly _observedPasses = new Set<PostProcessPass>();
 	private readonly _implementations = new Map<PostProcessPass, PostProcessPassImplementation>();
 	private _pendingFrame: PendingBackendPostProcessFrame | null = null;
-	private _completedFramePreservesOutsideDirtyTiles = true;
 	private _lastAttempt: PostProcessGraphExecutionResult | null = null;
 	private _lastSuccessful: PostProcessGraphExecutionResult | null = null;
 
@@ -284,14 +282,6 @@ export class BackendPostProcessRuntime {
 		context: FrameContext,
 		retainedPlan?: PostProcessPlan,
 	): Promise<void> {
-		this._completedFramePreservesOutsideDirtyTiles = true;
-		if (
-			context.incremental.enabled &&
-			!context.incremental.forceFullFrame &&
-			context.incremental.dirtyRects.length === 0
-		) {
-			return;
-		}
 		{
 			const activePasses = new Set(
 				context.postProcess.getEnabledPasses().map((resolved) => resolved.pass),
@@ -404,7 +394,6 @@ export class BackendPostProcessRuntime {
 			passId: resolved.id,
 			implementation: resolved.implementation,
 			options: resolved.options,
-			startPassId: frame.graph.startPassId,
 			declaration: resolved.declaration,
 		};
 		const executionContext = this._executor.createPassExecutionContext?.({
@@ -441,9 +430,6 @@ export class BackendPostProcessRuntime {
 				node.plannedOutputColor,
 				node.plannedOutputColor,
 			);
-		}
-		if (result.preservesOutsideDirtyTiles !== true) {
-			this._completedFramePreservesOutsideDirtyTiles = false;
 		}
 		pending.executedPassIds.push(resolved.id);
 		if (result.updatedHistoryIds) {
@@ -496,15 +482,6 @@ export class BackendPostProcessRuntime {
 			lastAttempt: this._lastAttempt,
 			lastSuccessful: this._lastSuccessful,
 		});
-	}
-
-	/**
-	 * Reports whether the completed post-process chain proved local preservation.
-	 *
-	 * @internal Used by backend frame-coverage reporting only.
-	 */
-	public get completedFramePreservesOutsideDirtyTiles(): boolean {
-		return this._completedFramePreservesOutsideDirtyTiles;
 	}
 
 	/**
@@ -579,7 +556,6 @@ export class BackendPostProcessRuntime {
 			resolvedOutputColor: this._resolveColorAlias(pending, outputColor),
 			executedPassIds: Object.freeze(pending.executedPassIds.slice()),
 			skippedPassIds: Object.freeze(pending.skippedPassIds.slice()),
-			preservesOutsideDirtyTiles: this._completedFramePreservesOutsideDirtyTiles,
 		});
 	}
 

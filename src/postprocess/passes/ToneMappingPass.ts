@@ -15,7 +15,6 @@ import type {
 	WebGLProgramSlot,
 } from "../../backends/webgl/WebGLProgramCompiler";
 import { ShaderSource } from "../../shaders/ShaderSource";
-import type { PostProcessIncrementalMetadata } from "../../pipeline/incremental";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
 import type { PostProcessScheduleEntry } from "../ordering";
 import {
@@ -32,7 +31,6 @@ import type { IRenderBackend } from "../../backends/IRenderBackend";
 import type { DisplayOutputState } from "../../rendering/DisplayOutput";
 import {
 	bindWebGLPostTarget,
-	forEachSoftwareDirtyRect,
 	resolveWebGLTarget,
 	resolveWebGPUTarget,
 	type EmptyOptions,
@@ -44,11 +42,6 @@ import {
 const COLOR_EPSILON = 1e-6;
 
 export const TONE_MAPPING_PASS_ID = "tonemap";
-export const TONE_MAPPING_PASS_INCREMENTAL = {
-	firstPass: TONE_MAPPING_PASS_ID,
-	grade: "light",
-	inflationRadius: 0,
-} as const satisfies PostProcessIncrementalMetadata;
 
 interface WebGLToneMappingProgram {
 	readonly program: WebGLProgram;
@@ -63,7 +56,6 @@ export const TONE_MAPPING_PASS_ORDER = {
 	id: TONE_MAPPING_PASS_ID,
 	placement: "hdr",
 	order: 600,
-	incremental: TONE_MAPPING_PASS_INCREMENTAL,
 } as const satisfies PostProcessScheduleEntry;
 export type WebGPUToneMappingContext = WebGPURuntimePostProcessContext;
 export type WebGLToneMappingContext = WebGLScreenPostProcessContext;
@@ -140,40 +132,37 @@ export class SoftwareToneMappingImplementation
 		if (!context || !(pixels instanceof Float32Array) || pixels.length === 0) {
 			return { ran: false };
 		}
-		const dirtyRects = context.dirtyRects;
-		const width = request.frameContext.attachments.width;
+		const { width, height } = request.frameContext.attachments;
 		const display = context.displayOutput;
 		const exposure = display?.requested.exposure ?? 1;
 		const hdr = display?.activeDynamicRange === "hdr";
 		const headroom = display?.requested.hdrHeadroom ?? 4;
-		forEachSoftwareDirtyRect(dirtyRects, (rect) => {
-			for (let y = rect.minY; y <= rect.maxY; y++) {
-				const row = y * width;
-				for (let x = rect.minX; x <= rect.maxX; x++) {
-					const index = (row + x) << 2;
-					const alpha = Math.min(1, Math.max(0, pixels[index + 3]));
-					const inverseAlpha = alpha > COLOR_EPSILON ? 1 / alpha : 0;
-					this._inputColor[0] = pixels[index] * inverseAlpha;
-					this._inputColor[1] = pixels[index + 1] * inverseAlpha;
-					this._inputColor[2] = pixels[index + 2] * inverseAlpha;
-					const mapped = hdr ?
-						applyHDRSoftShoulder(
-							this._inputColor,
-							exposure,
-							headroom,
-							this._mappedColor,
-						)
-					:	applyACESToneMapping(
-							this._inputColor,
-							exposure,
-							this._mappedColor,
-						);
-					pixels[index] = mapped[0] * alpha;
-					pixels[index + 1] = mapped[1] * alpha;
-					pixels[index + 2] = mapped[2] * alpha;
-				}
+		for (let y = 0; y < height; y++) {
+			const row = y * width;
+			for (let x = 0; x < width; x++) {
+				const index = (row + x) << 2;
+				const alpha = Math.min(1, Math.max(0, pixels[index + 3]));
+				const inverseAlpha = alpha > COLOR_EPSILON ? 1 / alpha : 0;
+				this._inputColor[0] = pixels[index] * inverseAlpha;
+				this._inputColor[1] = pixels[index + 1] * inverseAlpha;
+				this._inputColor[2] = pixels[index + 2] * inverseAlpha;
+				const mapped = hdr ?
+					applyHDRSoftShoulder(
+						this._inputColor,
+						exposure,
+						headroom,
+						this._mappedColor,
+					)
+				:	applyACESToneMapping(
+						this._inputColor,
+						exposure,
+						this._mappedColor,
+					);
+				pixels[index] = mapped[0] * alpha;
+				pixels[index + 1] = mapped[1] * alpha;
+				pixels[index + 2] = mapped[2] * alpha;
 			}
-		});
+		}
 		return { ran: true };
 	}
 }
@@ -454,7 +443,6 @@ export class ToneMappingPass extends PostProcessPass<EmptyOptions, EmptyOptions>
 			schedule: {
 				placement: config.schedule?.placement ?? TONE_MAPPING_PASS_ORDER.placement,
 				order: config.schedule?.order ?? TONE_MAPPING_PASS_ORDER.order,
-				incremental: config.schedule?.incremental ?? TONE_MAPPING_PASS_ORDER.incremental,
 			},
 			builtIn: true,
 			label: "tone mapping",

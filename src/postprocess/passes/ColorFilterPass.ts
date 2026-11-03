@@ -33,7 +33,6 @@ import type {
 } from "../types";
 import {
 	bindWebGLPostTarget,
-	forEachSoftwareDirtyRect,
 	resolveWebGLTarget,
 	resolveWebGPUTarget,
 	type SoftwareBuiltinPostProcessContext,
@@ -57,11 +56,6 @@ export const COLOR_FILTER_PASS_ORDER = {
 	id: COLOR_FILTER_PASS_ID,
 	placement: "ldr",
 	order: 700,
-	incremental: {
-		firstPass: "color-filter",
-		grade: "light",
-		inflationRadius: 2,
-	},
 } as const satisfies PostProcessScheduleEntry;
 export interface ColorFilterOptions {
 	/** Additive brightness shift in normalized color space. */
@@ -113,7 +107,6 @@ export class SoftwareColorFilterImplementation
 			...DEFAULT_COLOR_FILTER_OPTIONS,
 			...((request.options as ColorFilterOptions | undefined) ?? {}),
 		};
-		const dirtyRects = context.dirtyRects;
 		const brightness = clamp(finiteOr(options.brightness, 0), -1, 1);
 		const saturation = clamp(finiteOr(options.saturation, 1), 0, 2);
 		const contrast = clamp(finiteOr(options.contrast, 1), 0, 2);
@@ -122,43 +115,41 @@ export class SoftwareColorFilterImplementation
 		const tempShiftR = temperature * 0.1 + tint * 0.05;
 		const tempShiftG = -tint * 0.1;
 		const tempShiftB = -temperature * 0.1 + tint * 0.05;
-		const width = request.frameContext.attachments.width;
+		const { width, height } = request.frameContext.attachments;
 		const upperBound = context.displayOutput?.activeDynamicRange === "hdr" ?
 			context.displayOutput.requested.hdrHeadroom : 1;
-		forEachSoftwareDirtyRect(dirtyRects, (rect) => {
-			for (let y = rect.minY; y <= rect.maxY; y++) {
-				const row = y * width;
-				for (let x = rect.minX; x <= rect.maxX; x++) {
-					const index = (row + x) << 2;
-					const alpha = Math.min(1, Math.max(0, pixels[index + 3]));
-					const inverseAlpha = alpha > ALPHA_EPSILON ? 1 / alpha : 0;
-					let red = pixels[index] * inverseAlpha;
-					let green = pixels[index + 1] * inverseAlpha;
-					let blue = pixels[index + 2] * inverseAlpha;
+		for (let y = 0; y < height; y++) {
+			const row = y * width;
+			for (let x = 0; x < width; x++) {
+				const index = (row + x) << 2;
+				const alpha = Math.min(1, Math.max(0, pixels[index + 3]));
+				const inverseAlpha = alpha > ALPHA_EPSILON ? 1 / alpha : 0;
+				let red = pixels[index] * inverseAlpha;
+				let green = pixels[index + 1] * inverseAlpha;
+				let blue = pixels[index + 2] * inverseAlpha;
 
-					red += brightness;
-					green += brightness;
-					blue += brightness;
+				red += brightness;
+				green += brightness;
+				blue += brightness;
 
-					const luma = red * 0.2126 + green * 0.7152 + blue * 0.0722;
-					red = luma + (red - luma) * saturation;
-					green = luma + (green - luma) * saturation;
-					blue = luma + (blue - luma) * saturation;
+				const luma = red * 0.2126 + green * 0.7152 + blue * 0.0722;
+				red = luma + (red - luma) * saturation;
+				green = luma + (green - luma) * saturation;
+				blue = luma + (blue - luma) * saturation;
 
-					red = (red - 0.5) * contrast + 0.5;
-					green = (green - 0.5) * contrast + 0.5;
-					blue = (blue - 0.5) * contrast + 0.5;
+				red = (red - 0.5) * contrast + 0.5;
+				green = (green - 0.5) * contrast + 0.5;
+				blue = (blue - 0.5) * contrast + 0.5;
 
-					red += tempShiftR;
-					green += tempShiftG;
-					blue += tempShiftB;
+				red += tempShiftR;
+				green += tempShiftG;
+				blue += tempShiftB;
 
-					pixels[index] = clamp(red, 0, upperBound) * alpha;
-					pixels[index + 1] = clamp(green, 0, upperBound) * alpha;
-					pixels[index + 2] = clamp(blue, 0, upperBound) * alpha;
-				}
+				pixels[index] = clamp(red, 0, upperBound) * alpha;
+				pixels[index + 1] = clamp(green, 0, upperBound) * alpha;
+				pixels[index + 2] = clamp(blue, 0, upperBound) * alpha;
 			}
-		});
+		}
 		return { ran: true };
 	}
 }
@@ -492,7 +483,6 @@ export class ColorFilterPass extends PostProcessPass<
 			schedule: {
 				placement: config.schedule?.placement ?? COLOR_FILTER_PASS_ORDER.placement,
 				order: config.schedule?.order ?? COLOR_FILTER_PASS_ORDER.order,
-				incremental: config.schedule?.incremental ?? COLOR_FILTER_PASS_ORDER.incremental,
 			},
 			label: "color filter",
 			colorContract: config.colorContract ?? {

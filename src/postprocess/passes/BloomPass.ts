@@ -43,11 +43,6 @@ export const BLOOM_PASS_ORDER = {
 	id: BLOOM_PASS_ID,
 	placement: "hdr",
 	order: 500,
-	incremental: {
-		firstPass: "bloom",
-		grade: "standard",
-		inflationRadius: 48,
-	},
 } as const satisfies PostProcessScheduleEntry;
 
 export interface BloomOptions {
@@ -759,7 +754,6 @@ export class BloomPass extends PostProcessPass<BloomOptions, BloomOptions> {
 			schedule: {
 				placement: config.schedule?.placement ?? BLOOM_PASS_ORDER.placement,
 				order: config.schedule?.order ?? BLOOM_PASS_ORDER.order,
-				incremental: config.schedule?.incremental ?? BLOOM_PASS_ORDER.incremental,
 			},
 			label: "bloom",
 			colorContract: config.colorContract ?? {

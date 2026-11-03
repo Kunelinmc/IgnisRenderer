@@ -124,12 +124,6 @@ export class SoftwarePostProcessExecutor implements IPostProcessExecutor {
 			attachments: request.frameContext.attachments,
 			canvasContext: null,
 			displayOutput: this._getDisplayOutputState?.(),
-			dirtyRects: frame.clipRegions.map((region) => ({
-				minX: region.minX,
-				minY: region.minY,
-				maxX: region.maxXExclusive - 1,
-				maxY: region.maxYExclusive - 1,
-			})),
 			resources: createPostProcessResourceAccessor<ArrayBufferView>({
 				passId: request.passId,
 				declaration: request.declaration,

@@ -29,23 +29,12 @@ This document defines logical post-process declarations, planning, backend execu
   that add visible radiance outside source coverage must add coverage.
 - Alpha-zero post-process output must have zero RGB. Temporal color histories
   must preserve premultiplied alpha and reset transparent pixels to zero.
-- `PostProcessPassConfig.schedule` must own placement, numeric order, and
-  incremental metadata. Resource behavior must not appear in the schedule.
-- Incremental pass registration must accept one logical `PostProcessPass` and
-  derive its ID, built-in status, order, and incremental metadata from that
-  pass. A separate ID-and-metadata registration form must not exist.
-- `IncrementalRegistry`, including the shared default registry, must start
-  without post-process metadata. It must not seed tone-mapping or gamma
-  metadata or select gamma as a pass-specific fallback for a `"postfx"` reason.
-- `Renderer` must mirror logical pass registrations into `pipeline.incremental`,
-  including its default enabled `ToneMappingPass` and `GammaPass`. Standalone
-  callers must register their logical passes with the incremental registry
-  used for metadata-based planning, grading, and dirty-region inflation.
-- Registered metadata must affect planning only while the corresponding pass
-  is enabled in the current `ResolvedPostProcessState`.
-- Post-process grading, dirty-region inflation, and full-frame fallback scaling
-  must derive from enabled pass metadata. The `postfx` dirty reason must not
-  select a `PostProcessGrade` or filter execution to passes of a particular grade.
+- `PostProcessPassConfig.schedule` must own placement and numeric order only.
+  Resource behavior and incremental rendering policy must not appear in the
+  schedule. Post-process passes must not register metadata with
+  `IncrementalRegistry` or tune scene dirty-region coverage.
+- Frame-stage classification must not infer stages from logical effect IDs.
+  Backend scheduling must use the enclosing `"postprocess"` frame stage.
 - `PostProcessPassConfig.label` may provide a human-readable pass name for
   diagnostics and consumer-facing metadata. It defaults to `id`.
 - `PostProcessPassImplementation.describeExecution(request)` must return one
@@ -150,8 +139,22 @@ This document defines logical post-process declarations, planning, backend execu
   a local scene edit. Replaying an in-place pass over the preceding frame's
   display-domain output must not substitute for reconstruction of its input.
 - `PostProcessPlanner` must resolve enabled passes, deterministic schedule
-  order, incremental start, active-backend implementation, execution
+  order, active-backend implementation, execution
   declaration, eligibility, and resource descriptors exactly once per frame.
+- Every post-process plan must consider the complete enabled sequence from
+  `scene-linear-hdr` input. Frame-level incremental scheduling must not slice
+  the sequence or infer an input color domain from skipped passes.
+- When the backend supports post-processing and the snapshot contains an
+  enabled pass, frame coordination must reconstruct the complete scene before
+  executing post-processing. Software implementations must process the full
+  attachment dimensions without consuming scene dirty rectangles.
+- Post-process execution must not skip work because scene dirty rectangles are
+  empty. Frames with no enabled post-process passes may retain incremental
+  scene rendering.
+- Promoting scene coverage to a full frame solely for enabled post-processing
+  must not reset temporal history. Configuration invalidation, history
+  incompatibility, and other frame reset conditions must retain their reset
+  behavior.
 - GPU backends that allocate frame targets from post-process requirements must
   retain a declaration plan before allocation, then finalize resource
   availability from that retained plan after allocation.
@@ -294,19 +297,13 @@ This document defines logical post-process declarations, planning, backend execu
 
 ### Cross-backend declarations
 
-Standalone incremental planning registers the same logical passes used to
-create the post-process snapshot. Calls that omit `IncrementalPlanInput.registry`
-use `getDefaultIncrementalRegistry()`:
+Logical passes are registered only with the post-process registry. Scene
+incremental rendering does not require a second pass registration:
 
 ```ts
 const postProcess = new PostProcessPassRegistry();
 postProcess.registerPass(new ToneMappingPass({ enabled: true }));
 postProcess.registerPass(new GammaPass({ enabled: true }));
-
-const incremental = getDefaultIncrementalRegistry();
-for (const pass of postProcess.getPasses()) {
-	incremental.registerPostProcessPass(pass);
-}
 ```
 
 ```ts
@@ -379,7 +376,6 @@ class CustomPass extends PostProcessPass {
 
 ```bash
 bun tests/static/pipeline/test_incremental_frame_planner.mjs
-bun tests/static/postprocess/test_incremental_postfx_grading.mjs
 bun tests/static/postprocess/test_renderer_postprocess_registry.mjs
 bun tests/static/webgpu/test_webgpu_post_graph.mjs
 bun tests/static/webgpu/test_webgpu_ssr_intersections.mjs

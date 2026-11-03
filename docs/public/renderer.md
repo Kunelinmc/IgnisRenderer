@@ -104,19 +104,20 @@ A rejected frame remains eligible for retry. Call `renderFrame()` again after
 handling the error; the next attempt reconstructs the complete frame before
 partial reuse resumes.
 
-Incremental rendering preserves local updates where their effects can be bounded.
-Changes to post-process configuration or display exposure redraw the complete
-scene, including when an object also changes. Scene edits with active shadows
+Incremental rendering preserves local updates when post-processing is disabled
+and their effects can be bounded. Enabling any post-process pass causes each
+rendered frame to reconstruct the complete scene and run the enabled effect
+chain. Scene edits with active shadows
 or visible planar reflections conservatively redraw the full frame as well.
 
 Use `requestRender("postfx")` for application-owned post-process invalidation.
 It redraws the complete scene and post-process chain and resets temporal
-history. Post-process grades come from enabled pass metadata and do not require
-separate dirty reasons.
+history. Ordinary full-frame rendering for enabled effects preserves valid
+temporal history.
 
 Register renderer-specific dirty reasons and passes through `renderer.pipeline`.
-Each renderer owns its registration state; changing another renderer's pass
-metadata cannot change this renderer's dirty coverage. Standalone default
+Each renderer owns its registration state; changing another renderer's frame
+stages or dirty reasons cannot change this renderer's dirty coverage. Standalone default
 registry helpers seed future runtimes and do not reconfigure existing ones.
 
 #### Canvas size
@@ -331,10 +332,9 @@ shifting toward white at different intensities. Neutral colors retain the
 fitted ACES grayscale response. Display HDR keeps its soft-shoulder mapping.
 
 `Renderer` registers enabled `ToneMappingPass` and `GammaPass` instances by
-default and forwards their schedules to its incremental registry. Standalone
-users of `IncrementalFramePlanner` must register their logical post-process
-passes with the selected incremental registry; the shared default registry
-starts without post-process metadata.
+default. Register additional effects only with `renderer.postProcess`.
+Post-process passes have no incremental schedule or secondary registration
+with the frame pipeline.
 
 Tone mapping and display encoding require enabled post-process passes (or
 equivalent custom passes with matching color contracts) on all three backends.
