@@ -295,7 +295,7 @@ let anisotropyBitangent = safeNormalize(
 	cross(pbrNormal, anisotropyTangent),
 	fallbackTangentFromNormal(pbrNormal)
 );
-let opaquePBRSurface = OpaquePBRSurfaceInput(
+let pbrSurface = PBRSurfaceInput(
 	pbrNormal,
 	viewDir,
 	albedo,

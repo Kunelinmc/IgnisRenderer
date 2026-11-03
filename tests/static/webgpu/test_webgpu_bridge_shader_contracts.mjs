@@ -500,13 +500,6 @@ async function testSceneShaderCoverage() {
 	assert.ok(WEBGPU_SCENE_SHADER.includes("let shadowNormal = normal;"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("let pbrShadowNormal = pbrNormal;"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("let slopeBias = max(paramsC.x, 0.0);"));
-	assert.ok(
-		(WEBGPU_SCENE_SHADER.match(/evaluateOpaquePBRLight\(/g)?.length ?? 0) >= 6
-	);
-	assert.equal(
-		(WEBGPU_SCENE_SHADER.match(/fn evaluateOpaquePBRLight\(/g)?.length ?? 0),
-		1
-	);
 	assert.ok(WEBGPU_SCENE_SHADER.includes("return encodeOctahedralNormal(cameraWorldToViewDirection("));
 	for (const postProcessShader of [
 		WEBGPU_SSAO_SHADER,
@@ -569,6 +562,28 @@ async function testSceneShaderCoverage() {
 			"return vec4<f32>(max(skyColor, vec3<f32>(0.0)), 1.0);"
 		)
 	);
+}
+
+async function testDirectPBRLightTransportInputs() {
+	const sharedContribution = new RegExp(
+		"^evaluatePBRDirectLight\\(\\s*pbrSurface,\\s*lightDirection,\\s*radiance," +
+			"\\s*(?:shadow|vec3<f32>\\(1\\.0\\)),\\s*ior,\\s*volumeAttenuation\\s*\\)$",
+	);
+	for (const part of [
+		"fragmentPbrDirectional", "fragmentPbrPoint", "fragmentPbrSpot", "fragmentPbrArea",
+	]) {
+		const { source } = await ShaderSource.load(`webgpu.scene.part.${part}`);
+		const contributions = [...source.code.matchAll(/directLight\s*\+=\s*([^;]+);/g)];
+		assert.ok(contributions.length > 0, `${part} must contribute direct lighting`);
+		for (const [, contribution] of contributions) {
+			assert.match(
+				contribution,
+				sharedContribution,
+				`${part} must evaluate reflection and transmission with the same light, ` +
+					"shadow visibility, IOR, and volume attenuation",
+			);
+		}
+	}
 }
 
 async function testForwardMRTOutputABI() {
@@ -945,6 +960,7 @@ async function run() {
 		await testFeatureGate();
 		await testSceneSourcesPreserveSourceLocations();
 		await testSceneShaderCoverage();
+		await testDirectPBRLightTransportInputs();
 		await testSharedFrameUniformABI();
 		await testForwardMRTOutputABI();
 		await testScenePipelineLimitConstantsMatchLayout();

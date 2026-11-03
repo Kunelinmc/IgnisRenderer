@@ -32,7 +32,7 @@
 					linearDepth
 				);
 			}
-			direct += evaluateOpaquePhongLight(
+			direct += evaluatePhongDirectLight(
 				normal, viewDir, baseColor, phongSpecular, shininess,
 				lightDirection, radiance, shadow
 			);
@@ -73,7 +73,7 @@
 							continue;
 						}
 
-						direct += evaluateOpaquePhongLight(
+						direct += evaluatePhongDirectLight(
 							normal, viewDir, baseColor, phongSpecular, shininess,
 							lightDirection, areaLight.radiance, vec3<f32>(1.0)
 						);
@@ -136,7 +136,7 @@
 					continue;
 				}
 
-				direct += evaluateOpaquePhongLight(
+				direct += evaluatePhongDirectLight(
 					normal, viewDir, baseColor, phongSpecular, shininess,
 					lightDirection, radiance, shadow
 				);
@@ -163,7 +163,7 @@
 					continue;
 				}
 
-				direct += evaluateOpaquePhongLight(
+				direct += evaluatePhongDirectLight(
 					normal, viewDir, baseColor, phongSpecular, shininess,
 					lightDirection, radiance, vec3<f32>(1.0)
 				);
@@ -210,7 +210,7 @@
 						lightDirection
 					);
 				}
-				direct += evaluateOpaquePhongLight(
+				direct += evaluatePhongDirectLight(
 					normal, viewDir, baseColor, phongSpecular, shininess,
 					lightDirection, radiance, shadow
 				);
@@ -240,7 +240,7 @@
 						continue;
 					}
 
-					direct += evaluateOpaquePhongLight(
+					direct += evaluatePhongDirectLight(
 						normal, viewDir, baseColor, phongSpecular, shininess,
 						lightDirection, areaLight.radiance, vec3<f32>(1.0)
 					);

@@ -808,6 +808,10 @@ packing.
 - `WebGPUSceneFrameModule` must own `main-opaque` scene shading and its target
   declarations. Built-in lighting must execute in scene fragment shaders for
   `single`, `color`, and `mrt` scene target modes.
+- Forward direct-light loops must own light selection, sampling, attenuation,
+  and shadow visibility. Material lobe evaluation must be shared through
+  `src/shaders/webgpu/common/surfaceLighting.wgsl`; light loops must not repeat
+  diffuse, specular, clearcoat, or sheen evaluation.
 - `single` must render directly to the canvas target. `color` must render to
   offscreen scene color and depth. `mrt` must additionally write the four
   post-process G-buffer attachments in the same forward scene draw.
@@ -879,6 +883,10 @@ packing.
 
 ### Direct PBR transmission
 
+- Each PBR light sample must use one direct-light evaluator carrying surface
+  properties, radiance, shadow visibility, IOR, and volume attenuation. The
+  evaluator must select reflection for the normal-facing light hemisphere and
+  transmission for the opposite hemisphere, preserving their distinct formulas.
 - Forward PBR directional, point, spot, and sampled area lighting, including
   clustered lighting, must evaluate direct transmission as a thin-surface GGX
   BTDF. A Lambertian back-light term must not stand in for specular transmission.

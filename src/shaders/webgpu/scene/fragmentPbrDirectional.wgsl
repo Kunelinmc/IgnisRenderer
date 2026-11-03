@@ -22,13 +22,7 @@ for (var i: u32 = 0u; i < directionalCount; i = i + 1u) {
 			linearDepth
 		);
 	}
-	directLight += evaluateOpaquePBRLight(
-		opaquePBRSurface,
-		lightDirection,
-		radiance,
-		shadow
-	);
-	directLight += evaluatePBRTransmissionLight(
-		opaquePBRSurface, lightDirection, radiance, shadow, ior, volumeAttenuation
+	directLight += evaluatePBRDirectLight(
+		pbrSurface, lightDirection, radiance, shadow, ior, volumeAttenuation
 	);
 }

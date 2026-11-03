@@ -1,4 +1,4 @@
-fn evaluateOpaquePhongLight(
+fn evaluatePhongDirectLight(
 	normal: vec3<f32>,
 	viewDirection: vec3<f32>,
 	albedo: vec3<f32>,
@@ -24,7 +24,7 @@ fn evaluateOpaquePhongLight(
 	return radiance * visibility * (diffuseBRDF + specularBRDF) * nDotL;
 }
 
-struct OpaquePBRSurfaceInput {
+struct PBRSurfaceInput {
 	normal: vec3<f32>,
 	viewDirection: vec3<f32>,
 	albedo: vec3<f32>,
@@ -46,9 +46,9 @@ struct OpaquePBRSurfaceInput {
 	sheenRoughness: f32,
 }
 
-// Direct, isotropic thin-surface transmission; shared by forward light loops.
+// Isotropic thin-surface BTDF used by the direct-light evaluator's back hemisphere.
 fn evaluatePBRTransmissionLight(
-	surface: OpaquePBRSurfaceInput,
+	surface: PBRSurfaceInput,
 	lightDirection: vec3<f32>,
 	radiance: vec3<f32>,
 	visibility: vec3<f32>,
@@ -93,15 +93,20 @@ fn evaluatePBRTransmissionLight(
 		(transmission * clearcoatAttenuation * btdf * nDotL) * radiance * visibility;
 }
 
-fn evaluateOpaquePBRLight(
-	surface: OpaquePBRSurfaceInput,
+fn evaluatePBRDirectLight(
+	surface: PBRSurfaceInput,
 	lightDirection: vec3<f32>,
 	radiance: vec3<f32>,
-	visibility: vec3<f32>
+	visibility: vec3<f32>,
+	ior: f32,
+	volumeAttenuation: vec3<f32>
 ) -> vec3<f32> {
 	let nDotL = max(dot(surface.normal, lightDirection), 0.0);
+	// Reflection and transmission occupy opposite light hemispheres.
 	if (nDotL <= 0.0) {
-		return vec3<f32>(0.0);
+		return evaluatePBRTransmissionLight(
+			surface, lightDirection, radiance, visibility, ior, volumeAttenuation
+		);
 	}
 	let nDotV = max(dot(surface.normal, surface.viewDirection), PBR_MIN_NDOTV);
 	let halfVector = safeNormalize(
