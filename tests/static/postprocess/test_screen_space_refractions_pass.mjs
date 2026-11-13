@@ -20,13 +20,6 @@ import {
 
 function createFrameContext(transmissionFactor = 1) {
 	return {
-		viewCamera: {
-			type: "perspective",
-			fov: 60,
-			aspectRatio: 1,
-			near: 0.1,
-			far: 100,
-		},
 		attachments: {
 			width: 64,
 			height: 32,
@@ -37,6 +30,13 @@ function createFrameContext(transmissionFactor = 1) {
 			"webgpu"
 		),
 		scene: {
+			camera: {
+				type: "perspective",
+				fov: 60,
+				aspectRatio: 1,
+				near: 0.1,
+				far: 100,
+			},
 			transparentPackets:
 				transmissionFactor > 0 ?
 					[createTestDrawPacket({

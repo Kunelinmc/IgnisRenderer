@@ -31,6 +31,7 @@ function preparePacketFixture(packet) {
 
 function createPreparedSceneFixture() {
 	return new Proxy({
+		camera: {},
 		shadowPlan: EMPTY_SHADOW_FRAME_PLAN,
 		particleSystems: [],
 		opaquePackets: [],
@@ -262,7 +263,6 @@ function createModeTrackingResourcesStub() {
 function createFrameContext(width, height) {
 	return {
 		createFrameScope() { return createFrameScopeAdapter(this); },
-		viewCamera: {},
 		attachments: { width, height },
 		features: {
 			enableLighting: true,

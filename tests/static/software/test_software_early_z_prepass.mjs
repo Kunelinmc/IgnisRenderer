@@ -46,7 +46,6 @@ function createContext(backend, camera, packetsByStage = {}, incremental = {}) {
 	const zeroSH = createZeroSH();
 
 	return {
-		viewCamera: camera,
 		attachments,
 		features: {
 			enableLighting: false,

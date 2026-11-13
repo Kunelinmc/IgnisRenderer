@@ -1150,13 +1150,15 @@ function testTransparentRenderPacketsConfiguresBlendAndDepthState() {
 
 	executor.scene.renderPackets(
 		{
-			viewCamera: {
-				viewProjectionMatrix: [
-					[1, 0, 0, 0],
-					[0, 1, 0, 0],
-					[0, 0, 1, 0],
-					[0, 0, 0, 1],
-				],
+			scene: {
+				camera: {
+					viewProjectionMatrix: [
+						[1, 0, 0, 0],
+						[0, 1, 0, 0],
+						[0, 0, 1, 0],
+						[0, 0, 0, 1],
+					],
+				},
 			},
 		},
 		[createTestDrawPacket({ material: {} })],
@@ -1340,14 +1342,16 @@ function testSSAOPassDetachesSecondaryAttachmentForDownsampleTargets() {
 		[0, 0, 0, 1],
 	];
 	const context = {
-		viewCamera: {
-			type: "perspective",
-			fov: 60,
-			projectionMatrix: Matrix4.perspective(60, 1280 / 720, 0.1, 100),
-			aspectRatio: 1280 / 720,
-			viewMatrix: { elements: identity },
-			getWorldPosition() {
-				return { x: 0, y: 0, z: 5 };
+		scene: {
+			camera: {
+				type: "perspective",
+				fov: 60,
+				projectionMatrix: Matrix4.perspective(60, 1280 / 720, 0.1, 100),
+				aspectRatio: 1280 / 720,
+				viewMatrix: { elements: identity },
+				getWorldPosition() {
+					return { x: 0, y: 0, z: 5 };
+				},
 			},
 		},
 		postProcess: createResolvedPostProcess({
@@ -1529,25 +1533,27 @@ function testGlobalUniformsSanitizeNonFiniteCameraAndLightValues() {
 		},
 	};
 	const context = {
-		viewCamera: {
-			viewProjectionMatrix: {
-				elements: [
-					[Number.NaN, 0, 0, 0],
-					[0, 1, 0, 0],
-					[0, 0, 1, 0],
-					[0, 0, 0, 1],
-				],
-			},
-			viewMatrix: {
-				elements: [
-					[1, 0, 0, 0],
-					[0, Number.POSITIVE_INFINITY, 0, 0],
-					[0, 0, 1, 0],
-					[0, 0, 0, 1],
-				],
-			},
-			getWorldPosition() {
-				return { x: Number.NaN, y: Number.POSITIVE_INFINITY, z: 3 };
+		scene: {
+			camera: {
+				viewProjectionMatrix: {
+					elements: [
+						[Number.NaN, 0, 0, 0],
+						[0, 1, 0, 0],
+						[0, 0, 1, 0],
+						[0, 0, 0, 1],
+					],
+				},
+				viewMatrix: {
+					elements: [
+						[1, 0, 0, 0],
+						[0, Number.POSITIVE_INFINITY, 0, 0],
+						[0, 0, 1, 0],
+						[0, 0, 0, 1],
+					],
+				},
+				getWorldPosition() {
+					return { x: Number.NaN, y: Number.POSITIVE_INFINITY, z: 3 };
+				},
 			},
 		},
 		features: {

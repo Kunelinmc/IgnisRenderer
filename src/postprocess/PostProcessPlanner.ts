@@ -150,7 +150,7 @@ export class PostProcessPlanner {
 			backend: request.backend,
 			frameContext: request.frameContext,
 		});
-		if (request.frameContext.presentationAlphaMode === "premultiplied") {
+		if (request.frameContext.alphaMode === "premultiplied") {
 			for (const resolved of orderedPasses) {
 				if (resolved.pass.alphaContract === "premultiplied") continue;
 				throw new Error(

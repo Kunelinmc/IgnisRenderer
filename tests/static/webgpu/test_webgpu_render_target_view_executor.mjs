@@ -42,8 +42,7 @@ const scene = {
 
 const context = {
 	backendProfile: { id: "webgpu", capabilities: {}, frameScheduling: "always", lighting: {} },
-	presentationAlphaMode: "opaque",
-	viewCamera: camera,
+	alphaMode: "opaque",
 	attachments: { width: 4, height: 4 },
 	features: {
 		enableEnvironment: false,
@@ -63,6 +62,11 @@ const context = {
 };
 
 async function testRecordsSingleColorViewWithoutSubmission() {
+	const mainCamera = new Camera();
+	const mainContext = {
+		...context,
+		scene: { ...scene, camera: mainCamera },
+	};
 	const passes = [];
 	let preparedContext = null;
 	let destroyedScope = false;
@@ -93,7 +97,7 @@ async function testRecordsSingleColorViewWithoutSubmission() {
 	};
 	await executor.execute(
 		encoder,
-		context,
+		mainContext,
 		{
 			id: "job-1",
 			targetId: "target-1",
@@ -117,7 +121,9 @@ async function testRecordsSingleColorViewWithoutSubmission() {
 	);
 	assert.equal(passes.length, 1);
 	assert.equal(passes[0].colorAttachments.length, 1);
-	assert.strictEqual(preparedContext.viewCamera, camera);
+	assert.strictEqual(preparedContext.scene.camera, camera);
+	assert.strictEqual(preparedContext.scene, scene);
+	assert.strictEqual(mainContext.scene.camera, mainCamera);
 	assert.equal(preparedContext.features.enableReflection, false);
 	assert.equal(
 		destroyedScope,

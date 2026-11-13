@@ -77,13 +77,6 @@ function createFrameContext() {
 	}
 	return {
 		sceneColor,
-		viewCamera: {
-			type: "perspective",
-			fov: 60,
-			aspectRatio: 1,
-			near: 0.1,
-			far: 100,
-		},
 		attachments: {
 			width,
 			height,
@@ -101,7 +94,15 @@ function createFrameContext() {
 			"software"
 		),
 		shadowMaps: new Map(),
-		scene: {},
+		scene: {
+			camera: {
+				type: "perspective",
+				fov: 60,
+				aspectRatio: 1,
+				near: 0.1,
+				far: 100,
+			},
+		},
 		shCoeffs: [],
 		shAmbientCoeffs: [],
 		worldMatrix: null,

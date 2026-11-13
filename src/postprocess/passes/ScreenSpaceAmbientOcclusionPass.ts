@@ -290,7 +290,7 @@ export function createSSAOKernelParams(
 	aoWidth: number,
 	aoHeight: number,
 	options: ResolvedSSAOOptions,
-	camera: FrameContext["viewCamera"],
+	camera: FrameContext["scene"]["camera"],
 	blurDirX: number,
 	blurDirY: number,
 	frameJitter: number
@@ -381,7 +381,7 @@ export class SoftwareScreenSpaceAmbientOcclusionImplementation
 			this._aoBuffer = new Float32Array(pixelCount);
 		}
 		const aoBuffer = this._aoBuffer;
-		const camera = frameContext.viewCamera;
+		const camera = frameContext.scene.camera;
 		const projection = camera.projectionMatrix.elements;
 
 		for (let y = 0; y < height; y++) {
@@ -697,7 +697,7 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 				aoRaw.width,
 				aoRaw.height,
 				options,
-				request.frameContext.viewCamera,
+				request.frameContext.scene.camera,
 				0,
 				0,
 				resources.frameIndex / 1024
@@ -930,13 +930,13 @@ export class WebGLScreenSpaceAmbientOcclusionImplementation
 			aoWidth,
 			aoHeight,
 			options,
-			request.frameContext.viewCamera,
+			request.frameContext.scene.camera,
 			1,
 			0,
 			this._nextFrameJitter()
 		);
-		const view = request.frameContext.viewCamera.viewMatrix.elements;
-		const cameraPosition = request.frameContext.viewCamera.getWorldPosition();
+		const view = request.frameContext.scene.camera.viewMatrix.elements;
+		const cameraPosition = request.frameContext.scene.camera.getWorldPosition();
 
 		gl.bindFramebuffer(gl.FRAMEBUFFER, context.postFramebuffer);
 		gl.bindVertexArray(context.fullscreenVao);
@@ -1224,7 +1224,7 @@ function reconstructViewPos(
 	ndcX: number,
 	ndcY: number,
 	zView: number,
-	camera: FrameContext["viewCamera"]
+	camera: FrameContext["scene"]["camera"]
 ): IVector3 {
 	if (camera.type === CameraType.Orthographic) {
 		const orthoCam = camera as OrthographicCamera;

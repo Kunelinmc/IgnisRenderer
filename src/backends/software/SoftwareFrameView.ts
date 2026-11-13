@@ -78,7 +78,7 @@ export interface SoftwareSceneView {
 
 /** @internal Backend-local view imported from one renderer frame context. */
 export interface SoftwareFrameView {
-	readonly presentationAlphaMode: PresentationAlphaMode;
+	readonly alphaMode: PresentationAlphaMode;
 	readonly attachments: SoftwareFrameAttachments;
 	readonly camera: SoftwareCameraView;
 	readonly scene: SoftwareSceneView;
@@ -109,11 +109,11 @@ export function createSoftwareFrameView(
 		context.incremental.enabled &&
 		!context.incremental.forceFullFrame &&
 		context.incremental.dirtyRects.length > 0;
-	const camera = context.viewCamera;
+	const camera = context.scene.camera;
 	const cameraPosition = camera.getWorldPosition();
 
 	return Object.freeze({
-		presentationAlphaMode: context.presentationAlphaMode,
+		alphaMode: context.alphaMode,
 		attachments,
 		camera: Object.freeze({
 			type: camera.type,

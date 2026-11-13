@@ -51,9 +51,9 @@ async function run() {
 	});
 
 	assert.equal(renderer.getDisplayOutputState(), null);
-	assert.equal(renderer.presentationAlphaMode, "opaque");
+	assert.equal(renderer.alphaMode, "opaque");
 	assert.equal(
-		backend.attachContext.surface.presentationAlphaMode,
+		backend.attachContext.surface.alphaMode,
 		"opaque",
 	);
 	await renderer.initialize();
@@ -96,9 +96,9 @@ async function run() {
 	const transparentRenderer = new Renderer(createCanvas(), transparentBackend, null, {
 		transparentOutput: true,
 	});
-	assert.equal(transparentRenderer.presentationAlphaMode, "premultiplied");
+	assert.equal(transparentRenderer.alphaMode, "premultiplied");
 	assert.equal(
-		transparentBackend.attachContext.surface.presentationAlphaMode,
+		transparentBackend.attachContext.surface.alphaMode,
 		"premultiplied",
 	);
 	const incompatibleMaterial = new ShaderMaterial({ name: "alpha-contract-test" });

@@ -22,7 +22,7 @@ export class WebGLTemporalFrameState {
 		frameRequirements: FramePreparationRequirements,
 	): void {
 		const snapshot = this._state.beginFrame({
-			camera: context.viewCamera,
+			camera: context.scene.camera,
 			width: context.attachments.width,
 			height: context.attachments.height,
 			frameRequirements,

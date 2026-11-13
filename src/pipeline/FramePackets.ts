@@ -58,7 +58,7 @@ export function createBaselineFramePacketSet(
 
 interface PreparedFramePacketCacheRecord {
 	readonly scene: FrameContext["scene"];
-	readonly viewCamera: FrameContext["viewCamera"];
+	readonly camera: FrameContext["scene"]["camera"];
 	readonly packets: PreparedFramePacketSet;
 }
 
@@ -89,7 +89,7 @@ export function prepareFramePackets(
 	if (
 		cached &&
 		cached.scene === context.scene &&
-		cached.viewCamera === context.viewCamera
+		cached.camera === context.scene.camera
 	) {
 		return cached.packets;
 	}
@@ -162,7 +162,7 @@ export function prepareFramePackets(
 	};
 	cacheMap.set(purpose, {
 		scene: context.scene,
-		viewCamera: context.viewCamera,
+		camera: context.scene.camera,
 		packets,
 	});
 	return packets;
@@ -177,7 +177,7 @@ function resolveParticleMeshSortDepth(
 		return particle.depth;
 	}
 	const cameraSpace = Matrix4.transformPoint(
-		context.viewCamera.viewMatrix,
+		context.scene.camera.viewMatrix,
 		particle.position,
 	);
 	const depth = -cameraSpace.z;

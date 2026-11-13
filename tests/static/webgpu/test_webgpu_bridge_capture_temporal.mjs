@@ -140,7 +140,6 @@ async function testWebGPUEnvironmentCombinationsRegression() {
 		);
 		const frameResources = resources.prepareFrame(
 			{
-				viewCamera: scene.camera,
 				attachments: { width: 16, height: 16 },
 				features,
 				postProcess: createResolvedPostProcess(),

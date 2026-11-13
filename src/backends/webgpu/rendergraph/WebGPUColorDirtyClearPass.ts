@@ -39,7 +39,7 @@ export class WebGPUColorDirtyClearPass {
 		attachments: readonly WebGPUColorDirtyClearAttachment[],
 		sampleCount: number,
 		dirtyRects: readonly DirtyRect[],
-		presentationAlphaMode: PresentationAlphaMode = "opaque",
+		alphaMode: PresentationAlphaMode = "opaque",
 	): Promise<void> {
 		if (dirtyRects.length === 0) return;
 		this._validateAttachmentCount(mode, attachments.length);
@@ -47,7 +47,7 @@ export class WebGPUColorDirtyClearPass {
 			mode,
 			attachments,
 			sampleCount,
-			presentationAlphaMode,
+			alphaMode,
 		);
 		encoder.beginRenderPass({
 			label: "WebGPUColorDirtyClear",
@@ -83,12 +83,12 @@ export class WebGPUColorDirtyClearPass {
 		mode: WebGPUColorDirtyClearMode,
 		attachments: readonly WebGPUColorDirtyClearAttachment[],
 		sampleCount: number,
-		presentationAlphaMode: PresentationAlphaMode,
+		alphaMode: PresentationAlphaMode,
 	): Promise<IRenderPipeline> {
 		const resolvedSampleCount = Math.max(1, Math.floor(sampleCount || 1));
 		const cacheKey =
 			`${mode}|${attachments.map((attachment) => attachment.format).join(",")}` +
-			`|${resolvedSampleCount}|${presentationAlphaMode}`;
+			`|${resolvedSampleCount}|${alphaMode}`;
 		const cached = this._pipelines.get(cacheKey);
 		if (cached) return cached;
 
@@ -107,7 +107,7 @@ export class WebGPUColorDirtyClearPass {
 
 		const entryPointBase =
 			mode === "color" ? "fsColor" : "fsMRT";
-		const entryPoint = presentationAlphaMode === "premultiplied" ?
+		const entryPoint = alphaMode === "premultiplied" ?
 			`${entryPointBase}Transparent`
 		:	entryPointBase;
 		const pipeline = await this._host.createPipeline({

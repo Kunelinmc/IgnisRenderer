@@ -110,7 +110,7 @@ export class WebGPUPlanarReflectionPass {
 		enqueue: (label: string, encoder: ICommandEncoder) => void,
 	): Promise<number> {
 		this._activeReflections = [];
-		if (context.viewCamera.type === CameraType.Orthographic) {
+		if (context.scene.camera.type === CameraType.Orthographic) {
 			Logger.warn(
 				"[webgpu-planar-reflection-orthographic-disabled] WebGPU planar reflections are disabled for orthographic cameras.",
 				{
@@ -602,18 +602,18 @@ function createPlanarCaptureContext(
 	width: number,
 	height: number
 ): FrameContext {
-	const camera = context.viewCamera.clone(false);
-	const originalPosition = context.viewCamera.getWorldPosition();
+	const camera = context.scene.camera.clone(false);
+	const originalPosition = context.scene.camera.getWorldPosition();
 	const reflectionMatrix = Matrix4.reflection(plane);
 	const mirroredPosition = Matrix4.transformPoint(
 		reflectionMatrix,
 		originalPosition
 	);
 	const mirrorViewMatrix = Matrix4.multiply(
-		context.viewCamera.viewMatrix,
+		context.scene.camera.viewMatrix,
 		reflectionMatrix
 	);
-	const mirrorProjectionMatrix = context.viewCamera.projectionMatrix.clone();
+	const mirrorProjectionMatrix = context.scene.camera.projectionMatrix.clone();
 	const isCameraAbove = plane.distanceToPoint(originalPosition) > 0;
 	const clipPlaneNormal = Matrix4.transformDirection(
 		mirrorViewMatrix,
@@ -663,8 +663,7 @@ function createPlanarCaptureContext(
 
 	return {
 		backendProfile: context.backendProfile,
-		presentationAlphaMode: "opaque",
-		viewCamera: camera,
+		alphaMode: "opaque",
 		attachments: { width, height },
 		features: {
 			...context.features,
@@ -674,8 +673,6 @@ function createPlanarCaptureContext(
 		renderTargets: new RenderTargetRegistrySnapshot(),
 		shadowPlan: captureScene.shadowPlan,
 		scene: captureScene,
-		sceneState: captureScene,
-		view: captureScene,
 		shCoeffs: context.shCoeffs,
 		shAmbientCoeffs: context.shAmbientCoeffs,
 		worldMatrix: context.worldMatrix,
@@ -698,7 +695,7 @@ function createPlanarCaptureContext(
 
 function createCaptureScene(
 	context: FrameContext,
-	camera: FrameContext["viewCamera"],
+	camera: FrameContext["scene"]["camera"],
 	plane: Plane,
 	planeKey: string,
 	isCameraAbove: boolean

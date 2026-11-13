@@ -121,7 +121,7 @@ export class WebGLSceneRuntime {
 
 		if (!this._services.isIncrementalPartial(context)) {
 			gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-			if (context.presentationAlphaMode === "premultiplied") {
+			if (context.alphaMode === "premultiplied") {
 				gl.clearBufferfv(gl.COLOR, 0, TRANSPARENT_SCENE_CLEAR);
 			}
 			return;
@@ -138,7 +138,7 @@ export class WebGLSceneRuntime {
 				height,
 			);
 			gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-			if (context.presentationAlphaMode === "premultiplied") {
+			if (context.alphaMode === "premultiplied") {
 				gl.clearBufferfv(gl.COLOR, 0, TRANSPARENT_SCENE_CLEAR);
 			}
 		}

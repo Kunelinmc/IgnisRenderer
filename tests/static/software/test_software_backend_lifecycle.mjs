@@ -22,7 +22,6 @@ function createContext(backend, options = {}) {
 	camera.updateMatrices();
 	const zeroSH = Array.from({ length: 9 }, () => ({ r: 0, g: 0, b: 0 }));
 	return {
-		viewCamera: camera,
 		attachments: backend.getAttachments(options.size ?? { width: 4, height: 4 }),
 		features: {
 			enableLighting: false,
@@ -174,7 +173,7 @@ async function testFrameViewValidatesAttachmentsAndNormalizesRegions() {
 		currentJitter: [0, 0],
 		previousJitter: [0, 0],
 		previousViewProjection: null,
-		currentViewProjection: context.viewCamera.viewProjectionMatrix,
+		currentViewProjection: context.scene.camera.viewProjectionMatrix,
 		previousWorldMatrices: new Map(),
 		currentWorldMatrices: new Map(),
 	};
@@ -183,7 +182,7 @@ async function testFrameViewValidatesAttachmentsAndNormalizesRegions() {
 		{ minX: 0, minY: 0, maxXExclusive: 2, maxYExclusive: 3 },
 	]);
 	const cameraPosition = { ...frame.camera.position };
-	context.viewCamera.position.set(7, 8, 9);
+	context.scene.camera.position.set(7, 8, 9);
 	assert.deepEqual(frame.camera.position, cameraPosition);
 
 	const malformed = createContext(backend);

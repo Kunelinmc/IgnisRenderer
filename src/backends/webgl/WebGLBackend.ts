@@ -758,7 +758,7 @@ export class WebGLBackend implements IRenderBackend {
 		for (const submission of submissions) {
 			const rect = computePacketScreenRect(
 				submission,
-				context.viewCamera,
+				context.scene.camera,
 				context.attachments.width,
 				context.attachments.height,
 			);

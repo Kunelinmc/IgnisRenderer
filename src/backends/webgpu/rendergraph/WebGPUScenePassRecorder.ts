@@ -221,7 +221,7 @@ export class WebGPUScenePassRecorder {
 				}],
 				1,
 				dirtyRects,
-				context.presentationAlphaMode,
+				context.alphaMode,
 			);
 			depthPartialReuseApplied = await this._depthDirtyClearPass.record(
 				encoder,
@@ -262,7 +262,7 @@ export class WebGPUScenePassRecorder {
 						r: 0,
 						g: 0,
 						b: 0,
-						a: context.presentationAlphaMode === "premultiplied" ? 0 : 1,
+						a: context.alphaMode === "premultiplied" ? 0 : 1,
 					},
 					loadOp: shouldClearAttachments ? "clear" : "load",
 					storeOp: "store",
@@ -721,7 +721,7 @@ export class WebGPUScenePassRecorder {
 				],
 				this._framePort.getSampleCount(),
 				dirtyRects,
-				context.presentationAlphaMode,
+				context.alphaMode,
 			);
 			depthPartialReuseApplied = await this._depthDirtyClearPass.record(
 				encoder,
@@ -803,7 +803,7 @@ export class WebGPUScenePassRecorder {
 						r: 0,
 						g: 0,
 						b: 0,
-						a: context.presentationAlphaMode === "premultiplied" ? 0 : 1,
+						a: context.alphaMode === "premultiplied" ? 0 : 1,
 					},
 					loadOp: shouldClearAttachments && !environmentDrawn ? "clear" : "load",
 					storeOp: "store",
@@ -913,7 +913,7 @@ export class WebGPUScenePassRecorder {
 				}],
 				this._framePort.getSampleCount(),
 				dirtyRects,
-				context.presentationAlphaMode,
+				context.alphaMode,
 			);
 			depthPartialReuseApplied = await this._depthDirtyClearPass.record(
 				encoder,
@@ -998,7 +998,7 @@ export class WebGPUScenePassRecorder {
 						r: 0,
 						g: 0,
 						b: 0,
-						a: context.presentationAlphaMode === "premultiplied" ? 0 : 1,
+						a: context.alphaMode === "premultiplied" ? 0 : 1,
 					},
 					loadOp: shouldClearAttachments && !environmentDrawn ? "clear" : "load",
 					storeOp: "store",

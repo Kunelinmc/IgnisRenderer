@@ -54,7 +54,6 @@ function createCamera() {
 function createContext(camera, packetsByStage = {}, features = {}) {
 	const zeroSH = createZeroSH();
 	return {
-		viewCamera: camera,
 		attachments: {
 			pixels: new Uint8ClampedArray(WIDTH * HEIGHT * 4),
 			depthBuffer: new Float32Array(WIDTH * HEIGHT).fill(Infinity),

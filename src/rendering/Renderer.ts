@@ -126,7 +126,8 @@ export interface RendererOptions {
 
 export class Renderer extends EventEmitter<RendererEvents> implements FrameCoordinatorDelegate {
 	public readonly backendProfile: RenderBackendProfile;
-	public readonly presentationAlphaMode: PresentationAlphaMode;
+	/** Canvas alpha compositing resolved from `transparentOutput` at construction. */
+	public readonly alphaMode: PresentationAlphaMode;
 	public readonly animationSystem: AnimationSystem;
 	public readonly features: RendererFeatures;
 	public readonly pipeline: RenderPipelineRegistry;
@@ -181,7 +182,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	) {
 		super();
 		const displayOutput = resolveDisplayOutputOptions(options.displayOutput);
-		this.presentationAlphaMode = options.transparentOutput === true ?
+		this.alphaMode = options.transparentOutput === true ?
 			"premultiplied"
 		:	"opaque";
 
@@ -225,7 +226,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 			surface: {
 				canvas,
 				displayOutput,
-				presentationAlphaMode: this.presentationAlphaMode,
+				alphaMode: this.alphaMode,
 			},
 			events: { emit: (event) => this._handleBackendEvent(event) },
 		});

@@ -5,6 +5,27 @@ IgnisRenderer consumers and contributors. Completed implementation history that
 does not require an action is retained in Git rather than in the documentation
 tree.
 
+## Frame Context Scene Data
+
+Replace `FrameContext.viewCamera` reads with `FrameContext.scene.camera`.
+Custom backends and test fixtures must provide the active camera inside the
+prepared scene and remove the separate camera property. Secondary captures must
+rebuild the prepared scene for their capture camera before backend execution.
+
+Replace `FrameContext.sceneState` and `FrameContext.view` reads with
+`FrameContext.scene`, which contains both scene state and camera-local view data.
+
+See the [renderer contract](../contracts/renderer.md).
+
+## Presentation Alpha Mode
+
+Replace `presentationAlphaMode` with `alphaMode` on `Renderer`, `RenderSurface`,
+and `FrameContext`, including custom backend implementations and test fixtures.
+The `PresentationAlphaMode` type, `"opaque"` and `"premultiplied"` values, and
+`RendererOptions.transparentOutput` behavior remain unchanged.
+
+See the [renderer contract](../contracts/renderer.md).
+
 ## Opaque Renderer Resources
 
 Remove reads and writes of `_gpuResource`, `_gpuTexture`, `_gpuView`,

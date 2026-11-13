@@ -212,7 +212,7 @@ export interface RenderSurface {
 	/** Effective display-output configuration for the attached surface. */
 	readonly displayOutput: ResolvedDisplayOutputOptions;
 	/** Resolved canvas alpha-compositing behavior. */
-	readonly presentationAlphaMode: PresentationAlphaMode;
+	readonly alphaMode: PresentationAlphaMode;
 }
 
 /** Pixel dimensions used to configure backend presentation attachments. */

@@ -107,7 +107,6 @@ function createFrameContext(frame, features, options = {}) {
 	const width = options.width ?? 1;
 	const height = options.height ?? 1;
 	return {
-		viewCamera: frame.camera,
 		attachments: { width, height },
 		features,
 		postProcess: options.postProcess ?? createResolvedPostProcess(),
@@ -229,7 +228,6 @@ function createWebGPUFrameContextForTemporalTest(
 	temporalHistoryReset = false
 ) {
 	return {
-		viewCamera: frame.camera,
 		attachments: { width, height },
 		features,
 		postProcess,

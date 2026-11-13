@@ -40,12 +40,14 @@ function createGBuffer(width = 32, height = 16) {
 function createRequest(options = {}, historyValid = false, cameraType = CameraType.Perspective) {
 	return {
 		frameContext: {
-			viewCamera: {
-				type: cameraType,
-				fov: 60,
-				aspectRatio: 2,
-				near: 0.1,
-				far: 100,
+			scene: {
+				camera: {
+					type: cameraType,
+					fov: 60,
+					aspectRatio: 2,
+					near: 0.1,
+					far: 100,
+				},
 			},
 		},
 		gBuffer: createGBuffer(),

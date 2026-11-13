@@ -24,8 +24,8 @@ function createPacket(id, passFlags = 0) {
 function createContext({ transient = createTransientStore(), camera = new Camera(), scene } = {}) {
 	return {
 		transient,
-		viewCamera: camera,
 		scene: scene ?? {
+			camera,
 			opaquePackets: [createPacket("scene-opaque")],
 			transparentPackets: [
 				createPacket("scene-transparent", DRAW_PACKET_FLAG_TRANSPARENT),
@@ -171,6 +171,26 @@ function testFramePacketPreparationAndCaching() {
 	assert.strictEqual(
 		prepareFramePackets(captureContext, "probe-capture"),
 		probePackets,
+	);
+	const opaqueParticle = probePackets.opaque.find((packet) =>
+		packet.submission.id.startsWith("particleMesh:"),
+	);
+	assert.equal(opaqueParticle.sortDepth, 5);
+
+	const movedCamera = new Camera();
+	movedCamera.position.set(0, 0, 3);
+	movedCamera.updateMatrices();
+	captureContext.scene.camera = movedCamera;
+	const movedProbePackets = prepareFramePackets(captureContext, "probe-capture");
+	assert.notStrictEqual(movedProbePackets, probePackets);
+	const movedParticle = movedProbePackets.opaque.find((packet) =>
+		packet.submission.id.startsWith("particleMesh:"),
+	);
+	assert.equal(movedParticle.sortDepth, 8);
+	assert.equal(opaqueParticle.sortDepth, 5);
+	assert.strictEqual(
+		prepareFramePackets(captureContext, "probe-capture"),
+		movedProbePackets,
 	);
 }
 

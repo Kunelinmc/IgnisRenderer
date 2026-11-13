@@ -65,8 +65,8 @@ function createMeshBatch({
 function createPacketContext() {
 	return {
 		transient: createTransientStore(),
-		viewCamera: new Camera(),
 		scene: {
+			camera: new Camera(),
 			opaquePackets: [],
 			transparentPackets: [],
 			shadowCasterSubmissions: [],

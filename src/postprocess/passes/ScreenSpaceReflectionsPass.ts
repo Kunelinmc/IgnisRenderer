@@ -353,7 +353,7 @@ export class WebGPUScreenSpaceReflectionsImplementation implements PostProcessPa
 		if (!context?.encoder || !context.targets || !context.frameBinding) {
 			return { ran: false };
 		}
-		if (request.frameContext.viewCamera.type === CameraType.Orthographic) {
+		if (request.frameContext.scene.camera.type === CameraType.Orthographic) {
 			context.shared.warn(
 				"webgpu-ssr-orthographic-disabled",
 				"WebGPU SSR is disabled for orthographic cameras.",

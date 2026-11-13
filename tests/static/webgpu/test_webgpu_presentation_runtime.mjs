@@ -92,10 +92,10 @@ try {
 		draw() {}, endRenderPass() {},
 	};
 	for (const domain of ["display-encoded", "scene-linear-hdr", "display-linear"]) {
-		for (const presentationAlphaMode of ["opaque", "premultiplied"]) {
+		for (const alphaMode of ["opaque", "premultiplied"]) {
 			await pass.present({
 				encoder, source, colorDomain: domain,
-				frameContext: { presentationAlphaMode },
+				frameContext: { alphaMode },
 				resolveDirtyRects: () => [{ x: 0, y: 0, width: 1, height: 1 }],
 			});
 		}

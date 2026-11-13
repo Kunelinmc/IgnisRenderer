@@ -141,7 +141,7 @@ export class WebGLFullscreenRenderer implements WebGLProgramWarmupContributor {
 		if (program.uniforms.transparentOutput) {
 			gl.uniform1f(
 				program.uniforms.transparentOutput,
-				context?.presentationAlphaMode === "premultiplied" ? 1 : 0,
+				context?.alphaMode === "premultiplied" ? 1 : 0,
 			);
 		}
 		// The default framebuffer is non-preserving, so every presentation must

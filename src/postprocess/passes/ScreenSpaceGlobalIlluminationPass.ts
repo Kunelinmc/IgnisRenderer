@@ -447,7 +447,7 @@ export class WebGPUScreenSpaceGlobalIlluminationImplementation
 			this._breakHistoryContinuity(context?.shared);
 			return { ran: false };
 		}
-		if (request.frameContext.viewCamera.type === CameraType.Orthographic) {
+		if (request.frameContext.scene.camera.type === CameraType.Orthographic) {
 			context.shared.warn(
 				"webgpu-ssgi-orthographic-disabled",
 				"WebGPU SSGI is disabled for orthographic cameras."

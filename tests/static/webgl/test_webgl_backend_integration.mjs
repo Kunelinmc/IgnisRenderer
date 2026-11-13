@@ -66,13 +66,13 @@ function testEnvironmentRendererOwnsProgramAndDrawLifecycle() {
 		getHeight: () => 32,
 	});
 	const context = {
-		viewCamera: {
-			type: CameraType.Perspective,
-			fov: 60,
-			aspectRatio: 2,
-			viewMatrix: Matrix4.identity(),
-		},
 		scene: {
+			camera: {
+				type: CameraType.Perspective,
+				fov: 60,
+				aspectRatio: 2,
+				viewMatrix: Matrix4.identity(),
+			},
 			environment: {
 				backgroundEnabled: true,
 				backgroundTexture: {},
@@ -414,7 +414,6 @@ async function testWebGLBackendWarmupDelegatesToCoordinator() {
 	};
 	backend._contextWorkQueue.bindContext();
 	const report = await backend.warmup({
-		viewCamera: {},
 		attachments: { width: 1, height: 1 },
 		features: {
 			enableLighting: true,
@@ -427,6 +426,7 @@ async function testWebGLBackendWarmupDelegatesToCoordinator() {
 		postProcess: createResolvedPostProcess(),
 		shadowMaps: new Map(),
 		scene: {
+			camera: {},
 			environment: null,
 			particleSystems: [],
 			opaquePackets: [],

@@ -211,14 +211,7 @@ export interface FrameAttachments {
 export interface FrameContext {
 	readonly backendProfile: RenderBackendProfile;
 	/** Alpha-compositing behavior of the renderer-owned presentation surface. */
-	readonly presentationAlphaMode: PresentationAlphaMode;
-	/**
-	 * Camera that provides the active view/projection for this frame context.
-	 *
-	 * In renderer-driven frames this must match `scene.camera`. Secondary
-	 * capture contexts must rebuild `scene` for this camera before execution.
-	 */
-	readonly viewCamera: Camera;
+	readonly alphaMode: PresentationAlphaMode;
 	readonly attachments: FrameAttachments;
 	readonly features: ResolvedFeatureState;
 	readonly postProcess: PostProcessPassRegistrySnapshot;
@@ -226,11 +219,8 @@ export interface FrameContext {
 	/** Renderer-owned target work captured before backend frame sealing. */
 	readonly renderTargetJobs?: import("../rendering/CustomRenderTargets").RenderTargetJobRegistrySnapshot;
 	readonly shadowPlan: ShadowFramePlan;
+	/** Complete camera-independent scene state and the active camera's prepared view. */
 	readonly scene: PreparedScene;
-	/** Camera-independent scene data shared with render-target views. */
-	readonly sceneState: PreparedSceneState;
-	/** Main camera-local view. */
-	readonly view: PreparedSceneView;
 	readonly shCoeffs: SHCoefficients;
 	readonly shAmbientCoeffs: SHCoefficients;
 	readonly worldMatrix: Matrix4;

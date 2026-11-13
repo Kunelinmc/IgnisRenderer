@@ -106,13 +106,6 @@ class CleanupPostProcessPass extends PostProcessPass {
 
 function createPostProcessFrameContext(postProcess) {
 	return {
-		viewCamera: {
-			type: "perspective",
-			fov: 60,
-			aspectRatio: 1,
-			near: 0.1,
-			far: 100,
-		},
 		attachments: {
 			width: 8,
 			height: 8,
@@ -123,7 +116,15 @@ function createPostProcessFrameContext(postProcess) {
 		features: {},
 		postProcess,
 		shadowMaps: [],
-		scene: {},
+		scene: {
+			camera: {
+				type: "perspective",
+				fov: 60,
+				aspectRatio: 1,
+				near: 0.1,
+				far: 100,
+			},
+		},
 		shCoeffs: [],
 		shAmbientCoeffs: [],
 		worldMatrix: null,

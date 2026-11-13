@@ -271,7 +271,7 @@ export class WebGPUVolumetricLightingImplementation
 		request: PostProcessPassRequest<VolumetricOptions>,
 		context: WebGPUVolumetricLightingContext
 	): Promise<boolean> {
-		if (request.frameContext.viewCamera.type === CameraType.Orthographic) {
+		if (request.frameContext.scene.camera.type === CameraType.Orthographic) {
 			context.shared.warn(
 				"webgpu-volumetric-orthographic-disabled",
 				"WebGPU volumetric lighting is disabled for orthographic cameras."

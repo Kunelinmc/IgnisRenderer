@@ -34,8 +34,9 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
   - `transparentOutput` must default to `false` and may be selected only when
     the renderer is constructed. `true` must resolve the presentation surface
     to premultiplied-alpha output; `false` must resolve it to opaque output.
-  - The resolved presentation alpha mode must be included in `RenderSurface`
-    and every renderer-owned main `FrameContext`.
+  - The resolved presentation alpha mode must be exposed as `Renderer.alphaMode`,
+    `RenderSurface.alphaMode`, and every renderer-owned main
+    `FrameContext.alphaMode`, using `"opaque"` or `"premultiplied"`.
 - `Renderer.renderLoop()`
   - Behavior contract: must schedule frames through `requestAnimationFrame`.
   - Behavior contract: must await each `renderFrame(nowMs)` call before scheduling the next frame.
@@ -158,13 +159,20 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
   backend permits it. WebGL requires the complete plan at `beginFrame()`; see
   the [WebGL contract](webgl.md).
 
-- `FrameContext.viewCamera`
+- `FrameContext.scene`
+  - Must provide the complete `PreparedScene`, combining camera-independent
+    `PreparedSceneState` with camera-local `PreparedSceneView` data.
+  - Consumers must read both data groups through `scene`. `FrameContext` must
+    not expose separate `sceneState` or `view` aliases.
+- `FrameContext.scene.camera`
   - Output contract: must provide the active view/projection camera for the
     current frame or secondary capture context.
-  - Behavior contract: renderer-driven frames must set `viewCamera` to the same
-    camera used to build `FrameContext.scene`.
+  - Behavior contract: all frame consumers must use the prepared scene's camera
+    for view/projection, particle sorting, lighting, and temporal state.
   - Constraint: secondary capture contexts, such as reflection probe captures,
-    must rebuild `FrameContext.scene` for `viewCamera` before backend execution.
+    must rebuild `FrameContext.scene` for the capture camera before backend
+    execution. Replacing only the camera must not reuse another view's mesh
+    visibility or sorting state.
   - Composition contract: secondary capture implementations must use
     `PreparedSceneBuilder.buildView()` for backend-neutral visibility,
     packet construction, and sorting. Backend capture passes may apply

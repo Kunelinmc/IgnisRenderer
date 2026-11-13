@@ -103,7 +103,7 @@ type DefaultRendererStageExecutors = Record<
 
 export interface FrameCoordinatorDelegate {
 	readonly canvas: HTMLCanvasElement;
-	readonly presentationAlphaMode: PresentationAlphaMode;
+	readonly alphaMode: PresentationAlphaMode;
 	readonly scene: Scene;
 	readonly camera: Camera;
 	readonly animationSystem: AnimationSystem;
@@ -836,7 +836,7 @@ export class FrameCoordinator {
 			);
 		}
 		frame.shadowPlan = shadowPlan;
-		this._validatePresentationMaterials(delegate.presentationAlphaMode, frame);
+		this._validatePresentationMaterials(delegate.alphaMode, frame);
 
 		const attachments = this._backend.getAttachments({
 			width: delegate.canvas.width,
@@ -856,8 +856,7 @@ export class FrameCoordinator {
 
 		return {
 			backendProfile: this._backend.profile,
-			presentationAlphaMode: delegate.presentationAlphaMode,
-			viewCamera: delegate.camera,
+			alphaMode: delegate.alphaMode,
 			attachments,
 			features: resolved,
 			postProcess,
@@ -896,8 +895,6 @@ export class FrameCoordinator {
 			}),
 			shadowPlan,
 			scene: frame,
-			sceneState: frame,
-			view: frame,
 			shCoeffs,
 			shAmbientCoeffs,
 			worldMatrix: delegate.features.worldMatrix || Matrix4.identity(),

@@ -316,6 +316,10 @@ but multiplies the trace work directly.
 `RendererOptions` contains only optional renderer configuration such as
 `displayOutput` and `transparentOutput`.
 
+`renderer.alphaMode` reports `"opaque"` by default or `"premultiplied"` when
+constructed with `transparentOutput: true`. It is readonly for the renderer's
+lifetime.
+
 Backend instances are single-use renderer dependencies. Code that replaces or
 recreates a renderer must also construct a new backend instance.
 

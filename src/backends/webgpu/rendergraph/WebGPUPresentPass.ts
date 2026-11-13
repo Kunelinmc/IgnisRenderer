@@ -65,7 +65,7 @@ export class WebGPUPresentPass {
 		warnIncompletePresentation(request.colorDomain, "webgpu");
 		this._paramData[0] = display?.activeDynamicRange === "hdr" ? 1 : 0;
 		this._paramData[1] =
-			request.frameContext?.presentationAlphaMode === "premultiplied" ? 1 : 0;
+			request.frameContext?.alphaMode === "premultiplied" ? 1 : 0;
 		this._host.writeBuffer(this._params, this._paramData);
 
 		if (!this._binding || this._bindingSource !== request.source) {
@@ -106,7 +106,7 @@ export class WebGPUPresentPass {
 						r: 0,
 						g: 0,
 						b: 0,
-						a: request.frameContext?.presentationAlphaMode === "premultiplied" ? 0 : 1,
+						a: request.frameContext?.alphaMode === "premultiplied" ? 0 : 1,
 					},
 					loadOp: "clear",
 					storeOp: "store",

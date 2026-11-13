@@ -35,7 +35,7 @@ export class SoftwareFrameSession {
 		this._activeContext = context;
 		const postProcessPlan = this._executor.beginCoordinatorFrame(context);
 		const snapshot = this._temporalFrameState.beginFrame({
-			camera: context.viewCamera,
+			camera: context.scene.camera,
 			width: context.attachments.width,
 			height: context.attachments.height,
 			frameRequirements: postProcessPlan.frameRequirements ?? {},
@@ -46,7 +46,7 @@ export class SoftwareFrameSession {
 			currentJitter: [snapshot.jitterCurrentPrev[0], snapshot.jitterCurrentPrev[1]],
 			previousJitter: [snapshot.jitterCurrentPrev[2], snapshot.jitterCurrentPrev[3]],
 			previousViewProjection: snapshot.previousViewProjection,
-			currentViewProjection: context.viewCamera.viewProjectionMatrix,
+			currentViewProjection: context.scene.camera.viewProjectionMatrix,
 			previousWorldMatrices: resetHistory ? new Map() : this._previousWorldMatrices,
 			currentWorldMatrices: new Map(),
 		};
@@ -154,7 +154,7 @@ export class SoftwareFrameSession {
 				attachments.color[index + 1] = 0;
 				attachments.color[index + 2] = 0;
 				attachments.color[index + 3] =
-					frame.presentationAlphaMode === "premultiplied" ? 0 : 1;
+					frame.alphaMode === "premultiplied" ? 0 : 1;
 			}
 			attachments.depthBuffer.fill(Infinity);
 			attachments.normalBuffer?.fill(0);
@@ -170,7 +170,7 @@ export class SoftwareFrameSession {
 						attachments.color[pixelIndex + 1] = 0;
 						attachments.color[pixelIndex + 2] = 0;
 						attachments.color[pixelIndex + 3] =
-							frame.presentationAlphaMode === "premultiplied" ? 0 : 1;
+							frame.alphaMode === "premultiplied" ? 0 : 1;
 						attachments.depthBuffer[pixel] = Infinity;
 						if (attachments.normalBuffer) {
 							const normalIndex = pixel * 3;

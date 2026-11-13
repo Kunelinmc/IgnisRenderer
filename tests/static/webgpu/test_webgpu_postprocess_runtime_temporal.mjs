@@ -279,10 +279,12 @@ async function executeVolumetricImplementation(
 
 function createPerspectiveFrameContext(postProcessRequest = {}) {
 	return {
-		viewCamera: {
-			type: "perspective",
-			fov: 60,
-			aspectRatio: 2,
+		scene: {
+			camera: {
+				type: "perspective",
+				fov: 60,
+				aspectRatio: 2,
+			},
 		},
 		features: {},
 		postProcess: createResolvedPostProcess(postProcessRequest),
@@ -425,8 +427,10 @@ async function testOrthographicTemporalPassesSkipAndReturnFalse() {
 	assert.equal(backend.computePipelines.length, 0);
 	assert.equal(backend.buffers.length, 0);
 	const frameContext = {
-		viewCamera: {
-			type: "orthographic",
+		scene: {
+			camera: {
+				type: "orthographic",
+			},
 		},
 		features: {},
 		postProcess: createResolvedPostProcess(),

@@ -429,7 +429,7 @@ export class WebGLFrameServices {
 				:	null,
 				enableClusteredLighting:
 					context.features.enableClusteredLighting,
-				cameraWorldPosition: context.viewCamera.getWorldPosition(
+				cameraWorldPosition: context.scene.camera.getWorldPosition(
 					WEBGL_REFLECTION_PROBE_CAMERA_WORLD_POSITION_SCRATCH,
 				),
 			}
@@ -776,8 +776,7 @@ export class WebGLFrameServices {
 		const content = job.descriptor.content ?? {};
 		const context: FrameContext = {
 			...baseContext,
-			presentationAlphaMode: "opaque",
-			viewCamera: scene.camera,
+			alphaMode: "opaque",
 			attachments: { width: target.width, height: target.height },
 			features: {
 				...baseContext.features,
@@ -787,8 +786,6 @@ export class WebGLFrameServices {
 			postProcess: baseContext.postProcess.withPassDisabled("ssr"),
 			renderTargetJobs: undefined,
 			scene,
-			sceneState: scene,
-			view: scene,
 			shadowPlan:
 				content.shadows === "disabled" ? EMPTY_SHADOW_FRAME_PLAN : scene.shadowPlan,
 			incremental: {

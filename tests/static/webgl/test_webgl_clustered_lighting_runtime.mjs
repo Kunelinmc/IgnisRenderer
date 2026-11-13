@@ -65,14 +65,16 @@ function createPerspectiveContext(overrides = {}) {
 			width: 640,
 			height: 360,
 		},
-		viewCamera: {
-			type: CameraType.Perspective,
-			near: 0.1,
-			far: 200,
-			fov: 60,
-			aspectRatio: 640 / 360,
-			viewMatrix: Matrix4.identity(),
-			viewProjectionMatrix: Matrix4.perspective(60, 640 / 360, 0.1, 200),
+		scene: {
+			camera: {
+				type: CameraType.Perspective,
+				near: 0.1,
+				far: 200,
+				fov: 60,
+				aspectRatio: 640 / 360,
+				viewMatrix: Matrix4.identity(),
+				viewProjectionMatrix: Matrix4.perspective(60, 640 / 360, 0.1, 200),
+			},
 		},
 		features: {
 			enableLighting: true,
@@ -156,14 +158,16 @@ function testNonPerspectiveFallsBackWithWarning() {
 	withCapturedWarnings((warnings) => {
 		const runtime = new WebGLClusteredLightingRuntime(createFakeGL());
 		const context = createPerspectiveContext({
-			viewCamera: {
-				type: CameraType.Orthographic,
-				near: 0.1,
-				far: 200,
-				fov: 60,
-				aspectRatio: 1,
-				viewMatrix: Matrix4.identity(),
-				viewProjectionMatrix: Matrix4.identity(),
+			scene: {
+				camera: {
+					type: CameraType.Orthographic,
+					near: 0.1,
+					far: 200,
+					fov: 60,
+					aspectRatio: 1,
+					viewMatrix: Matrix4.identity(),
+					viewProjectionMatrix: Matrix4.identity(),
+				},
 			},
 		});
 		const lights = createLightState();
@@ -238,14 +242,16 @@ function testClusterHeadersUseFixedClusterSpans() {
 			width: 128,
 			height: 64,
 		},
-		viewCamera: {
-			type: CameraType.Perspective,
-			near: 0.1,
-			far: 200,
-			fov: 60,
-			aspectRatio: 2,
-			viewMatrix: Matrix4.identity(),
-			viewProjectionMatrix: Matrix4.perspective(60, 2, 0.1, 200),
+		scene: {
+			camera: {
+				type: CameraType.Perspective,
+				near: 0.1,
+				far: 200,
+				fov: 60,
+				aspectRatio: 2,
+				viewMatrix: Matrix4.identity(),
+				viewProjectionMatrix: Matrix4.perspective(60, 2, 0.1, 200),
+			},
 		},
 		features: {
 			clusteredLightingOptions: {

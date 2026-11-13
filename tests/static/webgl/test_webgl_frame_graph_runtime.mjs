@@ -55,9 +55,11 @@ function createPass(stage) {
 function testWebGLTemporalStateRollsBackAbortedFrames() {
 	const temporal = new WebGLTemporalFrameState();
 	const context = {
-		viewCamera: {
-			type: CameraType.Perspective,
-			viewProjectionMatrix: new Matrix4(),
+		scene: {
+			camera: {
+				type: CameraType.Perspective,
+				viewProjectionMatrix: new Matrix4(),
+			},
 		},
 		attachments: { width: 32, height: 16 },
 		incremental: { temporalHistoryReset: false },
@@ -72,7 +74,7 @@ function testWebGLTemporalStateRollsBackAbortedFrames() {
 	assert.deepEqual(Array.from(temporal.jitterCurrentPrev), first);
 	temporal.commitFrame();
 
-	context.viewCamera.viewProjectionMatrix = new Matrix4([
+	context.scene.camera.viewProjectionMatrix = new Matrix4([
 		[1, 0, 0, 4],
 		[0, 1, 0, 0],
 		[0, 0, 1, 0],

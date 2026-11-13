@@ -339,8 +339,8 @@ function collectPlannerLightState(context: FrameContext): WebGLLightState {
 				environment?.lightingEnabled ? environment.iblTexture : null,
 			enableClusteredLighting:
 				context.features?.enableClusteredLighting ?? false,
-			cameraWorldPosition: context.viewCamera?.getWorldPosition ?
-				context.viewCamera.getWorldPosition(
+			cameraWorldPosition: context.scene?.camera?.getWorldPosition ?
+				context.scene.camera.getWorldPosition(
 					WEBGL_REFLECTION_PROBE_CAMERA_WORLD_POSITION_SCRATCH,
 				)
 			: null,

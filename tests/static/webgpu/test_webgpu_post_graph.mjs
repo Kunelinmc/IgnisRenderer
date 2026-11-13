@@ -13,13 +13,6 @@ function createPostProcess(overrides = {}) {
 
 function createFrameContext(postProcess, incremental = {}) {
 	return {
-		viewCamera: {
-			type: "perspective",
-			fov: 60,
-			aspectRatio: 1,
-			near: 0.1,
-			far: 100,
-		},
 		attachments: {
 			width: 64,
 			height: 32,
@@ -29,7 +22,15 @@ function createFrameContext(postProcess, incremental = {}) {
 			motionBuffer: new Float32Array(64 * 32 * 2),
 		},
 		features: {},
-		scene: {},
+		scene: {
+			camera: {
+				type: "perspective",
+				fov: 60,
+				aspectRatio: 1,
+				near: 0.1,
+				far: 100,
+			},
+		},
 		shadowMaps: [],
 		shCoeffs: [],
 		shAmbientCoeffs: [],

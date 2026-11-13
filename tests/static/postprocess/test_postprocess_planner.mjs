@@ -38,7 +38,7 @@ class TestPass extends PostProcessPass {
 
 function frame(incremental = {}) {
 	return {
-		presentationAlphaMode: "opaque",
+		alphaMode: "opaque",
 		attachments: { width: 128, height: 64 },
 		incremental: {
 			enabled: false,
@@ -56,7 +56,7 @@ function testTransparentOutputAlphaCompatibility() {
 		declaration: { color: COLOR },
 	}));
 	const transparentFrame = frame();
-	transparentFrame.presentationAlphaMode = "premultiplied";
+	transparentFrame.alphaMode = "premultiplied";
 	assert.throws(
 		() => plan(incompatible, { frameContext: transparentFrame }),
 		(error) => /legacy-alpha/.test(error.message) &&

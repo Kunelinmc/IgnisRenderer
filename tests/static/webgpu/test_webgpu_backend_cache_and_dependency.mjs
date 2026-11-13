@@ -291,7 +291,6 @@ async function waitForCondition(predicate, message, count = 32) {
 
 function createFrameContext(overrides = {}) {
 	return {
-		viewCamera: {},
 		attachments: { width: 4, height: 4 },
 		features: {
 			enableLighting: true,
@@ -308,6 +307,7 @@ function createFrameContext(overrides = {}) {
 		}),
 		shadowMaps: new Map(),
 		scene: {
+			camera: {},
 			particleSystems: [],
 			opaquePackets: [],
 			transparentPackets: [],

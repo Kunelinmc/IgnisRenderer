@@ -65,7 +65,7 @@ export function createSoftwarePassContextForTesting(
 		currentJitter: [0, 0] as [number, number],
 		previousJitter: [0, 0] as [number, number],
 		previousViewProjection: null,
-		currentViewProjection: context.viewCamera.viewProjectionMatrix,
+		currentViewProjection: context.scene.camera.viewProjectionMatrix,
 		previousWorldMatrices: new Map(),
 		currentWorldMatrices: new Map(),
 	};

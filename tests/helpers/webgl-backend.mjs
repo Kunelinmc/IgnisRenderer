@@ -670,9 +670,6 @@ void main() {
 
 export function createScenePassContext(overrides = {}) {
 	return {
-		viewCamera: {
-			viewProjectionMatrix: Matrix4.identity(),
-		},
 		incremental: {
 			enabled: false,
 			forceFullFrame: false,
@@ -683,6 +680,9 @@ export function createScenePassContext(overrides = {}) {
 			height: 64,
 		},
 		scene: {
+			camera: {
+				viewProjectionMatrix: Matrix4.identity(),
+			},
 			opaquePackets: [],
 			transparentPackets: [],
 			spatialIndex: null,

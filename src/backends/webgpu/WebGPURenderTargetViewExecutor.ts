@@ -133,8 +133,7 @@ export class WebGPURenderTargetViewExecutor {
 			job.descriptor.content?.shadows !== "disabled";
 		return {
 			...base,
-			presentationAlphaMode: "opaque",
-			viewCamera: scene.camera,
+			alphaMode: "opaque",
 			attachments: { width: target.width, height: target.height },
 			features: {
 				...base.features,
@@ -146,8 +145,6 @@ export class WebGPURenderTargetViewExecutor {
 			renderTargetJobs: undefined,
 			shadowPlan: includeShadows ? scene.shadowPlan : EMPTY_SHADOW_FRAME_PLAN,
 			scene,
-			sceneState: scene,
-			view: scene,
 			incremental: {
 				enabled: false,
 				forceFullFrame: true,

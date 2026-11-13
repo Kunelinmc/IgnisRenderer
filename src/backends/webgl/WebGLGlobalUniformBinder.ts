@@ -529,7 +529,7 @@ export function bindWebGLGlobalUniforms(
 
 	if (uniforms.viewProjection) {
 		const viewProjection = toFiniteColumnMajorMat4(
-			context.viewCamera.viewProjectionMatrix
+			context.scene.camera.viewProjectionMatrix
 		);
 		if (!viewProjection) {
 			logWebGLGlobalUniformWarning(
@@ -544,7 +544,7 @@ export function bindWebGLGlobalUniforms(
 		);
 	}
 	if (uniforms.viewMatrix) {
-		const viewMatrix = toFiniteColumnMajorMat4(context.viewCamera.viewMatrix);
+		const viewMatrix = toFiniteColumnMajorMat4(context.scene.camera.viewMatrix);
 		if (!viewMatrix) {
 			logWebGLGlobalUniformWarning(
 				"webgl-camera-view-matrix-invalid",
@@ -558,7 +558,7 @@ export function bindWebGLGlobalUniforms(
 		);
 	}
 	if (uniforms.cameraPosition) {
-		const cameraPosition = context.viewCamera.getWorldPosition();
+		const cameraPosition = context.scene.camera.getWorldPosition();
 		const cameraX = finiteOr(cameraPosition.x, 0);
 		const cameraY = finiteOr(cameraPosition.y, 0);
 		const cameraZ = finiteOr(cameraPosition.z, 0);
@@ -1024,7 +1024,7 @@ export function bindWebGLGlobalUniforms(
 	if (uniforms.prevViewProjection) {
 		const prevViewProjection = sanitizeFloat32Array(
 			host._previousViewProjection ??
-				Matrix4.toColumnMajorArray(context.viewCamera.viewProjectionMatrix),
+				Matrix4.toColumnMajorArray(context.scene.camera.viewProjectionMatrix),
 			0
 		);
 		if (prevViewProjection.hadInvalid) {

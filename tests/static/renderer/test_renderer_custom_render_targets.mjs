@@ -171,8 +171,9 @@ async function testSceneViewLayerAndContentSelection() {
 				content: { transparent: false }, opaque: ["opaque-selected"], transparent: [],
 			},
 		];
+		const targetCamera = renderer.scene.add(new Camera());
 		const tickets = cases.map(({ layerMask, content }) => target.enqueueJob({
-			kind: "scene-view", camera: renderer.camera, layerMask, content,
+			kind: "scene-view", camera: targetCamera, layerMask, content,
 			excludedLightId: excludedProbe.id,
 		}));
 		await renderer.renderFrame(16);
@@ -182,6 +183,10 @@ async function testSceneViewLayerAndContentSelection() {
 		assert.equal(jobs.length, cases.length);
 		for (let index = 0; index < cases.length; index++) {
 			const { scene } = jobs[index];
+			assert.strictEqual(scene.camera, targetCamera);
+			assert.strictEqual(scene.submissions, context.scene.submissions);
+			assert.notStrictEqual(scene.opaquePackets, context.scene.opaquePackets);
+			assert.notStrictEqual(scene.transparentPackets, context.scene.transparentPackets);
 			for (const kind of ["opaque", "transparent"]) {
 				assert.deepEqual(
 					scene[`${kind}Packets`].map((packet) =>
@@ -192,6 +197,7 @@ async function testSceneViewLayerAndContentSelection() {
 			}
 			assert.deepEqual(scene.lights.map((light) => light.id), [retainedProbe.id]);
 		}
+		assert.strictEqual(context.scene.camera, renderer.camera);
 		assert.equal(context.scene.opaquePackets.length, 3);
 		assert.equal(context.scene.transparentPackets.length, 3);
 		assert.deepEqual(

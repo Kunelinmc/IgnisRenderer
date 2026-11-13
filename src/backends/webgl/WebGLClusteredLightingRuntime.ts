@@ -143,7 +143,7 @@ export class WebGLClusteredLightingRuntime {
 				}
 			);
 		}
-		const isPerspective = context.viewCamera.type === CameraType.Perspective;
+		const isPerspective = context.scene.camera.type === CameraType.Perspective;
 
 		if (!context.features.enableClusteredLighting || !context.features.enableLighting) {
 			this._disable(width, height, options);
@@ -161,8 +161,8 @@ export class WebGLClusteredLightingRuntime {
 			return;
 		}
 
-		const near = Math.max(0.05, finiteOr(context.viewCamera.near, 0.1));
-		const far = Math.max(near + 1e-3, finiteOr(context.viewCamera.far, near + 1));
+		const near = Math.max(0.05, finiteOr(context.scene.camera.near, 0.1));
+		const far = Math.max(near + 1e-3, finiteOr(context.scene.camera.far, near + 1));
 		const logDenom = Math.log(far) - Math.log(near);
 		if (logDenom <= 1e-6) {
 			Logger.warn(
@@ -476,19 +476,19 @@ export class WebGLClusteredLightingRuntime {
 		mixInt(options.zSlices);
 		mixInt(options.maxLights);
 		mixInt(options.maxLightsPerCluster);
-		mixInt(context.viewCamera.type === CameraType.Perspective ? 1 : 0);
+		mixInt(context.scene.camera.type === CameraType.Perspective ? 1 : 0);
 		mixFloat(near);
 		mixFloat(far);
-		mixFloat(context.viewCamera.fov);
-		mixFloat(context.viewCamera.aspectRatio);
+		mixFloat(context.scene.camera.fov);
+		mixFloat(context.scene.camera.aspectRatio);
 
-		const view = context.viewCamera.viewMatrix.elements;
+		const view = context.scene.camera.viewMatrix.elements;
 		for (let row = 0; row < 4; row++) {
 			for (let column = 0; column < 4; column++) {
 				mixFloat(view[row][column]);
 			}
 		}
-		const projection = context.viewCamera.viewProjectionMatrix.elements;
+		const projection = context.scene.camera.viewProjectionMatrix.elements;
 		for (let row = 0; row < 4; row++) {
 			for (let column = 0; column < 4; column++) {
 				mixFloat(projection[row][column]);
@@ -584,7 +584,7 @@ export class WebGLClusteredLightingRuntime {
 		logScale: number,
 		logBias: number
 	): ClusteredLightRange | null {
-		const viewPosition = Matrix4.transformPoint(context.viewCamera.viewMatrix, {
+		const viewPosition = Matrix4.transformPoint(context.scene.camera.viewMatrix, {
 			x: light.position[0],
 			y: light.position[1],
 			z: light.position[2],
@@ -595,7 +595,7 @@ export class WebGLClusteredLightingRuntime {
 			return null;
 		}
 
-		const clipPosition = Matrix4.transformPoint(context.viewCamera.viewProjectionMatrix, {
+		const clipPosition = Matrix4.transformPoint(context.scene.camera.viewProjectionMatrix, {
 			x: light.position[0],
 			y: light.position[1],
 			z: light.position[2],
@@ -608,11 +608,11 @@ export class WebGLClusteredLightingRuntime {
 		const ndcY = clamp(finiteOr(clipPosition.y / clipW, 0), -1.5, 1.5);
 		const aspect = Math.max(
 			1e-3,
-			finiteOr(context.viewCamera.aspectRatio, screenWidth / Math.max(screenHeight, 1))
+			finiteOr(context.scene.camera.aspectRatio, screenWidth / Math.max(screenHeight, 1))
 		);
 		const tanHalfFov = Math.max(
 			1e-4,
-			Math.tan((finiteOr(context.viewCamera.fov, 60) * Math.PI) / 360)
+			Math.tan((finiteOr(context.scene.camera.fov, 60) * Math.PI) / 360)
 		);
 		const projectedDepth = Math.max(near, viewDepth);
 		const radiusNdcY = clamp(range / (projectedDepth * tanHalfFov), 0, 2);

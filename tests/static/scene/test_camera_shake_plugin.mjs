@@ -52,7 +52,7 @@ class StubBackend extends TestRenderBackend {
 
 	beginFrame(context) {
 		this.beginFrameCount++;
-		const camera = context.viewCamera;
+		const camera = context.scene.camera;
 		const snapshot = {
 			position: {
 				x: camera.position.x,

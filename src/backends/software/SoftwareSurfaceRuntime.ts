@@ -165,7 +165,7 @@ export class SoftwareSurfaceRuntime {
 			for (let y = region.minY; y < region.maxYExclusive; y++) {
 				for (let x = region.minX; x < region.maxXExclusive; x++) {
 					const index = (y * width + x) << 2;
-					const transparent = frame.presentationAlphaMode === "premultiplied";
+					const transparent = frame.alphaMode === "premultiplied";
 					const alpha = transparent
 						? Math.min(1, Math.max(0, finiteOrZero(color[index + 3])))
 						: 1;

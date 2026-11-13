@@ -258,7 +258,7 @@ function testPresentationAndTargetLifecycle() {
 	assert.deepEqual(Array.from(sdrAttachments.pixels), [252, 98, 70, 255]);
 	for (const domain of ["scene-linear-hdr", "display-linear", "display-encoded"]) {
 		sdrColor.set([0.1, 0.2, 0.3, 0.5]);
-		sdrFrame.presentationAlphaMode = "premultiplied";
+		sdrFrame.alphaMode = "premultiplied";
 		sdrSurface.present(sdrFrame, domain);
 		assert.deepEqual(Array.from(sdrAttachments.pixels), [51, 102, 153, 128]);
 		sdrColor.set([1, 1, 1, 0]);

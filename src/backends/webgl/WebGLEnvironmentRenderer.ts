@@ -112,11 +112,11 @@ export class WebGLEnvironmentRenderer implements WebGLProgramWarmupContributor {
 
 		const environment = context.scene.environment;
 		const resolved = this._host.textures.getEnvironmentTexture(backgroundTexture);
-		const view = context.viewCamera.viewMatrix.elements;
-		const isOrthographic = context.viewCamera.type === CameraType.Orthographic;
-		const tanHalfFov = isOrthographic ? 0 : Math.tan((context.viewCamera.fov * Math.PI) / 360);
+		const view = context.scene.camera.viewMatrix.elements;
+		const isOrthographic = context.scene.camera.type === CameraType.Orthographic;
+		const tanHalfFov = isOrthographic ? 0 : Math.tan((context.scene.camera.fov * Math.PI) / 360);
 		const aspect =
-			context.viewCamera.aspectRatio || this._host.getWidth() / this._host.getHeight();
+			context.scene.camera.aspectRatio || this._host.getWidth() / this._host.getHeight();
 		const gl = this._host.gl;
 		const uniforms = program.uniforms;
 

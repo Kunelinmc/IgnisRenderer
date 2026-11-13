@@ -292,12 +292,12 @@ function testSceneProgramPlannerEnumeratesRuntimeTransmittanceAlternatives() {
 			enableOIT: false,
 		},
 		shadowPlan: createShadowPlan(light),
-		viewCamera: {
-			getWorldPosition() {
-				return { x: 0, y: 0, z: 0 };
-			},
-		},
 		scene: {
+			camera: {
+				getWorldPosition() {
+					return { x: 0, y: 0, z: 0 };
+				},
+			},
 			lights: [light],
 			environment: { lightingEnabled: false, iblTexture: null },
 		},
@@ -323,12 +323,12 @@ function testSceneProgramPlannerReadsMaterialFromDrawSubmission() {
 			enableClusteredLighting: false,
 			enableOIT: false,
 		},
-		viewCamera: {
-			getWorldPosition() {
-				return { x: 0, y: 0, z: 0 };
-			},
-		},
 		scene: {
+			camera: {
+				getWorldPosition() {
+					return { x: 0, y: 0, z: 0 };
+				},
+			},
 			lights: [],
 			environment: { lightingEnabled: false, iblTexture: null },
 		},
@@ -347,8 +347,11 @@ function testSceneProgramPlannerDeduplicatesInputsWithinEachCall() {
 	const material = new PBRMaterial();
 	const context = {
 		features: { enableLighting: false, enableSH: false, enableOIT: true },
-		viewCamera: { getWorldPosition: () => ({ x: 0, y: 0, z: 0 }) },
-		scene: { lights: [], environment: { lightingEnabled: false, iblTexture: null } },
+		scene: {
+			camera: { getWorldPosition: () => ({ x: 0, y: 0, z: 0 }) },
+			lights: [],
+			environment: { lightingEnabled: false, iblTexture: null },
+		},
 	};
 	const geometry = [
 		{},

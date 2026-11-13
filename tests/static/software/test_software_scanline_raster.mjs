@@ -34,8 +34,7 @@ function createContext(backend, camera, packetsByStage = {}) {
 	const zeroSH = createZeroSH();
 
 	return {
-		presentationAlphaMode: packetsByStage.presentationAlphaMode ?? "opaque",
-		viewCamera: camera,
+		alphaMode: packetsByStage.alphaMode ?? "opaque",
 		attachments,
 		features: {
 			enableLighting: false,
@@ -353,7 +352,7 @@ async function testTransparentPresentationCoverage() {
 		}
 		const backend = createSoftwareSession();
 		const attachments = await renderPass(backend, "main-transparent", {
-			presentationAlphaMode: "premultiplied",
+			alphaMode: "premultiplied",
 			transparentPackets: [packet],
 		});
 		const centerPixel =
@@ -380,7 +379,7 @@ async function testTransparentWireframeUsesMaterialOpacity() {
 	packet.submission.material.effective.wireframe = true;
 	const backend = createSoftwareSession();
 	await renderPass(backend, "main-transparent", {
-		presentationAlphaMode: "premultiplied",
+		alphaMode: "premultiplied",
 		transparentPackets: [packet],
 	});
 	const sceneColor = backend._surface.getSceneColorTarget();
@@ -400,7 +399,7 @@ async function testTransparentWireframeUsesMaterialOpacity() {
 async function testOpaqueMaterialWritesFullCoverageOnTransparentSurface() {
 	const backend = createSoftwareSession();
 	const attachments = await renderPass(backend, "main-opaque", {
-		presentationAlphaMode: "premultiplied",
+		alphaMode: "premultiplied",
 		opaquePackets: [createTrianglePacket(
 			"opaque-coverage",
 			{ r: 0, g: 0, b: 255 },

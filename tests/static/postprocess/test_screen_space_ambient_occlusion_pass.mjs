@@ -81,7 +81,6 @@ function createSoftwareFrameContext(options = {}) {
 	}
 	return {
 		sceneColor,
-		viewCamera: createOrthographicCamera(),
 		attachments: {
 			width,
 			height,
@@ -98,7 +97,9 @@ function createSoftwareFrameContext(options = {}) {
 			"software"
 		),
 		shadowMaps: new Map(),
-		scene: {},
+		scene: {
+			camera: createOrthographicCamera(),
+		},
 		shCoeffs: [],
 		shAmbientCoeffs: [],
 		worldMatrix: null,
