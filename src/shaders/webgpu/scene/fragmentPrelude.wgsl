@@ -1,3 +1,13 @@
+struct SceneShadingContext {
+	baseColor: vec3<f32>,
+	alpha: f32,
+	normal: vec3<f32>,
+	viewDir: vec3<f32>,
+	emissive: vec3<f32>,
+	motion: vec2<f32>,
+	linearDepth: f32,
+}
+
 fn shadeSceneWithOptions(
 	input: VertexOutput,
 	frontFacing: bool,
@@ -48,8 +58,6 @@ fn shadeSceneWithOptions(
 	if (doubleSided && !frontFacing) {
 		normal = -normal;
 	}
-	let geometryNormal = normal;
-	let shadowNormal = normal;
 
 	var emissiveSample = vec4<f32>(1.0);
 	if (
@@ -89,4 +97,11 @@ fn shadeSceneWithOptions(
 		);
 	}
 
+	let context = SceneShadingContext(
+		baseColor, alpha, normal, viewDir, emissive, motion, linearDepth
+	);
 	if (shadingMode == SHADING_PHONG || shadingMode == SHADING_FLAT) {
+		return shadePhong(input, material, context);
+	}
+	return shadePBR(input, material, context, includeTransmissionBackground);
+}

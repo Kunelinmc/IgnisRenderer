@@ -19,16 +19,10 @@ const WEBGPU_SCENE_SHADER_FILES = {
 	constants: "./webgpu/common/constants.wgsl",
 	definitions: "./webgpu/common/definitions.wgsl",
 	utils: "./webgpu/common/utils.wgsl",
-	surfaceLighting: "./webgpu/common/surfaceLighting.wgsl",
 	vertexStage: "./webgpu/scene/vertexStage.wgsl",
 	fragmentPrelude: "./webgpu/scene/fragmentPrelude.wgsl",
 	fragmentPhong: "./webgpu/scene/fragmentPhong.wgsl",
-	fragmentPbrSetup: "./webgpu/scene/fragmentPbrSetup.wgsl",
-	fragmentPbrDirectional: "./webgpu/scene/fragmentPbrDirectional.wgsl",
-	fragmentPbrPoint: "./webgpu/scene/fragmentPbrPoint.wgsl",
-	fragmentPbrSpot: "./webgpu/scene/fragmentPbrSpot.wgsl",
-	fragmentPbrArea: "./webgpu/scene/fragmentPbrArea.wgsl",
-	fragmentPbrAmbient: "./webgpu/scene/fragmentPbrAmbient.wgsl",
+	fragmentPbr: "./webgpu/scene/fragmentPbr.wgsl",
 	fragmentSingleTarget: "./webgpu/scene/fragmentSingleTarget.wgsl",
 } as const satisfies Record<string, string>;
 

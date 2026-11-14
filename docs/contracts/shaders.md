@@ -50,6 +50,12 @@ This document defines shader source ownership, composition, diagnostics, and cus
   participate in artifact identity.
   Manifest composition must preserve original asset paths and line numbers,
   including those of the shared shadow visibility asset.
+- The WebGPU scene material sources must expose complete Phong and PBR shading
+  functions through `webgpu.scene.part.fragmentPhong` and
+  `webgpu.scene.part.fragmentPbr`. These functions must receive the shared
+  fragment shading data explicitly from the scene shading function.
+  Each material source must own its direct-light evaluators and material-specific
+  surface input types.
 - Light and device limits must be owned by the backend directive profile and
   must not participate in shader source artifact identity.
 - Optional WebGL scene shader blocks must be selected solely by the normalized

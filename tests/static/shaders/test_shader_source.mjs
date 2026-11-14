@@ -21,6 +21,7 @@ import {
 	ShaderBackendCompileStage,
 	ShaderRuntime,
 } from "../../../src/shaders/runtime/index.ts";
+import { mapShaderGeneratedLocation } from "../../../src/shaders/runtime/sourceMap.ts";
 import {
 	WEBGL_TEST_PROFILE,
 	WEBGPU_TEST_PROFILE,
@@ -574,6 +575,23 @@ async function testWebGPUCompositeIncludesSharedParts() {
 	assert.ok(ssr.code.includes("struct TraceParams"));
 	assert.ok(scene.code.includes("struct DirectionalLightData"));
 	assert.ok(scene.code.includes("fn activeClusteredLightCount() -> u32"));
+	for (const [part, marker] of [
+		["fragmentPhong", "let diffuseBRDF ="],
+		["fragmentPhong", "let phongAmbient = material.ambientShininess.rgb;"],
+		["fragmentPbr", "let distributionRatio ="],
+		["fragmentPbr", "let baseLayerAttenuation ="],
+		["fragmentPbr", "let outputAlpha = resolveTransmissionAlpha("],
+	]) {
+		const sourcePath = `./webgpu/scene/${part}.wgsl`;
+		const lines = scene.code.split("\n");
+		const generatedLine = lines.findIndex((line) => line.includes(marker)) + 1;
+		const sourceLine = embeddedShaderSources[sourcePath].split("\n")
+			.findIndex((line) => line.includes(marker)) + 1;
+		assert.ok(generatedLine > 0 && sourceLine > 0);
+		const location = mapShaderGeneratedLocation(scene.sourceMap, generatedLine);
+		assert.equal(location?.sourcePath, sourcePath);
+		assert.equal(location?.sourceLine, sourceLine);
+	}
 }
 
 async function testWebGPUFogCompilesWithoutSharedIncludes() {

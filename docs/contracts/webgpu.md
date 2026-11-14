@@ -809,9 +809,11 @@ packing.
   declarations. Built-in lighting must execute in scene fragment shaders for
   `single`, `color`, and `mrt` scene target modes.
 - Forward direct-light loops must own light selection, sampling, attenuation,
-  and shadow visibility. Material lobe evaluation must be shared through
-  `src/shaders/webgpu/common/surfaceLighting.wgsl`; light loops must not repeat
-  diffuse, specular, clearcoat, or sheen evaluation.
+  and shadow visibility. Phong and PBR material lobe evaluation must remain in
+  `src/shaders/webgpu/scene/fragmentPhong.wgsl` and
+  `src/shaders/webgpu/scene/fragmentPbr.wgsl`, respectively. Each material's
+  direct-light loops must share its evaluator rather than repeat diffuse,
+  specular, clearcoat, or sheen evaluation.
 - `single` must render directly to the canvas target. `color` must render to
   offscreen scene color and depth. `mrt` must additionally write the four
   post-process G-buffer attachments in the same forward scene draw.

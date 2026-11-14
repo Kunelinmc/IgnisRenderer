@@ -38,7 +38,7 @@ function testPBRShaderContracts() {
 function testAnalyticalAmbientUsesDiffuseIrradianceOnly() {
 	const webgl = readSource("src/shaders/webgl/scene/fragmentPbrLighting.glsl");
 	const webgpuForward = readSource(
-		"src/shaders/webgpu/scene/fragmentPbrAmbient.wgsl"
+		"src/shaders/webgpu/scene/fragmentPbr.wgsl"
 	);
 
 	assert.match(webgl, /specularAmbientBase = vec3\(0\.0\)/);

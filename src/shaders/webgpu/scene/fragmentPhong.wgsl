@@ -1,232 +1,105 @@
-		let phongAmbient = material.ambientShininess.rgb;
-		let phongSpecular = material.specular.rgb;
-		let shininess = max(material.ambientShininess.a, 0.0);
+fn evaluatePhongDirectLight(
+	normal: vec3<f32>,
+	viewDirection: vec3<f32>,
+	albedo: vec3<f32>,
+	specularColor: vec3<f32>,
+	shininess: f32,
+	lightDirection: vec3<f32>,
+	radiance: vec3<f32>,
+	visibility: vec3<f32>
+) -> vec3<f32> {
+	let nDotL = max(dot(normal, lightDirection), 0.0);
+	if (nDotL <= 0.0) {
+		return vec3<f32>(0.0);
+	}
+	let halfVector = safeNormalize(viewDirection + lightDirection, viewDirection);
+	let vDotH = max(dot(viewDirection, halfVector), 0.0);
+	let fresnel = specularColor +
+		(vec3<f32>(1.0) - specularColor) * pow(1.0 - vDotH, 5.0);
+	let diffuseBRDF = (vec3<f32>(1.0) - fresnel) * albedo / PI;
+	let normalizedLobe =
+		((max(shininess, 0.0) + 8.0) / (8.0 * PI)) *
+		pow(max(dot(normal, halfVector), 0.0), max(shininess, 0.0));
+	let specularBRDF = fresnel * normalizedLobe;
+	return radiance * visibility * (diffuseBRDF + specularBRDF) * nDotL;
+}
 
-		var ambientBase = frameLights.ambientColor.rgb;
-		if (useSHAmbient()) {
-			ambientBase =
-				sampleDiffuseProbeIrradiance(input.worldPosition, normal) / 255.0;
+fn shadePhong(
+	input: VertexOutput,
+	material: ResolvedLightingMaterial,
+	context: SceneShadingContext
+) -> SceneFragmentOutput {
+	let baseColor = context.baseColor;
+	let alpha = context.alpha;
+	let normal = context.normal;
+	let shadowNormal = normal;
+	let viewDir = context.viewDir;
+	let emissive = context.emissive;
+	let motion = context.motion;
+	let linearDepth = context.linearDepth;
+
+	let phongAmbient = material.ambientShininess.rgb;
+	let phongSpecular = material.specular.rgb;
+	let shininess = max(material.ambientShininess.a, 0.0);
+
+	var ambientBase = frameLights.ambientColor.rgb;
+	if (useSHAmbient()) {
+		ambientBase =
+			sampleDiffuseProbeIrradiance(input.worldPosition, normal) / 255.0;
+	}
+	var ambient = ambientBase * phongAmbient / PI;
+	var direct = vec3<f32>(0.0);
+
+	let directionalCount = frameLights.lightCounts.x;
+	for (var i: u32 = 0u; i < directionalCount; i = i + 1u) {
+		let lightDirection = safeNormalize(
+			frameLights.directionalLights[i].direction.xyz,
+			vec3<f32>(0.0, 1.0, 0.0)
+		);
+		let radiance = frameLights.directionalLights[i].color.xyz;
+		let nDotL = max(dot(normal, lightDirection), 0.0);
+		if (nDotL <= 0.0) {
+			continue;
 		}
-		var ambient = ambientBase * phongAmbient / PI;
-		var direct = vec3<f32>(0.0);
 
-		let directionalCount = frameLights.lightCounts.x;
-		for (var i: u32 = 0u; i < directionalCount; i = i + 1u) {
-			let lightDirection = safeNormalize(
-				frameLights.directionalLights[i].direction.xyz,
-				vec3<f32>(0.0, 1.0, 0.0)
-			);
-			let radiance = frameLights.directionalLights[i].color.xyz;
-			let nDotL = max(dot(normal, lightDirection), 0.0);
-			if (nDotL <= 0.0) {
-				continue;
-			}
-
-			var shadow = vec3<f32>(1.0);
-			if (input.instanceMeta.y > 0.5) {
-				shadow = sampleDirectionalShadowVisibility(
-					i,
-					input.worldPosition,
-					shadowNormal,
-					lightDirection,
-					linearDepth
-				);
-			}
-			direct += evaluatePhongDirectLight(
-				normal, viewDir, baseColor, phongSpecular, shininess,
-				lightDirection, radiance, shadow
-			);
-		}
-
-		if (isClusteredLightingEnabled()) {
-			let clusterHeader = getClusterHeaderForFragment(
-				input.position.xy,
+		var shadow = vec3<f32>(1.0);
+		if (input.instanceMeta.y > 0.5) {
+			shadow = sampleDirectionalShadowVisibility(
+				i,
+				input.worldPosition,
+				shadowNormal,
+				lightDirection,
 				linearDepth
 			);
-			let clusterEntryCount = getClusterEntryCount(clusterHeader);
-			let clusterLightCount = activeClusteredLightCount();
-			for (var entryIndex: u32 = 0u; entryIndex < clusterEntryCount; entryIndex = entryIndex + 1u) {
-				let packedRef = clusterIndices.indices[clusterHeader.offset + entryIndex];
-				let clusterRef = decodeClusteredLightRef(packedRef);
-				if (clusterRef.lightIndex >= clusterLightCount) {
-					continue;
-				}
-				if (clusterRef.lightType == CLUSTER_LIGHT_TYPE_AREA) {
-					let areaRecord = clusteredRecordToAreaLight(clusterRef.lightIndex);
-					for (
-						var sampleIndex: u32 = 0u;
-						sampleIndex < AREA_LIGHT_SAMPLE_COUNT;
-						sampleIndex = sampleIndex + 1u
-					) {
-						let areaLight = evaluateAreaLight(
-							areaRecord,
-							input.worldPosition,
-							sampleIndex
-						);
-						if (!areaLight.valid) {
-							continue;
-						}
-
-						let lightDirection = areaLight.direction;
-						let nDotL = max(dot(normal, lightDirection), 0.0);
-						if (nDotL <= 0.0) {
-							continue;
-						}
-
-						direct += evaluatePhongDirectLight(
-							normal, viewDir, baseColor, phongSpecular, shininess,
-							lightDirection, areaLight.radiance, vec3<f32>(1.0)
-						);
-					}
-					continue;
-				}
-				let positionRange = clusterPositionRanges.values[clusterRef.lightIndex];
-				let colorInner = clusterColorInners.values[clusterRef.lightIndex];
-				let toLight = positionRange.xyz - input.worldPosition;
-				let distanceSq = dot(toLight, toLight);
-				let distanceValue = sqrt(max(distanceSq, EPSILON));
-				let lightRange = positionRange.w;
-				if (distanceValue > lightRange) {
-					continue;
-				}
-
-				let lightDirection = safeNormalize(
-					toLight,
-					vec3<f32>(0.0, 1.0, 0.0)
-				);
-				var attenuation = pointAttenuation(distanceSq, lightRange);
-				var shadow = vec3<f32>(1.0);
-
-				// Spot light cone + shadow
-				if (clusterRef.lightType == CLUSTER_LIGHT_TYPE_SPOT) {
-					let directionOuter =
-						clusterDirectionOuters.values[clusterRef.lightIndex];
-					let lightToPoint = -lightDirection;
-					let coneDirection = safeNormalize(
-						directionOuter.xyz,
-						vec3<f32>(0.0, -1.0, 0.0)
-					);
-					let coneAttenuation = spotAttenuation(
-						dot(lightToPoint, coneDirection),
-						directionOuter.w,
-						colorInner.w
-					);
-					if (coneAttenuation <= 0.0) {
-						continue;
-					}
-					attenuation *= coneAttenuation;
-					let shadowIndex =
-						clusterMetadata.values[clusterRef.lightIndex].shadowIndex;
-					if (clusterRef.shadowed && shadowIndex < 8u &&
-						input.instanceMeta.y > 0.5) {
-						shadow = sampleSpotShadowVisibility(
-							shadowIndex,
-							input.worldPosition,
-							shadowNormal,
-							lightDirection
-						);
-					}
-				} else if (clusterRef.lightType != CLUSTER_LIGHT_TYPE_POINT) {
-					continue;
-				}
-
-				let radiance = colorInner.xyz * attenuation;
-				let nDotL = max(dot(normal, lightDirection), 0.0);
-				if (nDotL <= 0.0) {
-					continue;
-				}
-
-				direct += evaluatePhongDirectLight(
-					normal, viewDir, baseColor, phongSpecular, shininess,
-					lightDirection, radiance, shadow
-				);
-			}
-		} else {
-			let pointCount = frameLights.lightCounts.y;
-			for (var i: u32 = 0u; i < pointCount; i = i + 1u) {
-				let toLight = frameLights.pointLights[i].positionRange.xyz - input.worldPosition;
-				let distanceSq = dot(toLight, toLight);
-				let distanceValue = sqrt(max(distanceSq, EPSILON));
-				let lightRange = frameLights.pointLights[i].positionRange.w;
-				if (distanceValue > lightRange) {
-					continue;
-				}
-
-				let lightDirection = safeNormalize(
-					toLight,
-					vec3<f32>(0.0, 1.0, 0.0)
-				);
-				let attenuation = pointAttenuation(distanceSq, lightRange);
-				let radiance = frameLights.pointLights[i].color.xyz * attenuation;
-				let nDotL = max(dot(normal, lightDirection), 0.0);
-				if (nDotL <= 0.0) {
-					continue;
-				}
-
-				direct += evaluatePhongDirectLight(
-					normal, viewDir, baseColor, phongSpecular, shininess,
-					lightDirection, radiance, vec3<f32>(1.0)
-				);
-			}
-
-			let spotCount = frameLights.lightCounts.z;
-			for (var i: u32 = 0u; i < spotCount; i = i + 1u) {
-				let toLight = frameLights.spotLights[i].positionRange.xyz - input.worldPosition;
-				let distanceSq = dot(toLight, toLight);
-				let distanceValue = sqrt(max(distanceSq, EPSILON));
-				let lightRange = frameLights.spotLights[i].positionRange.w;
-				if (distanceValue > lightRange) {
-					continue;
-				}
-
-				let lightDirection = toLight / distanceValue;
-				let lightToPoint = -lightDirection;
-				let coneDirection = safeNormalize(
-					frameLights.spotLights[i].directionOuter.xyz,
-					vec3<f32>(0.0, -1.0, 0.0)
-				);
-				let coneAttenuation = spotAttenuation(
-					dot(lightToPoint, coneDirection),
-					frameLights.spotLights[i].directionOuter.w,
-					frameLights.spotLights[i].colorInner.w
-				);
-				if (coneAttenuation <= 0.0) {
-					continue;
-				}
-
-				let attenuation = pointAttenuation(distanceSq, lightRange) * coneAttenuation;
-				let radiance = frameLights.spotLights[i].colorInner.xyz * attenuation;
-				let nDotL = max(dot(normal, lightDirection), 0.0);
-				if (nDotL <= 0.0) {
-					continue;
-				}
-
-				var shadow = vec3<f32>(1.0);
-				if (input.instanceMeta.y > 0.5) {
-					shadow = sampleSpotShadowVisibility(
-						i,
-						input.worldPosition,
-						shadowNormal,
-						lightDirection
-					);
-				}
-				direct += evaluatePhongDirectLight(
-					normal, viewDir, baseColor, phongSpecular, shininess,
-					lightDirection, radiance, shadow
-				);
-			}
 		}
+		direct += evaluatePhongDirectLight(
+			normal, viewDir, baseColor, phongSpecular, shininess,
+			lightDirection, radiance, shadow
+		);
+	}
 
-		if (!isClusteredLightingEnabled()) {
-			let areaCount = areaLightCount();
-			for (var i: u32 = 0u; i < areaCount; i = i + 1u) {
+	if (isClusteredLightingEnabled()) {
+		let clusterHeader = getClusterHeaderForFragment(
+			input.position.xy,
+			linearDepth
+		);
+		let clusterEntryCount = getClusterEntryCount(clusterHeader);
+		let clusterLightCount = activeClusteredLightCount();
+		for (var entryIndex: u32 = 0u; entryIndex < clusterEntryCount; entryIndex = entryIndex + 1u) {
+			let packedRef = clusterIndices.indices[clusterHeader.offset + entryIndex];
+			let clusterRef = decodeClusteredLightRef(packedRef);
+			if (clusterRef.lightIndex >= clusterLightCount) {
+				continue;
+			}
+			if (clusterRef.lightType == CLUSTER_LIGHT_TYPE_AREA) {
+				let areaRecord = clusteredRecordToAreaLight(clusterRef.lightIndex);
 				for (
 					var sampleIndex: u32 = 0u;
 					sampleIndex < AREA_LIGHT_SAMPLE_COUNT;
 					sampleIndex = sampleIndex + 1u
 				) {
 					let areaLight = evaluateAreaLight(
-						frameLights.areaLights[i],
+						areaRecord,
 						input.worldPosition,
 						sampleIndex
 					);
@@ -245,20 +118,187 @@
 						lightDirection, areaLight.radiance, vec3<f32>(1.0)
 					);
 				}
+				continue;
 			}
+			let positionRange = clusterPositionRanges.values[clusterRef.lightIndex];
+			let colorInner = clusterColorInners.values[clusterRef.lightIndex];
+			let toLight = positionRange.xyz - input.worldPosition;
+			let distanceSq = dot(toLight, toLight);
+			let distanceValue = sqrt(max(distanceSq, EPSILON));
+			let lightRange = positionRange.w;
+			if (distanceValue > lightRange) {
+				continue;
+			}
+
+			let lightDirection = safeNormalize(
+				toLight,
+				vec3<f32>(0.0, 1.0, 0.0)
+			);
+			var attenuation = pointAttenuation(distanceSq, lightRange);
+			var shadow = vec3<f32>(1.0);
+
+			// Spot light cone + shadow
+			if (clusterRef.lightType == CLUSTER_LIGHT_TYPE_SPOT) {
+				let directionOuter =
+					clusterDirectionOuters.values[clusterRef.lightIndex];
+				let lightToPoint = -lightDirection;
+				let coneDirection = safeNormalize(
+					directionOuter.xyz,
+					vec3<f32>(0.0, -1.0, 0.0)
+				);
+				let coneAttenuation = spotAttenuation(
+					dot(lightToPoint, coneDirection),
+					directionOuter.w,
+					colorInner.w
+				);
+				if (coneAttenuation <= 0.0) {
+					continue;
+				}
+				attenuation *= coneAttenuation;
+				let shadowIndex =
+					clusterMetadata.values[clusterRef.lightIndex].shadowIndex;
+				if (clusterRef.shadowed && shadowIndex < 8u &&
+					input.instanceMeta.y > 0.5) {
+					shadow = sampleSpotShadowVisibility(
+						shadowIndex,
+						input.worldPosition,
+						shadowNormal,
+						lightDirection
+					);
+				}
+			} else if (clusterRef.lightType != CLUSTER_LIGHT_TYPE_POINT) {
+				continue;
+			}
+
+			let radiance = colorInner.xyz * attenuation;
+			let nDotL = max(dot(normal, lightDirection), 0.0);
+			if (nDotL <= 0.0) {
+				continue;
+			}
+
+			direct += evaluatePhongDirectLight(
+				normal, viewDir, baseColor, phongSpecular, shininess,
+				lightDirection, radiance, shadow
+			);
+		}
+	} else {
+		let pointCount = frameLights.lightCounts.y;
+		for (var i: u32 = 0u; i < pointCount; i = i + 1u) {
+			let toLight = frameLights.pointLights[i].positionRange.xyz - input.worldPosition;
+			let distanceSq = dot(toLight, toLight);
+			let distanceValue = sqrt(max(distanceSq, EPSILON));
+			let lightRange = frameLights.pointLights[i].positionRange.w;
+			if (distanceValue > lightRange) {
+				continue;
+			}
+
+			let lightDirection = safeNormalize(
+				toLight,
+				vec3<f32>(0.0, 1.0, 0.0)
+			);
+			let attenuation = pointAttenuation(distanceSq, lightRange);
+			let radiance = frameLights.pointLights[i].color.xyz * attenuation;
+			let nDotL = max(dot(normal, lightDirection), 0.0);
+			if (nDotL <= 0.0) {
+				continue;
+			}
+
+			direct += evaluatePhongDirectLight(
+				normal, viewDir, baseColor, phongSpecular, shininess,
+				lightDirection, radiance, vec3<f32>(1.0)
+			);
 		}
 
-		let finalLinear = ambient + direct + emissive;
-		return buildSceneOutput(
-			finalLinear,
-			alpha,
-			baseColor,
-			normal,
-			1.0,
-			0.0,
-			emissive,
-			1.0,
-			motion,
-			linearDepth
-		);
+		let spotCount = frameLights.lightCounts.z;
+		for (var i: u32 = 0u; i < spotCount; i = i + 1u) {
+			let toLight = frameLights.spotLights[i].positionRange.xyz - input.worldPosition;
+			let distanceSq = dot(toLight, toLight);
+			let distanceValue = sqrt(max(distanceSq, EPSILON));
+			let lightRange = frameLights.spotLights[i].positionRange.w;
+			if (distanceValue > lightRange) {
+				continue;
+			}
+
+			let lightDirection = toLight / distanceValue;
+			let lightToPoint = -lightDirection;
+			let coneDirection = safeNormalize(
+				frameLights.spotLights[i].directionOuter.xyz,
+				vec3<f32>(0.0, -1.0, 0.0)
+			);
+			let coneAttenuation = spotAttenuation(
+				dot(lightToPoint, coneDirection),
+				frameLights.spotLights[i].directionOuter.w,
+				frameLights.spotLights[i].colorInner.w
+			);
+			if (coneAttenuation <= 0.0) {
+				continue;
+			}
+
+			let attenuation = pointAttenuation(distanceSq, lightRange) * coneAttenuation;
+			let radiance = frameLights.spotLights[i].colorInner.xyz * attenuation;
+			let nDotL = max(dot(normal, lightDirection), 0.0);
+			if (nDotL <= 0.0) {
+				continue;
+			}
+
+			var shadow = vec3<f32>(1.0);
+			if (input.instanceMeta.y > 0.5) {
+				shadow = sampleSpotShadowVisibility(
+					i,
+					input.worldPosition,
+					shadowNormal,
+					lightDirection
+				);
+			}
+			direct += evaluatePhongDirectLight(
+				normal, viewDir, baseColor, phongSpecular, shininess,
+				lightDirection, radiance, shadow
+			);
+		}
 	}
+
+	if (!isClusteredLightingEnabled()) {
+		let areaCount = areaLightCount();
+		for (var i: u32 = 0u; i < areaCount; i = i + 1u) {
+			for (
+				var sampleIndex: u32 = 0u;
+				sampleIndex < AREA_LIGHT_SAMPLE_COUNT;
+				sampleIndex = sampleIndex + 1u
+			) {
+				let areaLight = evaluateAreaLight(
+					frameLights.areaLights[i],
+					input.worldPosition,
+					sampleIndex
+				);
+				if (!areaLight.valid) {
+					continue;
+				}
+
+				let lightDirection = areaLight.direction;
+				let nDotL = max(dot(normal, lightDirection), 0.0);
+				if (nDotL <= 0.0) {
+					continue;
+				}
+
+				direct += evaluatePhongDirectLight(
+					normal, viewDir, baseColor, phongSpecular, shininess,
+					lightDirection, areaLight.radiance, vec3<f32>(1.0)
+				);
+			}
+		}
+	}
+
+	let finalLinear = ambient + direct + emissive;
+	return buildSceneOutput(
+		finalLinear,
+		alpha,
+		baseColor,
+		normal,
+		1.0,
+		0.0,
+		emissive,
+		1.0,
+		motion,
+		linearDepth
+	);
+}

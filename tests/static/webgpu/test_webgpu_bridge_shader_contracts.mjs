@@ -608,20 +608,16 @@ async function testDirectPBRLightTransportInputs() {
 		"^evaluatePBRDirectLight\\(\\s*pbrSurface,\\s*lightDirection,\\s*radiance," +
 			"\\s*(?:shadow|vec3<f32>\\(1\\.0\\)),\\s*ior,\\s*volumeAttenuation\\s*\\)$",
 	);
-	for (const part of [
-		"fragmentPbrDirectional", "fragmentPbrPoint", "fragmentPbrSpot", "fragmentPbrArea",
-	]) {
-		const { source } = await ShaderSource.load(`webgpu.scene.part.${part}`);
-		const contributions = [...source.code.matchAll(/directLight\s*\+=\s*([^;]+);/g)];
-		assert.ok(contributions.length > 0, `${part} must contribute direct lighting`);
-		for (const [, contribution] of contributions) {
-			assert.match(
-				contribution,
-				sharedContribution,
-				`${part} must evaluate reflection and transmission with the same light, ` +
-					"shadow visibility, IOR, and volume attenuation",
-			);
-		}
+	const { source } = await ShaderSource.load("webgpu.scene.part.fragmentPbr");
+	const contributions = [...source.code.matchAll(/directLight\s*\+=\s*([^;]+);/g)];
+	assert.ok(contributions.length >= 4, "PBR must contribute direct lighting");
+	for (const [, contribution] of contributions) {
+		assert.match(
+			contribution,
+			sharedContribution,
+			"PBR must evaluate reflection and transmission with the same light, " +
+				"shadow visibility, IOR, and volume attenuation",
+		);
 	}
 }
 

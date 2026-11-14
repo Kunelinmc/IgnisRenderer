@@ -113,6 +113,12 @@ manifest. `ShaderSource` interprets those manifests and owns source loading and
 caching. Backend services derive specialization parameters but must not rewrite
 built-in shader text directly.
 
+WebGPU scene shader assets are composed at complete function boundaries. The
+scene entry function prepares shared fragment data and passes it explicitly to
+the Phong and PBR shading functions. Material-specific lighting remains in its
+own shader asset, including direct-light evaluators and surface input types.
+Lighting helpers used across materials remain in common shader assets.
+
 WebGPU scene, planar-reflection composite, and shadow vertex stages share
 morph and skinning logic through `common/animation.wgsl`. Each consumer owns
 its bindings and pose selection; the shadow variant evaluates positions only.
