@@ -697,11 +697,6 @@ export class WebGPUFrameServiceOwner {
 			this._layouts.clusteredSceneBindGroupLayout,
 			this._layouts.sceneFrameBindGroupLayout,
 		);
-		clusteredLighting.onWarn((key, message) =>
-			Logger.warn(`[${key}] ${message}`, {
-				scope: "WebGPUClusteredLightingRuntime",
-			})
-		);
 		scope = {
 			frameBindings: new WebGPUFrameBindingCache(
 				this._backend,

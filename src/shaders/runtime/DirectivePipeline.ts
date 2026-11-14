@@ -44,7 +44,6 @@ interface ShaderDirectiveStageOptions {
 	profile: ShaderDirectiveProfile;
 	hook?: ShaderDirectiveCompileHook | null;
 	mode?: ShaderRuntimeMode;
-	warn?: ((key: string, message: string) => void) | null;
 }
 
 interface ShaderBackendCompileStageOptions {
@@ -52,7 +51,6 @@ interface ShaderBackendCompileStageOptions {
 	profile: ShaderDirectiveProfile;
 	hook?: ShaderDirectiveCompileHook | null;
 	mode?: ShaderRuntimeMode;
-	warn?: ((key: string, message: string) => void) | null;
 }
 
 interface CachedDirectiveStageResult {
@@ -629,7 +627,6 @@ export class ShaderBackendCompileStage {
 			profile: options.profile,
 			hook: options.hook ?? null,
 			mode: this._mode,
-			warn: options.warn ?? null,
 		});
 	}
 

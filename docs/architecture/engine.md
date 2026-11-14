@@ -124,6 +124,11 @@ conversion, logging, deterministic identifiers, and shared type utilities have
 similarly narrow owners. This keeps low-level dependencies consistent across
 public facades, simulation, workers, and backends.
 
+Runtime modules emit log-only warnings directly through `Logger` at the point
+where the condition is handled. Renderer and backend composition do not relay
+logging callbacks. Structured diagnostics remain subsystem outputs when they
+also support validation, inspection, or execution decisions.
+
 ## Related Documents
 
 - [Rendering architecture](rendering.md)

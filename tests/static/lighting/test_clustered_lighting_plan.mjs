@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Logger } from "../../../src/foundation/Logger.ts";
 import {
 	DEFAULT_CLUSTERED_LIGHTING_OPTIONS,
 	DEFAULT_OCCLUSION_CULLING_OPTIONS,
@@ -616,7 +617,12 @@ function testRuntimeClampsWebGPULimits() {
 		{},
 		{}
 	);
-	runtime.onWarn((key, message) => warnings.push({ key, message }));
+	Logger.configure({
+		resetOnceKeys: true,
+		sink: { warn: (_scope, message) => warnings.push({
+			key: message.match(/^\[([^\]]+)\]/)?.[1], message,
+		}) },
+	});
 	const lights = Array.from(
 		{ length: WEBGPU_CLUSTERED_MAX_LIGHTS + 1 },
 		(_, index) => createClusteredLight(index)
@@ -665,6 +671,36 @@ function testRuntimeClampsWebGPULimits() {
 		).length,
 		1
 	);
+	Logger.reset();
+}
+
+function testRuntimeWarningDeduplicationIsInstanceLocal() {
+	const warnings = [];
+	const sink = { warn: (...args) => warnings.push(args.join(" ")) };
+	Logger.configure({ resetOnceKeys: true, sink });
+	try {
+		const prepare = (runtime) => runtime.prepareFrame(
+			{ camera: { type: CameraType.Orthographic, near: 0.1, far: 100 } },
+			{ enableClusteredLighting: true, clusteredLightingOptions: {} },
+			{ lights: [], warnings: [] }, 64, 64,
+		);
+		const first = new WebGPUClusteredLightingRuntime(new ClusteredComputeRecorder(), {}, {});
+		prepare(first);
+		prepare(first);
+		assert.equal(warnings.length, 1);
+		assert.ok(warnings[0].includes("webgpu-clustered-perspective-only"));
+		Logger.reset();
+		Logger.configure({ sink });
+		prepare(first);
+		assert.equal(warnings.length, 1, "Logger.reset must not reset runtime warning keys");
+		const second = new WebGPUClusteredLightingRuntime(new ClusteredComputeRecorder(), {}, {});
+		prepare(second);
+		assert.equal(warnings.length, 2, "each runtime must emit its own warning");
+		first.destroy();
+		second.destroy();
+	} finally {
+		Logger.reset();
+	}
 }
 
 function testClusteredIndexBitfieldPackUnpack() {
@@ -773,6 +809,7 @@ async function run() {
 	await testRuntimeRetainsScatterABPath();
 	await testRuntimeSkipsStaticCullAndSelectiveUploads();
 	testRuntimeClampsWebGPULimits();
+	testRuntimeWarningDeduplicationIsInstanceLocal();
 	testClusteredIndexBitfieldPackUnpack();
 	testClusterHeaderFlagPack();
 	await testClusteredCullShaderUsesActiveCountAndTiling();
@@ -780,4 +817,8 @@ async function run() {
 	console.log("Clustered lighting plan tests passed");
 }
 
-await run();
+try {
+	await run();
+} finally {
+	Logger.reset();
+}

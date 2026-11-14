@@ -144,7 +144,7 @@ function createSolidTexture(colorSpace) {
 
 function testEnvironmentTextureRespectsTextureColorSpace() {
 	const gl = createTextureRegistryTestGL();
-	const registry = new WebGLTextureRegistry(gl, () => {});
+	const registry = new WebGLTextureRegistry(gl);
 
 	const srgbTexture = createSolidTexture("sRGB");
 	const linearTexture = createSolidTexture("Linear");
@@ -164,7 +164,7 @@ function testEnvironmentTextureRespectsTextureColorSpace() {
 
 function testBaseColorTextureRemainsSrgbByDefault() {
 	const gl = createTextureRegistryTestGL();
-	const registry = new WebGLTextureRegistry(gl, () => {});
+	const registry = new WebGLTextureRegistry(gl);
 
 	const srgbTexture = createSolidTexture("sRGB");
 	const linearTexture = createSolidTexture("Linear");
@@ -175,7 +175,7 @@ function testBaseColorTextureRemainsSrgbByDefault() {
 
 function testOneSourceUsesSeparateColorAndDataFormats() {
 	const gl = createTextureRegistryTestGL();
-	const registry = new WebGLTextureRegistry(gl, () => {});
+	const registry = new WebGLTextureRegistry(gl);
 	const texture = createSolidTexture("sRGB");
 	const color = registry.getBaseColorTexture(texture);
 	const data = registry.getBaseColorTexture(texture, false);
@@ -194,7 +194,7 @@ function testOneSourceUsesSeparateColorAndDataFormats() {
 function testUnavailableSrgbFormatRejectsInsteadOfLosingDecode() {
 	const gl = createTextureRegistryTestGL();
 	delete gl.SRGB8_ALPHA8;
-	const registry = new WebGLTextureRegistry(gl, () => {});
+	const registry = new WebGLTextureRegistry(gl);
 	assert.throws(() => registry.getBaseColorTexture(createSolidTexture("sRGB")), /sRGB/);
 	assert.equal(gl.texImage2DCalls.length, 0);
 	registry.destroy();
@@ -202,7 +202,7 @@ function testUnavailableSrgbFormatRejectsInsteadOfLosingDecode() {
 
 function testCanvasTextureUploadsExternalSourceWithoutPixelCopy() {
 	const gl = createTextureRegistryTestGL();
-	const registry = new WebGLTextureRegistry(gl, () => {});
+	const registry = new WebGLTextureRegistry(gl);
 	const canvas = new FakeCanvas(2, 1);
 	const context = canvas.getContext("2d");
 	const texture = new CanvasTexture({ context });
@@ -223,7 +223,7 @@ function testCanvasTextureUploadsExternalSourceWithoutPixelCopy() {
 
 function testEnvironmentTextureLimitsMaxMipLevelToUploadedChain() {
 	const gl = createTextureRegistryTestGL();
-	const registry = new WebGLTextureRegistry(gl, () => {});
+	const registry = new WebGLTextureRegistry(gl);
 
 	const envTexture = new Texture({
 		data: new Float32Array(128 * 64 * 4),
@@ -251,7 +251,7 @@ function testEnvironmentTextureLimitsMaxMipLevelToUploadedChain() {
 
 function testMipmapFilterGeneratesMipChainWhenOnlyBaseLevelExists() {
 	const gl = createTextureRegistryTestGL();
-	const registry = new WebGLTextureRegistry(gl, () => {});
+	const registry = new WebGLTextureRegistry(gl);
 	const texture = new Texture({
 		data: new Uint8Array(4 * 4 * 4),
 		width: 4,
@@ -277,7 +277,7 @@ function testMipmapFilterGeneratesMipChainWhenOnlyBaseLevelExists() {
 
 function testLinearFilterSkipsMipmapGenerationForSingleLevelTexture() {
 	const gl = createTextureRegistryTestGL();
-	const registry = new WebGLTextureRegistry(gl, () => {});
+	const registry = new WebGLTextureRegistry(gl);
 	const texture = new Texture({
 		data: new Uint8Array(4 * 4 * 4),
 		width: 4,
@@ -303,7 +303,7 @@ function testLinearFilterSkipsMipmapGenerationForSingleLevelTexture() {
 
 function testNearestMipmapLinearMapsToNearestMipmapLinear() {
 	const gl = createTextureRegistryTestGL();
-	const registry = new WebGLTextureRegistry(gl, () => {});
+	const registry = new WebGLTextureRegistry(gl);
 	const texture = new Texture({
 		data: new Uint8Array(4 * 4 * 4),
 		width: 4,
@@ -329,7 +329,7 @@ function testNearestMipmapLinearMapsToNearestMipmapLinear() {
 
 function testEnvironmentSpecularFloatMipChainUploadsAsRGBA16F() {
 	const gl = createTextureRegistryTestGL({ floatLinearExtension: true });
-	const registry = new WebGLTextureRegistry(gl, () => {});
+	const registry = new WebGLTextureRegistry(gl);
 	const envTexture = new Texture({ data: null, width: 2, height: 1, colorSpace: "HDR" });
 	envTexture.mipmaps = [
 		new Float32Array([2, 0.5, 0.25, 1, 4, 2, 1, 1]),
@@ -355,7 +355,7 @@ function testEnvironmentSpecularFloatUploadFallsBackToRGBA32F() {
 		rgba16f: false,
 		floatLinearExtension: true,
 	});
-	const registry = new WebGLTextureRegistry(gl, () => {});
+	const registry = new WebGLTextureRegistry(gl);
 	const envTexture = new Texture({
 		data: new Float32Array([2, 0.5, 0.25, 1]),
 		width: 1,
@@ -374,7 +374,7 @@ function testEnvironmentSpecularFloatUploadFallsBackToRGBA32F() {
 
 function testEnvironmentSpecularSharesLinearHDRFormatWithBaseColor() {
 	const gl = createTextureRegistryTestGL({ floatLinearExtension: true });
-	const registry = new WebGLTextureRegistry(gl, () => {});
+	const registry = new WebGLTextureRegistry(gl);
 	const texture = new Texture({
 		data: new Float32Array([2, 0.5, 0.25, 1]),
 		width: 1,
@@ -392,7 +392,7 @@ function testEnvironmentSpecularSharesLinearHDRFormatWithBaseColor() {
 
 function testExplicitR8TextureUploadsSingleChannel() {
 	const gl = createTextureRegistryTestGL();
-	const registry = new WebGLTextureRegistry(gl, () => {});
+	const registry = new WebGLTextureRegistry(gl);
 	const texture = new Texture({
 		width: 2,
 		height: 1,
@@ -411,7 +411,7 @@ function testExplicitR8TextureUploadsSingleChannel() {
 
 function testExplicitSrgbTextureUsesHardwareDecode() {
 	const gl = createTextureRegistryTestGL();
-	const registry = new WebGLTextureRegistry(gl, () => {});
+	const registry = new WebGLTextureRegistry(gl);
 	const texture = new Texture({
 		width: 1,
 		height: 1,
@@ -430,7 +430,7 @@ function testExplicitSrgbTextureUsesHardwareDecode() {
 function testDeferredBaseColorTextureUploadsOnBeginFrame() {
 	const gl = createTextureRegistryTestGL();
 	let pendingEvents = 0;
-	const registry = new WebGLTextureRegistry(gl, () => {}, {
+	const registry = new WebGLTextureRegistry(gl, {
 		uploadScheduling: "deferred",
 		onUploadPending: () => {
 			pendingEvents++;
@@ -468,7 +468,7 @@ function testDeferredBaseColorTextureUploadsOnBeginFrame() {
 
 function testDeferredBaseColorTextureReusesPendingTarget() {
 	const gl = createTextureRegistryTestGL();
-	const registry = new WebGLTextureRegistry(gl, () => {}, {
+	const registry = new WebGLTextureRegistry(gl, {
 		uploadScheduling: "deferred",
 	});
 	const texture = new Texture({
@@ -495,7 +495,7 @@ function testDeferredBaseColorTextureReusesPendingTarget() {
 
 function testDeferredTextureUploadBudgetUploadsOnePerFrame() {
 	const gl = createTextureRegistryTestGL();
-	const registry = new WebGLTextureRegistry(gl, () => {}, {
+	const registry = new WebGLTextureRegistry(gl, {
 		uploadScheduling: "deferred",
 		maxUploadsPerFrame: 1,
 		maxUploadBytesPerFrame: 1,
@@ -541,7 +541,7 @@ function testDeferredTextureUploadBudgetUploadsOnePerFrame() {
 
 function testDeferredTextureUploadDefaultCountBudgetUploadsFourPerFrame() {
 	const gl = createTextureRegistryTestGL();
-	const registry = new WebGLTextureRegistry(gl, () => {}, {
+	const registry = new WebGLTextureRegistry(gl, {
 		uploadScheduling: "deferred",
 	});
 	const textures = Array.from(
@@ -566,7 +566,7 @@ function testDeferredTextureUploadDefaultCountBudgetUploadsFourPerFrame() {
 
 function testDeferredTextureUploadDefaultByteBudgetAllowsThirtyTwoMiB() {
 	const gl = createTextureRegistryTestGL();
-	const registry = new WebGLTextureRegistry(gl, () => {}, {
+	const registry = new WebGLTextureRegistry(gl, {
 		uploadScheduling: "deferred",
 		maxUploadsPerFrame: 2,
 	});
@@ -600,7 +600,7 @@ function testDeferredTextureUploadDefaultByteBudgetAllowsThirtyTwoMiB() {
 
 function testResolvedTextureCacheInvalidatesOnVersionChange() {
 	const gl = createTextureRegistryTestGL();
-	const registry = new WebGLTextureRegistry(gl, () => {});
+	const registry = new WebGLTextureRegistry(gl);
 	const texture = createSolidTexture("sRGB");
 
 	const first = registry.getBaseColorTexture(texture);
@@ -620,7 +620,7 @@ function testResolvedTextureCacheInvalidatesOnVersionChange() {
 
 function testResolvedTextureCacheObservesFormatChangesWithoutVersionChange() {
 	const gl = createTextureRegistryTestGL();
-	const registry = new WebGLTextureRegistry(gl, () => {});
+	const registry = new WebGLTextureRegistry(gl);
 	const texture = createSolidTexture("sRGB");
 	const version = texture.version;
 	const srgb = registry.getBaseColorTexture(texture);
@@ -642,7 +642,7 @@ function testResolvedTextureCacheObservesFormatChangesWithoutVersionChange() {
 
 function testCompatibleFormatPairPreservesSourceEncoding() {
 	const gl = createTextureRegistryTestGL();
-	const registry = new WebGLTextureRegistry(gl, () => {});
+	const registry = new WebGLTextureRegistry(gl);
 	const texture = new Texture({
 		data: new Uint8Array([128, 64, 32, 255]),
 		width: 1,
@@ -660,7 +660,7 @@ function testCompatibleFormatPairPreservesSourceEncoding() {
 
 function testCustomDecodeOverrideSelectsNativeFormat() {
 	const gl = createTextureRegistryTestGL();
-	const registry = new WebGLTextureRegistry(gl, () => {});
+	const registry = new WebGLTextureRegistry(gl);
 	const linearTexture = createSolidTexture("Linear");
 	const decoded = registry.getBaseColorTexture(linearTexture, true, "sRGB");
 	const raw = registry.getBaseColorTexture(linearTexture, false, "Linear");
@@ -673,7 +673,7 @@ function testCustomDecodeOverrideSelectsNativeFormat() {
 
 function testDeferredUploadDiscardsStaleSamplingMetadata() {
 	const gl = createTextureRegistryTestGL();
-	const registry = new WebGLTextureRegistry(gl, () => {}, { uploadScheduling: "deferred" });
+	const registry = new WebGLTextureRegistry(gl, { uploadScheduling: "deferred" });
 	const texture = createSolidTexture("sRGB");
 	registry.getBaseColorTexture(texture);
 	texture.colorSpace = "Linear";
@@ -690,7 +690,7 @@ function testDeferredUploadDiscardsStaleSamplingMetadata() {
 
 function testDisposeReleasesVariantsAndCancelsPendingUpload() {
 	const gl = createTextureRegistryTestGL();
-	const registry = new WebGLTextureRegistry(gl, () => {}, { uploadScheduling: "deferred" });
+	const registry = new WebGLTextureRegistry(gl, { uploadScheduling: "deferred" });
 	const texture = createSolidTexture("sRGB");
 	const data = registry.getBaseColorTexture(texture, false).texture;
 	const fallback = registry.getBaseColorTexture(texture).texture;
@@ -712,7 +712,7 @@ function testDisposeReleasesVariantsAndCancelsPendingUpload() {
 
 function testFailedAndStaleUploadsReleaseUnpublishedTextures() {
 	const gl = createTextureRegistryTestGL();
-	const registry = new WebGLTextureRegistry(gl, () => {}, { uploadScheduling: "deferred" });
+	const registry = new WebGLTextureRegistry(gl, { uploadScheduling: "deferred" });
 	const empty = new Texture({ width: 1, height: 1, colorSpace: "Linear" });
 	registry.getBaseColorTexture(empty, false);
 	const failed = gl.createdTextures[0];
@@ -734,7 +734,7 @@ function testFailedAndStaleUploadsReleaseUnpublishedTextures() {
 
 function testStalePendingUpdatePreservesPublishedTexture() {
 	const gl = createTextureRegistryTestGL();
-	const registry = new WebGLTextureRegistry(gl, () => {}, { uploadScheduling: "deferred" });
+	const registry = new WebGLTextureRegistry(gl, { uploadScheduling: "deferred" });
 	const texture = createSolidTexture("sRGB");
 	registry.getBaseColorTexture(texture);
 	registry.beginFrame();
@@ -759,7 +759,7 @@ function testUploadExceptionsReleaseUnpublishedTextureAndPermitRetry() {
 			if (fail && args[8]?.[0] === 128) throw new Error("upload failed");
 			upload(...args);
 		};
-		const registry = new WebGLTextureRegistry(gl, () => {}, {
+		const registry = new WebGLTextureRegistry(gl, {
 			uploadScheduling: deferred ? "deferred" : "immediate",
 		});
 		const texture = createSolidTexture("sRGB");
@@ -783,7 +783,7 @@ function testUploadExceptionsReleaseUnpublishedTextureAndPermitRetry() {
 
 function testImmediateFailureDoesNotDeleteSharedPendingTexture() {
 	const gl = createTextureRegistryTestGL();
-	const registry = new WebGLTextureRegistry(gl, () => {}, { uploadScheduling: "deferred" });
+	const registry = new WebGLTextureRegistry(gl, { uploadScheduling: "deferred" });
 	const texture = new Texture({ width: 1, height: 1, colorSpace: "Linear" });
 	registry.getBaseColorTexture(texture);
 	const pending = gl.createdTextures[0];

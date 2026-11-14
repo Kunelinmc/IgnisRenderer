@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { Logger } from "../../../src/foundation/Logger.ts";
+import { recordLoggerWarnings } from "../../helpers/logger.mjs";
 
 import { createWebGPUResourceManager } from "../../helpers/fakes.mjs";
 import { createWebGPUComputeFacade } from "../../../src/backends/webgpu/ComputeFacade.ts";
@@ -300,7 +302,7 @@ function destroySnapshotPasses(snapshot) {
 
 async function testSSRAndVolumetricReportHistoryUpdates() {
 	const backend = new FakeBackend();
-	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend), () => {});
+	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend));
 	const frameBinding = { label: "frame-binding" };
 
 	const ssrTargets = createTemporalTargets(backend, 32, 16);
@@ -418,10 +420,9 @@ async function testSSRAndVolumetricReportHistoryUpdates() {
 
 async function testOrthographicTemporalPassesSkipAndReturnFalse() {
 	const backend = new FakeBackend();
-	const warnings = [];
+	const warnings = recordLoggerWarnings();
 	const runtime = new WebGPUPostProcessRuntime(
-		createWebGPUComputeFacade(backend),
-		(key, message) => warnings.push(`[${key}] ${message}`)
+		createWebGPUComputeFacade(backend)
 	);
 	assert.equal(backend.shaderModules.length, 0);
 	assert.equal(backend.computePipelines.length, 0);
@@ -460,16 +461,27 @@ async function testOrthographicTemporalPassesSkipAndReturnFalse() {
 	assert.equal(warnings.length, 2);
 	assert.equal(
 		warnings.some((warning) =>
-			warning.includes("[webgpu-ssr-orthographic-disabled]")
+			warning.key === "webgpu-ssr-orthographic-disabled"
 		),
 		true
 	);
 	assert.equal(
 		warnings.some((warning) =>
-			warning.includes("[webgpu-volumetric-orthographic-disabled]")
+			warning.key === "webgpu-volumetric-orthographic-disabled"
 		),
 		true
 	);
+	const anotherRuntime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend));
+	const repeatedSSR = await executeSSRImplementation(backend, anotherRuntime, {
+		targets: createTemporalTargets(backend), frameContext, frameBinding,
+	});
+	const repeatedVolumetric = await executeVolumetricImplementation(backend, anotherRuntime, {
+		targets: createTemporalTargets(backend), frameContext, frameBinding, lightingState: null,
+	});
+	assert.deepEqual(repeatedSSR.result, { ran: false });
+	assert.deepEqual(repeatedVolumetric.result, { ran: false });
+	assert.equal(warnings.length, 2, "pass warnings retain global deduplication across runtimes");
+	anotherRuntime.destroy();
 
 	destroySnapshotPasses(frameContext.postProcess);
 	runtime.destroy();
@@ -477,7 +489,7 @@ async function testOrthographicTemporalPassesSkipAndReturnFalse() {
 
 async function testHiZResourcesAreSharedAcrossTemporalPasses() {
 	const backend = new FakeBackend();
-	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend), () => {});
+	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend));
 	const frameBinding = { label: "frame-binding" };
 	const targets = createTemporalTargets(backend, 16, 8);
 	const transients = createTemporalTransients(backend, 16, 8);
@@ -568,7 +580,7 @@ async function testHiZResourcesAreSharedAcrossTemporalPasses() {
 
 async function testSSRDestroyReleasesCachedBindings() {
 	const backend = new FakeBackend();
-	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend), () => {});
+	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend));
 	const frameContext = createPerspectiveFrameContext({
 		ssr: { enabled: true },
 	});
@@ -607,7 +619,7 @@ async function testSSRDestroyReleasesCachedBindings() {
 
 async function testMissingSSRFrameBindingSkipsImplementation() {
 	const backend = new FakeBackend();
-	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend), () => {});
+	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend));
 	const targets = createTemporalTargets(backend, 32, 16);
 	const frameContext = createPerspectiveFrameContext();
 	const ssrRun = await executeSSRImplementation(backend, runtime, {
@@ -626,7 +638,7 @@ async function testMissingSSRFrameBindingSkipsImplementation() {
 
 function testCleanupPreservesErrorContext() {
 	const backend = new FakeBackend();
-	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend), () => {});
+	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend));
 	let releasedBuffers = 0;
 	const buffer = backend.resourceManager.registerBuffer({}, { size: 16 }, () => {
 		releasedBuffers++;
@@ -662,4 +674,8 @@ async function run() {
 	console.log("WebGPU postprocess temporal runtime tests passed");
 }
 
-await run();
+try {
+	await run();
+} finally {
+	Logger.reset();
+}

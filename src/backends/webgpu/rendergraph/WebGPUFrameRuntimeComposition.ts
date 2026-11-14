@@ -86,14 +86,12 @@ export function createWebGPUFrameRuntimeComposition(options: {
 	readonly frameServices: WebGPUFrameServiceOwner;
 	readonly shadowRenderer: WebGPUShadowRenderProvider;
 	readonly sampleCountResolver: WebGPUSampleCountResolver;
-	warnOnce(code: string, message: string, cause?: unknown): void;
 }): WebGPUFrameRuntimeComposition {
 	const { host, frameServices } = options;
 	const particleRenderer = frameServices.getParticleBillboardRenderer();
 	const hiZBuilder = new WebGPUHiZBuilder(host.computeFacade);
 	const postRuntime = new WebGPUPostProcessRuntime(
 		host.computeFacade,
-		(key, message) => options.warnOnce(key, message),
 		frameServices.sceneFrameLayout,
 		hiZBuilder,
 		() => host.displayOutputState,
@@ -152,7 +150,6 @@ export function createWebGPUFrameRuntimeComposition(options: {
 			frameServices,
 			particleRenderer,
 			sceneRecorder,
-			{ warnOnce: options.warnOnce },
 		),
 		reflection,
 		visibility,

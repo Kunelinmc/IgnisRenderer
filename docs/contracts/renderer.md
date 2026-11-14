@@ -893,6 +893,13 @@ bun tests/static/renderer/test_renderer_warmup_lightprobe.mjs
 
 ### Renderer and backend lifecycle
 
+- Renderer stage ordering and frame coordination must emit log-only warnings
+  directly through `Logger.warn`, preserving their warning keys and global
+  once-key deduplication. `RenderPipelineRegistry.getExecutionOrder(context)`
+  must not require a warning callback, and frame coordination must not require
+  a `Renderer.warn` forwarding method.
+- Structured feature and shadow diagnostics must remain available to their
+  consumers. Moving log emission must not remove those diagnostic records.
 - `Renderer render loop frame failed.`: logged when a frame rejects. The original error must be included in the diagnostic, and the loop must continue.
 - `Renderer.renderFrame() cannot run concurrently.`: returned when another frame is still active.
 - Errors from manually awaited `renderFrame()` calls must continue to reject to the caller without automatic logging by `Renderer`.

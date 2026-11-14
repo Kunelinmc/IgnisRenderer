@@ -82,8 +82,6 @@ class WebGPUFrameExecutor extends WebGPUFrameOrchestrator {
 			frameServices,
 			shadowRenderer: frameServices,
 			sampleCountResolver: sampleCounts,
-			warnOnce: (code, message, cause) =>
-				Logger.warn(`[${code}] ${message}${cause ? ` ${String(cause)}` : ""}`),
 		});
 		const diagnostics = createFrameDiagnosticsCollector(frameRuntime);
 		super(

@@ -1,3 +1,4 @@
+import { Logger } from "../../foundation/Logger";
 import { CameraType } from "../../cameras/Camera";
 import {
 	type DirectionalLight,
@@ -272,9 +273,10 @@ export class WebGPUVolumetricLightingImplementation
 		context: WebGPUVolumetricLightingContext
 	): Promise<boolean> {
 		if (request.frameContext.scene.camera.type === CameraType.Orthographic) {
-			context.shared.warn(
-				"webgpu-volumetric-orthographic-disabled",
-				"WebGPU volumetric lighting is disabled for orthographic cameras."
+			Logger.warn(
+				"[webgpu-volumetric-orthographic-disabled] " +
+					"WebGPU volumetric lighting is disabled for orthographic cameras.",
+				{ scope: "WebGPUBackend", onceKey: "webgpu-volumetric-orthographic-disabled" },
 			);
 			return false;
 		}
@@ -482,9 +484,11 @@ export class WebGPUVolumetricLightingImplementation
 		const sourceLights = volumetricLighting?.lights ?? [];
 		const clampedLightCount = Math.min(sourceLights.length, MAX_VOLUMETRIC_LIGHTS);
 		if (sourceLights.length > MAX_VOLUMETRIC_LIGHTS) {
-			resources.shared.warn(
-				"webgpu-volumetric-light-count-clamped",
-				`WebGPU volumetric lighting samples at most ${MAX_VOLUMETRIC_LIGHTS} effective surface lights; extra lights are skipped`
+			Logger.warn(
+				"[webgpu-volumetric-light-count-clamped] " +
+					`WebGPU volumetric lighting samples at most ${MAX_VOLUMETRIC_LIGHTS} ` +
+					"effective surface lights; extra lights are skipped",
+				{ scope: "WebGPUBackend", onceKey: "webgpu-volumetric-light-count-clamped" },
 			);
 		}
 		this._ensureLightBufferCapacity(resources, clampedLightCount);

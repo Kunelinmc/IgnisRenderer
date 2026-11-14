@@ -67,7 +67,6 @@ interface WebGLCachedGeometryEntry {
 	cacheFailure: boolean;
 }
 
-type WebGLGeometryWarn = (key: string, message: string) => void;
 const WEBGL_SCENE_VERTEX_FLOATS = 18;
 const WEBGL_SCENE_VERTEX_STRIDE = WEBGL_SCENE_VERTEX_FLOATS * 4;
 
@@ -80,7 +79,6 @@ export class WebGLGeometryRegistry {
 			new FinalizationRegistry((handle) => {
 				if (this._owned.delete(handle)) this._destroyHandle(handle);
 			}) : null;
-	private _warnCallback: WebGLGeometryWarn | null = null;
 	private readonly _maxTextureSize: number;
 	private _uploadScheduling: "immediate" | "deferred";
 	private _maxUploadsPerFrame: number;
@@ -92,11 +90,9 @@ export class WebGLGeometryRegistry {
 
 	constructor(
 		gl: WebGL2RenderingContext,
-		warn?: WebGLGeometryWarn,
 		options: WebGLGeometryRegistryOptions = {}
 	) {
 		this._gl = gl;
-		this._warnCallback = warn ?? null;
 		const maxTextureSize = gl.getParameter?.(gl.MAX_TEXTURE_SIZE);
 		this._maxTextureSize = Number.isFinite(maxTextureSize) ?
 			Math.max(1, Math.floor(maxTextureSize)) : 4096;
@@ -628,7 +624,6 @@ export class WebGLGeometryRegistry {
 	}
 
 	private _warn(key: string, message: string): void {
-		this._warnCallback?.(key, message);
 		Logger.warn(`[${key}] ${message}`, {
 			scope: "WebGLGeometryRegistry",
 			onceKey: key,

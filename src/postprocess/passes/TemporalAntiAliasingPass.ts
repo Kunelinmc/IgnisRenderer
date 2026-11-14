@@ -1,3 +1,4 @@
+import { Logger } from "../../foundation/Logger";
 import type { Vec3Tuple } from "../../maths/Vector3";
 import type { FrameAttachments } from "../../pipeline/types";
 import type { FramePreparationRequirements } from "../../pipeline/FrameRequirements";
@@ -148,7 +149,6 @@ export interface WebGLTAAContext {
 	readonly height: number;
 	readonly resources: PostProcessResourceAccessor<WebGLTexture>;
 	getSourceTexture(): WebGLTexture | null;
-	warn(key: string, message: string): void;
 }
 
 interface WebGLTAAProgram {
@@ -710,9 +710,9 @@ export class WebGLTemporalAntiAliasingImplementation
 		const targetTexture = context.resources.color.output;
 		const maxDrawBuffers = Number(gl.getParameter(gl.MAX_DRAW_BUFFERS) ?? 4);
 		if (maxDrawBuffers < 3) {
-			context.warn(
-				"webgl-taa-mrt-unsupported",
-				"WebGL TAA requires at least three draw buffers."
+			Logger.warn(
+				"[webgl-taa-mrt-unsupported] WebGL TAA requires at least three draw buffers.",
+				{ scope: "WebGLPostProcessServices", onceKey: "webgl-taa-mrt-unsupported" },
 			);
 			return { ran: false };
 		}

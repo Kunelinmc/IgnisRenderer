@@ -1,3 +1,4 @@
+import { recordLoggerWarnings } from "../../helpers/logger.mjs";
 import assert from "node:assert/strict";import { WebGLProgramCompiler } from "../../../src/backends/webgl/WebGLProgramCompiler.ts";import { WebGLProgramWarmupQueue } from "../../../src/backends/webgl/WebGLProgramWarmupQueue.ts";import { createCompilerSlot, createProgramWarmupTrackingGL, CUSTOM_WEBGL_VERTEX, CUSTOM_WEBGL_FRAGMENT, runWebGLBackendFile } from "../../helpers/webgl-backend.mjs";
 
 import { Logger } from "../../../src/foundation/Logger.ts";
@@ -163,7 +164,7 @@ function testProgramCompilerValidationIsOptIn() {
 }
 
 function testProgramCompilerValidationWarnsWhenEnabled() {
-	const warnings = [];
+	const warnings = recordLoggerWarnings();
 	const gl = createProgramWarmupTrackingGL({
 		validateStatus: false,
 	});
@@ -173,7 +174,6 @@ function testProgramCompilerValidationWarnsWhenEnabled() {
 		undefined,
 		{
 			validatePrograms: true,
-			warn: (key, message) => warnings.push({ key, message }),
 		},
 	);
 

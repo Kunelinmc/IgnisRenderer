@@ -151,7 +151,6 @@ export class WebGLTextureRegistry {
 
 	constructor(
 		gl: WebGL2RenderingContext,
-		_warn?: (key: string, message: string) => void,
 		options: WebGLTextureRegistryOptions = {}
 	) {
 		this._gl = gl;

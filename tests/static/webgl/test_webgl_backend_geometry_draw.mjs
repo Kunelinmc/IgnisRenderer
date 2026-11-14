@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { Logger } from "../../../src/foundation/Logger.ts";
+import { recordLoggerWarnings } from "../../helpers/logger.mjs";
 import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 import { createWebGLSceneDrawState } from "../../../src/backends/webgl/WebGLScenePass.ts";
 
@@ -44,10 +46,8 @@ function createSceneDrawDeps(gl, overrides = {}) {
 }
 
 function testGeometryRegistryRejectsOutOfRangeIndices() {
-	const warnings = [];
-	const registry = new WebGLGeometryRegistry(createGeometryTestGL(), (k, m) =>
-		warnings.push({ key: k, message: m })
-	);
+	const warnings = recordLoggerWarnings();
+	const registry = new WebGLGeometryRegistry(createGeometryTestGL());
 
 	const primitive = {
 		id: "p0",
@@ -72,10 +72,8 @@ function testGeometryRegistryRejectsOutOfRangeIndices() {
 }
 
 function testGeometryRegistryRetriesAfterUploadAllocationFailure() {
-	const warnings = [];
-	const registry = new WebGLGeometryRegistry(createRetryGeometryTestGL(), (k, m) =>
-		warnings.push({ key: k, message: m })
-	);
+	const warnings = recordLoggerWarnings();
+	const registry = new WebGLGeometryRegistry(createRetryGeometryTestGL());
 
 	const primitive = {
 		id: "p-retry",
@@ -106,7 +104,7 @@ function testGeometryRegistryRetriesAfterUploadAllocationFailure() {
 
 function testGeometryRegistryUploadsUV1Attribute() {
 	const gl = createGeometryCaptureGL();
-	const registry = new WebGLGeometryRegistry(gl, () => {});
+	const registry = new WebGLGeometryRegistry(gl);
 	const primitive = {
 		id: "p-uv1",
 		geometry: {
@@ -217,7 +215,7 @@ function testGeometryRegistryUploadsSkinAndMorphResources() {
 			data: new Float32Array(args[8]),
 		});
 	};
-	const registry = new WebGLGeometryRegistry(gl, () => {});
+	const registry = new WebGLGeometryRegistry(gl);
 	const positionDelta = new Float32Array([
 		1, 2, 3,
 		4, 5, 6,
@@ -289,7 +287,7 @@ function makeTrianglePrimitive(id) {
 
 function testGeometryRegistryDeferredModeQueuesWithoutUploading() {
 	const gl = createDeferredCaptureGL();
-	const registry = new WebGLGeometryRegistry(gl, () => {}, {
+	const registry = new WebGLGeometryRegistry(gl, {
 		uploadScheduling: "deferred",
 	});
 
@@ -314,9 +312,7 @@ function testGeometryRegistryDeferredModeQueuesWithoutUploading() {
 function testGeometryRegistryQueuesShadowSubmissionsWithoutViewPackets() {
 	const notifications = [];
 	const registry = new WebGLGeometryRegistry(
-		createDeferredCaptureGL(),
-		() => {},
-		{
+		createDeferredCaptureGL(), {
 			uploadScheduling: "deferred",
 			onUploadPending: (submissions) =>
 				notifications.push(submissions.map((submission) => submission.id)),
@@ -336,7 +332,7 @@ function testGeometryRegistryQueuesShadowSubmissionsWithoutViewPackets() {
 function testGeometryRegistryDeferredUploadsRespectByteBudgets() {
 	const gl = createDeferredCaptureGL();
 	const pendingNotifications = [];
-	const registry = new WebGLGeometryRegistry(gl, () => {}, {
+	const registry = new WebGLGeometryRegistry(gl, {
 		uploadScheduling: "deferred",
 		maxUploadsPerFrame: 16,
 		maxUploadBytesPerFrame: 300,
@@ -378,7 +374,7 @@ function testGeometryRegistryDeferredUploadsRespectByteBudgets() {
 
 function testGeometryRegistryNotifiesEachSharedPrimitivePacketOnce() {
 	const notifications = [];
-	const registry = new WebGLGeometryRegistry(createDeferredCaptureGL(), () => {}, {
+	const registry = new WebGLGeometryRegistry(createDeferredCaptureGL(), {
 		uploadScheduling: "deferred",
 		onUploadPending: (submissions) =>
 			notifications.push(submissions.map((submission) => submission.id)),
@@ -404,7 +400,7 @@ function testGeometryRegistryNotifiesEachSharedPrimitivePacketOnce() {
 
 function testGeometryRegistryDeferredDiscardsStaleVersions() {
 	const gl = createDeferredCaptureGL();
-	const registry = new WebGLGeometryRegistry(gl, () => {}, {
+	const registry = new WebGLGeometryRegistry(gl, {
 		uploadScheduling: "deferred",
 	});
 
@@ -427,7 +423,7 @@ function testGeometryVersionChangeInvalidatesDestroyedHandle() {
 	const gl = createDeferredCaptureGL();
 	const deleted = [];
 	gl.deleteBuffer = (buffer) => deleted.push(buffer);
-	const registry = new WebGLGeometryRegistry(gl, () => {}, {
+	const registry = new WebGLGeometryRegistry(gl, {
 		uploadScheduling: "deferred",
 	});
 	const primitive = makeTrianglePrimitive("p-retired");
@@ -476,9 +472,8 @@ function testGeometryFinalizationReleasesBuffersOnce() {
 }
 
 function testGeometryRegistryDeferredCachesPermanentFailures() {
-	const warnings = [];
-	const registry = new WebGLGeometryRegistry(createDeferredCaptureGL(), (k, m) =>
-		warnings.push({ key: k }), { uploadScheduling: "deferred" });
+	const warnings = recordLoggerWarnings();
+	const registry = new WebGLGeometryRegistry(createDeferredCaptureGL(), { uploadScheduling: "deferred" });
 
 	const primitive = makeTrianglePrimitive("p-bad");
 	primitive.geometry.indices = new Uint32Array([0, 1, 9]);
@@ -530,10 +525,8 @@ function testGeometryRegistryFusedValidationPreservesWarnKeys() {
 	];
 
 	for (const testCase of cases) {
-		const warnings = [];
-		const registry = new WebGLGeometryRegistry(createGeometryTestGL(), (k) =>
-			warnings.push(k)
-		);
+		const warnings = recordLoggerWarnings();
+		const registry = new WebGLGeometryRegistry(createGeometryTestGL());
 		const primitive = makeTrianglePrimitive("p-nf");
 		testCase.build(primitive.geometry);
 		assert.equal(
@@ -541,7 +534,7 @@ function testGeometryRegistryFusedValidationPreservesWarnKeys() {
 			null,
 			testCase.slot
 		);
-		assert.ok(warnings.includes(testCase.key), testCase.slot);
+		assert.ok(warnings.some((warning) => warning.key === testCase.key), testCase.slot);
 	}
 }
 

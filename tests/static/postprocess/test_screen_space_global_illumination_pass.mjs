@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { Logger } from "../../../src/foundation/Logger.ts";
+import { recordLoggerWarnings } from "../../helpers/logger.mjs";
 import { createWebGPUComputeFacade } from "../../../src/backends/webgpu/ComputeFacade.ts";
 
 import { CameraType } from "../../../src/cameras/Camera.ts";
@@ -65,10 +67,9 @@ function createHarness() {
 	const createTexture = (width, height, label) => backend.createTexture({
 		width, height, label, format: label === "hiz" ? "r32float" : "rgba16float", usage: 0,
 	});
-	const warnings = [];
+	const warnings = recordLoggerWarnings();
 	const runtime = new WebGPUPostProcessRuntime(
-		createWebGPUComputeFacade(backend),
-		(key, message) => warnings.push([key, message])
+		createWebGPUComputeFacade(backend)
 	);
 	const encoder = new FakeEncoder();
 	const textures = {
@@ -499,7 +500,7 @@ async function testFourStageExecutionAndTemporalContinuity() {
 	assert.deepEqual(orthographic, { ran: false });
 	assert.equal(harness.context.encoder.calls.length, callsBeforeOrthographic);
 	assert.equal(harness.copied.length, 3);
-	assert.deepEqual(harness.warnings, [[
+	assert.deepEqual(harness.warnings.map(({ key, message }) => [key, message]), [[
 		"webgpu-ssgi-orthographic-disabled",
 		"WebGPU SSGI is disabled for orthographic cameras.",
 	]]);
@@ -585,8 +586,13 @@ async function testFailurePathsAndResourceInvalidation() {
 	harness.runtime.destroy();
 }
 
-testExecutionDeclaration();
-testOptionsAndParameterPacking();
-await testFourStageExecutionAndTemporalContinuity();
-await testFailurePathsAndResourceInvalidation();
-console.log("ScreenSpaceGlobalIlluminationPass tests passed");
+try {
+	testExecutionDeclaration();
+	testOptionsAndParameterPacking();
+	await testFourStageExecutionAndTemporalContinuity();
+	await testFailurePathsAndResourceInvalidation();
+	console.log("ScreenSpaceGlobalIlluminationPass tests passed");
+
+} finally {
+	Logger.reset();
+}

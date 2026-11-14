@@ -60,7 +60,6 @@ export interface WebGLProgramWarmupHandle {
 export interface WebGLProgramCompilerOptions {
 	readonly validatePrograms?: boolean;
 	readonly onProgramCompilePending?: () => void;
-	readonly warn?: (key: string, message: string) => void;
 }
 
 interface WebGLParallelShaderCompileExtension {
@@ -134,7 +133,6 @@ export class WebGLProgramCompiler {
 	private readonly _parallelShaderCompile: WebGLParallelShaderCompileExtension | null;
 	private readonly _validatePrograms: boolean;
 	private readonly _onProgramCompilePending: (() => void) | null;
-	private readonly _warnCallback: ((key: string, message: string) => void) | null;
 	private _disposeShaderRuntimeListener: (() => void) | null = null;
 	private readonly _pendingProgramCompiles = new Map<
 		string,
@@ -165,7 +163,6 @@ export class WebGLProgramCompiler {
 		this._parallelShaderCompile = resolveParallelShaderCompileExtension(gl);
 		this._validatePrograms = options.validatePrograms === true;
 		this._onProgramCompilePending = options.onProgramCompilePending ?? null;
-		this._warnCallback = options.warn ?? null;
 		if (this._shaderRuntime) {
 			this._disposeShaderRuntimeListener = this._shaderRuntime.onDidChange(() => {
 				this.invalidate();
@@ -919,7 +916,6 @@ export class WebGLProgramCompiler {
 	}
 
 	private _warn(key: string, message: string): void {
-		this._warnCallback?.(key, message);
 		Logger.warn(`[${key}] ${message}`, {
 			scope: "WebGLProgramCompiler",
 			onceKey: key,

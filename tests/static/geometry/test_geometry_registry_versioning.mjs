@@ -86,7 +86,7 @@ function testWebGLGeometryVersionInvalidation() {
 		enableVertexAttribArray() {},
 		vertexAttribPointer() {},
 	};
-	const registry = new WebGLGeometryRegistry(gl, () => {});
+	const registry = new WebGLGeometryRegistry(gl);
 	const primitive = createPrimitive();
 	let packet = createTestDrawPacket({
 		id: "packet-versioned",

@@ -118,7 +118,6 @@ export interface FrameCoordinatorDelegate {
 
 	getBackendExtension<T>(key: RenderBackendExtensionKey<T>): T | null;
 	emitPostAnimation(now: number, deltaTime: number, transient: TransientStore): void;
-	warn(key: string, message: string): void;
 }
 
 function flipProbeFaceRows(data: Float32Array, size: number): Float32Array {
@@ -326,7 +325,6 @@ export class FrameCoordinator {
 				hasActiveAnimations: options.hasActiveAnimations && delegate.animationAutoRender,
 				hasParticleSystems: options.hasParticleSystems,
 			},
-			(key, message) => delegate.warn(key, message),
 		);
 		const stageIndexById = new Map<string, number>();
 		for (let index = 0; index < stageOrder.length; index++) {
@@ -376,16 +374,16 @@ export class FrameCoordinator {
 		}
 		if (stageKind === "renderer") {
 			const key = `renderer-stage-executor-missing-${stageId}`;
-			delegate.warn(
-				key,
-				`Renderer pipeline stage "${stageId}" has no internal executor; skipping stage`,
+			Logger.warn(
+				`[${key}] Renderer pipeline stage "${stageId}" has no internal executor; skipping stage`,
+				{ scope: "Renderer", onceKey: key },
 			);
 			return;
 		}
 		const key = `renderer-stage-kind-missing-${stageId}`;
-		delegate.warn(
-			key,
-			`Renderer pipeline stage "${stageId}" is not registered; skipping stage`,
+		Logger.warn(
+			`[${key}] Renderer pipeline stage "${stageId}" is not registered; skipping stage`,
+			{ scope: "Renderer", onceKey: key },
 		);
 	}
 
@@ -405,7 +403,10 @@ export class FrameCoordinator {
 					...state.resolved.warnings,
 					...state.resolvedPostProcess.getWarnings(),
 				]) {
-					delegate.warn(warning.key, warning.message);
+					Logger.warn(
+						`[${warning.key}] ${warning.message}`,
+						{ scope: "Renderer", onceKey: warning.key },
+					);
 				}
 			},
 			[stageIds.animationSim]: (delegate, state) =>
@@ -826,10 +827,11 @@ export class FrameCoordinator {
 		}, this._shadowPlannerState);
 		for (const diagnostic of shadowPlan.diagnostics) {
 			if (diagnostic.severity !== "warning") continue;
-			delegate.warn(
-				`${this._backend.profile.id}-shadow-${diagnostic.code}-` +
-					`${diagnostic.lightId}-${diagnostic.definitionId}`,
-				diagnostic.message,
+			const key = `${this._backend.profile.id}-shadow-${diagnostic.code}-` +
+				`${diagnostic.lightId}-${diagnostic.definitionId}`;
+			Logger.warn(
+				`[${key}] ${diagnostic.message}`,
+				{ scope: "Renderer", onceKey: key },
 			);
 		}
 		frame.shadowPlan = shadowPlan;

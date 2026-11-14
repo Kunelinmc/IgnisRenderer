@@ -256,7 +256,7 @@ async function executeColorFilterPass(
 
 async function testFXAAPipelineExecutionAndResourceReuse() {
 	const backend = new FakeBackend();
-	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend), () => {});
+	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend));
 	const encoder = new FakeEncoder();
 	const sceneColorMain = createTexture(17, 9, "scene");
 	const postPing = createTexture(17, 9, "ping");
@@ -350,7 +350,7 @@ async function testFXAAPipelineExecutionAndResourceReuse() {
 
 async function testToneMappingPassImplementationUsesDedicatedPipeline() {
 	const backend = new FakeBackend();
-	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend), () => {});
+	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend));
 	const encoder = new FakeEncoder();
 	const sceneColorMain = createTexture(18, 10, "scene");
 	const postPing = createTexture(18, 10, "ping");
@@ -408,7 +408,7 @@ async function testToneMappingPassImplementationUsesDedicatedPipeline() {
 
 async function testBloomPassImplementationUsesDedicatedPipeline() {
 	const backend = new FakeBackend();
-	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend), () => {});
+	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend));
 	const encoder = new FakeEncoder();
 	const sceneColorMain = createTexture(40, 20, "scene");
 	const postPing = createTexture(40, 20, "ping");
@@ -545,7 +545,7 @@ async function testBloomPassImplementationUsesDedicatedPipeline() {
 
 async function testMotionBlurPassImplementationUsesDedicatedPipeline() {
 	const backend = new FakeBackend();
-	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend), () => {});
+	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend));
 	const encoder = new FakeEncoder();
 	const sceneColorMain = createTexture(48, 24, "scene");
 	const postPing = createTexture(48, 24, "ping");
@@ -623,7 +623,7 @@ async function testMotionBlurPassImplementationUsesDedicatedPipeline() {
 
 async function testFogPassImplementationUsesDedicatedPipeline() {
 	const backend = new FakeBackend();
-	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend), () => {});
+	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend));
 	const encoder = new FakeEncoder();
 	const sceneColorMain = createTexture(24, 12, "scene");
 	const postPing = createTexture(24, 12, "ping");
@@ -700,7 +700,7 @@ async function testFogPassImplementationUsesDedicatedPipeline() {
 
 async function testDOFPassImplementationUsesDedicatedPipeline() {
 	const backend = new FakeBackend();
-	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend), () => {});
+	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend));
 	const encoder = new FakeEncoder();
 	const sceneColorMain = createTexture(36, 18, "scene");
 	const postPing = createTexture(36, 18, "ping");
@@ -786,7 +786,7 @@ async function testDOFPassImplementationUsesDedicatedPipeline() {
 
 async function testColorFilterPassImplementationUsesDedicatedPipeline() {
 	const backend = new FakeBackend();
-	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend), () => {});
+	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend));
 	const encoder = new FakeEncoder();
 	const sceneColorMain = createTexture(30, 14, "scene");
 	const postPing = createTexture(30, 14, "ping");
@@ -854,7 +854,7 @@ async function testColorFilterPassImplementationUsesDedicatedPipeline() {
 
 async function testMotionBlurSkipsRedundantParamUploads() {
 	const backend = new FakeBackend();
-	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend), () => {});
+	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend));
 	const sceneColorMain = createTexture(48, 24, "scene");
 	const postPing = createTexture(48, 24, "ping");
 	const postPong = createTexture(48, 24, "pong");
@@ -903,7 +903,7 @@ async function testMotionBlurSkipsRedundantParamUploads() {
 
 async function testInvalidateBindingsDestroysCachedBindingGroups() {
 	const backend = new FakeBackend();
-	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend), () => {});
+	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend));
 	const sceneColorMain = createTexture(20, 12, "scene");
 	const postPing = createTexture(20, 12, "ping");
 	const postPong = createTexture(20, 12, "pong");
@@ -937,7 +937,7 @@ async function testInvalidateBindingsDestroysCachedBindingGroups() {
 
 async function testBindingReplacementDestroysStaleBindingGroup() {
 	const backend = new FakeBackend();
-	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend), () => {});
+	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend));
 	const sceneColorMain = createTexture(28, 14, "scene");
 	const postPing = createTexture(28, 14, "ping");
 	const postPong = createTexture(28, 14, "pong");
@@ -963,7 +963,7 @@ async function testBindingReplacementDestroysStaleBindingGroup() {
 
 async function testDestroyReleasesToneMappingImplementationResources() {
 	const backend = new FakeBackend();
-	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend), () => {});
+	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend));
 	const sceneColorMain = createTexture(32, 18, "scene");
 	const postPing = createTexture(32, 18, "ping");
 	const postPong = createTexture(32, 18, "pong");
@@ -1021,7 +1021,7 @@ async function testDestroyReleasesToneMappingImplementationResources() {
 
 async function testBloomImplementationLifecycleReleasesOwnedResources() {
 	const backend = new FakeBackend();
-	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend), () => {});
+	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend));
 	const encoder = new FakeEncoder();
 	const targets = {
 		sceneColor: createTexture(40, 20, "scene"),

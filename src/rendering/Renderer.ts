@@ -483,20 +483,6 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	}
 
 	/**
-	 * Logs a warning event with the renderer logger prefix.
-	 *
-	 * @internal Owned by the logging/diagnostics subsystem.
-	 * @param key Unique key for deduping warnings.
-	 * @param message Warning message.
-	 */
-	public warn(key: string, message: string): void {
-		this.logger.warn(`[${key}] ${message}`, {
-			scope: "Renderer",
-			onceKey: key,
-		});
-	}
-
-	/**
 	 * Triggers the rendering of a single frame. This checks initialization and runs the execution coordinator.
 	 *
 	 * @param nowMs The current animation frame timestamp in milliseconds.

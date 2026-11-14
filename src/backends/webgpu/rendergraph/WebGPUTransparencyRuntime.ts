@@ -1,3 +1,4 @@
+import { Logger } from "../../../foundation/Logger";
 import type { DrawPacket, FrameContext, FramePass } from "../../../pipeline/types";
 import { ParticleBlendMode } from "../../../particles";
 import { materialUsesTransmission } from "../../../materials/transparency";
@@ -63,10 +64,6 @@ interface WebGPUTransparencyScenePort {
 		allowEarlyZPrepass: boolean,
 	): Promise<void>;
 	drawTransmissionPackets(context: FrameContext, packets: DrawPacket[]): Promise<void>;
-}
-
-export interface WebGPUFrameDiagnosticSink {
-	warnOnce(code: string, message: string, cause?: unknown): void;
 }
 
 export interface WebGPUTransparencyAnalysis {
@@ -250,7 +247,6 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 		private readonly _sceneResources: WebGPUSceneResourceProvider,
 		private readonly _particleRenderer: WebGPUParticleBillboardRenderer,
 		private readonly _scene: WebGPUTransparencyScenePort,
-		private readonly _diagnostics: WebGPUFrameDiagnosticSink,
 	) {}
 
 	public planStage(
@@ -808,7 +804,10 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 	): void {
 		if (this._getMode(session) === "legacy-runtime-fallback") return;
 		this._mode = "legacy-runtime-fallback";
-		this._diagnostics.warnOnce(code, message, cause);
+		Logger.warn(`[${code}] ${message}${cause ? ` ${String(cause)}` : ""}`, {
+			scope: "WebGPUBackend",
+			onceKey: code,
+		});
 	}
 
 	private _getMode(
