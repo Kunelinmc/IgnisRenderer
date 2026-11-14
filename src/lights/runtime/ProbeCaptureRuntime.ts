@@ -8,7 +8,6 @@ import {
 	type AmbientLight,
 	type AreaLight,
 	type DirectionalLight,
-	type IrradianceProbeGrid,
 	type LightProbe,
 	type PointLight,
 	type ReflectionProbe,
@@ -52,13 +51,12 @@ const CAPTURE_RELEVANT_SCENE_DIRTY_MASK =
 	RENDER_DIRTY_REASON_MASK.physics |
 	RENDER_DIRTY_REASON_MASK.particles;
 
-export type ProbeCaptureTargetKind = "reflection" | "light" | "grid";
+export type ProbeCaptureTargetKind = "reflection" | "light";
 
 interface ProbeCaptureTarget {
 	kind: ProbeCaptureTargetKind;
 	id: string;
-	probe: ReflectionProbe | LightProbe | IrradianceProbeGrid;
-	cellIndex: number;
+	probe: ReflectionProbe | LightProbe;
 	signature: string;
 	groupKey: string;
 	captureRequestToken: number;
@@ -76,7 +74,6 @@ interface ProbeCaptureTarget {
 interface CaptureTaskTarget {
 	kind: ProbeCaptureTargetKind;
 	id: string;
-	cellIndex: number;
 	signature: string;
 	captureRequestToken: number;
 }
@@ -263,11 +260,7 @@ export class ProbeCaptureRuntime {
 	}
 
 	private _isCaptureRequested(target: ProbeCaptureTarget): boolean {
-		const key = createProbeCaptureTargetKey(
-			target.kind,
-			target.id,
-			target.cellIndex
-		);
+		const key = createProbeCaptureTargetKey(target.kind, target.id);
 		const lastHandledToken =
 			this._lastHandledRequestTokenByProbeId.get(key) ?? 0;
 		return target.captureRequestToken > lastHandledToken;
@@ -316,7 +309,6 @@ export class ProbeCaptureRuntime {
 			targets: groupedTargets.map((target) => ({
 				kind: target.kind,
 				id: target.id,
-				cellIndex: target.cellIndex,
 				signature: target.signature,
 				captureRequestToken: target.captureRequestToken,
 			})),
@@ -529,20 +521,11 @@ export class ProbeCaptureRuntime {
 				reflectionProbe.markRuntimeDirty();
 				task.scene.invalidate("probe-capture");
 			} else {
-				if (target.kind === "grid") {
-					const grid = probe as IrradianceProbeGrid;
-					grid.writeCapturedCellSH(target.cellIndex, sh);
-				} else {
-					const lightProbe = probe as LightProbe;
-					lightProbe.writeCapturedSH(sh);
-				}
+				const lightProbe = probe as LightProbe;
+				lightProbe.writeCapturedSH(sh);
 			}
 
-			const key = createProbeCaptureTargetKey(
-				target.kind,
-				target.id,
-				target.cellIndex
-			);
+			const key = createProbeCaptureTargetKey(target.kind, target.id);
 			this._lastHandledRequestTokenByProbeId.set(
 				key,
 				target.captureRequestToken
@@ -563,36 +546,26 @@ export class ProbeCaptureRuntime {
 	private _isTargetFresh(
 		task: CaptureTaskState,
 		target: CaptureTaskTarget,
-		probe: ReflectionProbe | LightProbe | IrradianceProbeGrid
+		probe: ReflectionProbe | LightProbe
 	): boolean {
 		if (this._activeTask?.taskId !== task.taskId) {
 			return false;
 		}
 		if (probe.source !== "capturedScene") return false;
-		const requestToken =
-			target.kind === "grid" ?
-				(probe as IrradianceProbeGrid).getCellCaptureRequestToken(
-					target.cellIndex
-				)
-			:	probe.captureRequestToken;
-		if (requestToken !== target.captureRequestToken) return false;
+		if (probe.captureRequestToken !== target.captureRequestToken) return false;
 		if (
 			this._getCaptureSceneRevision(task.scene) !==
 			task.captureSceneRevision
 		) {
 			return false;
 		}
-		return buildProbeCaptureSignature(probe, target.cellIndex) === target.signature;
+		return buildProbeCaptureSignature(probe) === target.signature;
 	}
 
 	private _pruneProbeState(targets: ProbeCaptureTarget[]): void {
 		const activeTargetKeys = new Set(
 			targets.map((target) =>
-				createProbeCaptureTargetKey(
-					target.kind,
-					target.id,
-					target.cellIndex
-				)
+				createProbeCaptureTargetKey(target.kind, target.id)
 			)
 		);
 		pruneProbeMap(this._lastHandledRequestTokenByProbeId, activeTargetKeys);
@@ -600,11 +573,7 @@ export class ProbeCaptureRuntime {
 			this._activeTask &&
 			this._activeTask.targets.some((target) =>
 				activeTargetKeys.has(
-					createProbeCaptureTargetKey(
-						target.kind,
-						target.id,
-						target.cellIndex
-					)
+					createProbeCaptureTargetKey(target.kind, target.id)
 				)
 			) === false
 		) {
@@ -656,11 +625,6 @@ function collectCapturedSceneProbeTargets(
 			targets.push(createLightProbeCaptureTarget(probe));
 			continue;
 		}
-		if (light.type === LightType.IrradianceProbeGrid) {
-			const grid = light as IrradianceProbeGrid;
-			if (grid.source !== "capturedScene") continue;
-			targets.push(...createIrradianceProbeGridCaptureTargets(grid));
-		}
 	}
 	targets.sort((left, right) => {
 		if (cameraWorldPosition) {
@@ -700,8 +664,7 @@ function createReflectionProbeCaptureTarget(
 		kind: "reflection",
 		id: probe.id,
 		probe,
-		cellIndex: -1,
-		signature: buildProbeCaptureSignature(probe, -1),
+		signature: buildProbeCaptureSignature(probe),
 		groupKey: buildProbeCaptureGroupKey(
 			captureWorldPosition,
 			probe.captureFar,
@@ -735,8 +698,7 @@ function createLightProbeCaptureTarget(probe: LightProbe): ProbeCaptureTarget {
 		kind: "light",
 		id: probe.id,
 		probe,
-		cellIndex: -1,
-		signature: buildProbeCaptureSignature(probe, -1),
+		signature: buildProbeCaptureSignature(probe),
 		groupKey: buildProbeCaptureGroupKey(
 			captureWorldPosition,
 			probe.captureFar,
@@ -759,48 +721,11 @@ function createLightProbeCaptureTarget(probe: LightProbe): ProbeCaptureTarget {
 	};
 }
 
-function createIrradianceProbeGridCaptureTargets(
-	grid: IrradianceProbeGrid
-): ProbeCaptureTarget[] {
-	const cache = grid.getRuntimeCache();
-	const targets: ProbeCaptureTarget[] = [];
-	for (let cellIndex = 0; cellIndex < cache.cellCount; cellIndex++) {
-		const captureWorldPosition = cache.cellWorldPositions[cellIndex];
-		targets.push({
-			kind: "grid",
-			id: grid.id,
-			probe: grid,
-			cellIndex,
-			signature: buildProbeCaptureSignature(grid, cellIndex),
-			groupKey: buildProbeCaptureGroupKey(
-				captureWorldPosition,
-				grid.captureFar,
-				grid.includeEnvironment,
-				grid.includeMeshes,
-				grid.includeTransparent,
-				grid.includeParticles,
-				grid.includeShadows
-			),
-			captureRequestToken: grid.getCellCaptureRequestToken(cellIndex),
-			captureWidth: grid.captureResolution.width,
-			captureHeight: grid.captureResolution.height,
-			captureFar: grid.captureFar,
-			captureWorldPosition,
-			includeEnvironment: grid.includeEnvironment,
-			includeMeshes: grid.includeMeshes,
-			includeTransparent: grid.includeTransparent,
-			includeParticles: grid.includeParticles,
-			includeShadows: grid.includeShadows,
-		});
-	}
-	return targets;
-}
-
 function findCapturedSceneTarget(
 	scene: Scene,
 	kind: ProbeCaptureTargetKind,
 	probeId: string
-): ReflectionProbe | LightProbe | IrradianceProbeGrid | null {
+): ReflectionProbe | LightProbe | null {
 	for (const light of scene.getLights()) {
 		if (kind === "reflection") {
 			if (light.type !== LightType.ReflectionProbe) continue;
@@ -808,15 +733,6 @@ function findCapturedSceneTarget(
 			if (probe.source !== "capturedScene") continue;
 			if (probe.id === probeId) {
 				return probe;
-			}
-			continue;
-		}
-		if (kind === "grid") {
-			if (light.type !== LightType.IrradianceProbeGrid) continue;
-			const grid = light as IrradianceProbeGrid;
-			if (grid.source !== "capturedScene") continue;
-			if (grid.id === probeId) {
-				return grid;
 			}
 			continue;
 		}
@@ -841,8 +757,7 @@ function pruneProbeMap<TValue>(
 }
 
 function buildProbeCaptureSignature(
-	probe: ReflectionProbe | LightProbe | IrradianceProbeGrid,
-	cellIndex: number
+	probe: ReflectionProbe | LightProbe
 ): string {
 	const elements = probe.worldMatrix.elements;
 	const matrix = new Array<string>(16);
@@ -852,17 +767,9 @@ function buildProbeCaptureSignature(
 			matrix[cursor++] = elements[row][col].toFixed(6);
 		}
 	}
-	const kind =
-		probe.type === LightType.ReflectionProbe ? "reflection"
-		: probe.type === LightType.IrradianceProbeGrid ? "grid"
-		: "light";
-	const grid =
-		probe.type === LightType.IrradianceProbeGrid ?
-			(probe as IrradianceProbeGrid)
-		:	null;
+	const kind = probe.type === LightType.ReflectionProbe ? "reflection" : "light";
 	return [
 		kind,
-		cellIndex,
 		probe.source,
 		probe.captureResolution.width,
 		probe.captureResolution.height,
@@ -872,13 +779,7 @@ function buildProbeCaptureSignature(
 		probe.includeTransparent ? 1 : 0,
 		probe.includeParticles ? 1 : 0,
 		probe.includeShadows ? 1 : 0,
-		grid ? grid.getCellCaptureRequestToken(cellIndex) : probe.captureRequestToken,
-		grid ? grid.dimensions.x : 0,
-		grid ? grid.dimensions.y : 0,
-		grid ? grid.dimensions.z : 0,
-		grid ? grid.halfExtents.x.toFixed(6) : 0,
-		grid ? grid.halfExtents.y.toFixed(6) : 0,
-		grid ? grid.halfExtents.z.toFixed(6) : 0,
+		probe.captureRequestToken,
 		...matrix,
 	].join("|");
 }
@@ -907,10 +808,9 @@ function buildProbeCaptureGroupKey(
 
 function createProbeCaptureTargetKey(
 	kind: ProbeCaptureTargetKind,
-	id: string,
-	cellIndex = -1
+	id: string
 ): string {
-	return `${kind}:${id}:${cellIndex}`;
+	return `${kind}:${id}`;
 }
 
 function applyTaskScale(task: CaptureTaskState, scaleIndex: number): void {
@@ -967,16 +867,10 @@ function buildCapturedEnvironmentMap(task: CaptureTaskState): Texture | null {
 }
 
 function writeProbeCaptureTextureOutputs(
-	probe: ReflectionProbe | LightProbe | IrradianceProbeGrid,
+	probe: ReflectionProbe | LightProbe,
 	task: CaptureTaskState,
 	environmentMap: Texture
 ): void {
-	if (
-		probe.type !== LightType.ReflectionProbe &&
-		probe.type !== LightType.LightProbe
-	) {
-		return;
-	}
 	const output = probe.capture;
 	const cubeTexture = output.cubeTexture;
 	if (cubeTexture) {

@@ -199,7 +199,7 @@ async function testRenderResourcesUseCopyDstForUploads() {
 	assert.ok(firstDraw.resolvedInputs.textures[WEBGPU_TEXTURE_SLOT.ANISOTROPY]);
 	assert.deepEqual(
 		firstDraw.bindings[0].group.desc.entries.map((entry) => entry.binding),
-		[0, 1, 2, 3, 6, 7, 8, 9, 10, 11, 12],
+		[0, 1, 2, 3, 6, 7, 9, 10, 11, 12],
 	);
 	assert.equal(
 		firstDraw.bindings[1].group.desc.entries.length,

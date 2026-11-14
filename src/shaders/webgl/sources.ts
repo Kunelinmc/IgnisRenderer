@@ -73,11 +73,6 @@ const WEBGL_SCENE_FRAGMENT_SHADER_FILES = {
 export const WEBGL_SCENE_FRAGMENT_PARTS: readonly WebGLSceneFragmentPart[] =
 	Object.keys(WEBGL_SCENE_FRAGMENT_SHADER_FILES) as WebGLSceneFragmentPart[];
 
-const WEBGL_INTERNAL_SHADER_FILES = {
-	diffuseProbeFallbackFragment: "./webgl/environment/diffuseProbeFallbackFragment.glsl",
-	irradianceProbeGridFragment: "./webgl/environment/irradianceProbeGridFragment.glsl",
-} as const;
-
 const WEBGL_DIRECTIVE_SHADER_FILES = {
 	animation: { path: "./webgl/common/animation.glsl", sync: true },
 	constants: "./webgl/directives/constants.glsl",
@@ -114,11 +109,6 @@ const isFlat = model("flat");
 const isLegacy = any(isPhong, isFlat, isFull);
 const isLit = any(isPBR, isLegacy);
 const shadowTransmittance = all(scene("shadows"), scene("shadowTransmittance"));
-const irradianceGrid = all(
-	scene("sh"),
-	scene("localLightProbes"),
-	scene("irradianceProbeGrid"),
-);
 
 const { model: _materialModel, ...materialFeatures } = WEBGL_FULL_SCENE_VARIANT.material;
 const materialFields = mapShaderManifestEntries(materialFeatures, "",
@@ -228,7 +218,6 @@ const sceneDefines: ShaderSourceNode = {
 		WEBGL_SCENE_CLUSTERED_LIGHTING: scene("clusteredLighting"),
 		WEBGL_SCENE_SH: scene("sh"),
 		WEBGL_SCENE_LOCAL_LIGHT_PROBES: scene("localLightProbes"),
-		WEBGL_SCENE_IRRADIANCE_PROBE_GRID: scene("irradianceProbeGrid"),
 		WEBGL_SCENE_REFLECTION_PROBES: scene("reflectionProbes"),
 		WEBGL_SCENE_ENVIRONMENT_SPECULAR: scene("environmentSpecular"),
 		WEBGL_MATERIAL_MODEL_UNLIT: model("unlit"),
@@ -300,7 +289,6 @@ const uniformMarkers: readonly [string, ShaderManifestExpression][] = [
 	["__WEBGL_MATERIAL_ANISOTROPY_MAP_LEGACY_UNIFORMS__", all(isFull, material("anisotropyMap"))],
 	["__WEBGL_SCENE_ENVIRONMENT_SPECULAR_UNIFORMS__", all(isPBR, scene("environmentSpecular"))],
 	["__WEBGL_SCENE_LOCAL_LIGHT_PROBE_UNIFORMS__", all(scene("sh"), scene("localLightProbes"))],
-	["__WEBGL_IRRADIANCE_PROBE_GRID_UNIFORMS__", irradianceGrid],
 	["__WEBGL_SCENE_REFLECTION_PROBE_UNIFORMS__", all(isPBR, scene("environmentSpecular"), scene("reflectionProbes"))],
 	["__WEBGL_SCENE_FORWARD_LIGHT_UNIFORMS__", isLit],
 	["__WEBGL_SCENE_SHADOW_UNIFORMS__", all(isLit, scene("shadows"))],
@@ -341,20 +329,6 @@ const preludeTemplate: ShaderSourceNode = {
 	],
 };
 
-const localProbeTemplate: ShaderSourceNode = {
-	template: asset("scene.fragmentLocalProbes"),
-	replacements: [
-		{
-			marker: "__WEBGL_IRRADIANCE_PROBE_GRID_FUNCTIONS__",
-			value: when(
-				irradianceGrid,
-				asset("internal.irradianceProbeGridFragment"),
-				asset("internal.diffuseProbeFallbackFragment"),
-			),
-		},
-	],
-};
-
 const shaderModules = createShaderModuleGroup(
 	WEBGL_SHADER_FILES, "part.", "webgl.part.", "unknown",
 );
@@ -367,12 +341,6 @@ const assets = {
 	...directiveModules.assets,
 	...mapShaderManifestEntries(WEBGL_SCENE_FRAGMENT_SHADER_FILES, "scene.",
 		(path) => ({ path })),
-	"internal.diffuseProbeFallbackFragment": {
-		path: WEBGL_INTERNAL_SHADER_FILES.diffuseProbeFallbackFragment,
-	},
-	"internal.irradianceProbeGridFragment": {
-		path: WEBGL_INTERNAL_SHADER_FILES.irradianceProbeGridFragment,
-	},
 	"fallback.localProbe": { path: "./webgl/scene/fragmentLocalProbeFallbacks.glsl" },
 	"fallback.shadow": { path: "./webgl/scene/fragmentShadowFallbacks.glsl" },
 	"fallback.environment": { path: "./webgl/scene/fragmentEnvironmentFallback.glsl" },
@@ -411,7 +379,7 @@ const sources = {
 					when(not(isFull), asset("scene.fragmentMaterialBlocks")),
 					asset("scene.fragmentUvTextureNormal"),
 					when(scene("sh"), asset("scene.fragmentSh")),
-					when(all(scene("sh"), scene("localLightProbes")), localProbeTemplate),
+					when(all(scene("sh"), scene("localLightProbes")), asset("scene.fragmentLocalProbes")),
 					when(scene("clusteredLighting"), asset("scene.fragmentClusteredLighting")),
 					when(scene("environmentSpecular"), asset("scene.fragmentEnvironmentSpecular")),
 					when(all(scene("environmentSpecular"), scene("reflectionProbes")), asset("scene.fragmentReflectionProbes")),

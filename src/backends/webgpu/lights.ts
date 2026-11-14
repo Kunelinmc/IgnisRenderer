@@ -99,8 +99,6 @@ export function collectWebGPULightingCatalog(
 			case LightType.LightProbe:
 				accumulateLightProbeFallbackAmbient(catalog, light, enableSH);
 				break;
-			case LightType.IrradianceProbeGrid:
-				break;
 			case LightType.ReflectionProbe:
 				break;
 			default:

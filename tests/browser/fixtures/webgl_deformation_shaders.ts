@@ -56,7 +56,6 @@ export function setup() {
 				clusteredLighting: false,
 				sh: false,
 				localLightProbes: false,
-				irradianceProbeGrid: false,
 				reflectionProbes: false,
 				environmentSpecular: false,
 			},

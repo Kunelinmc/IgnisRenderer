@@ -145,14 +145,6 @@ export class WebGLSceneProgramRepository {
 		);
 	}
 
-	/**
-	 * Reports whether the built-in scene shader variant includes irradiance probe
-	 * grid uniforms and the grid SH sampler.
-	 *
-	 * @returns True when the active WebGL device exposes enough fragment texture
-	 * units for the optional grid sampler in the scene shader.
-	 * @sideEffects None.
-	 */
 	public getSceneProgram(
 		material?: Material,
 		mode: ShaderTargetMode = "single",

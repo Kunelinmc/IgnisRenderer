@@ -25,7 +25,6 @@ export interface WebGLSceneFeatureVariant {
 	clusteredLighting: boolean;
 	sh: boolean;
 	localLightProbes: boolean;
-	irradianceProbeGrid: boolean;
 	reflectionProbes: boolean;
 	environmentSpecular: boolean;
 }
@@ -93,7 +92,6 @@ export const WEBGL_FULL_SCENE_VARIANT: WebGLSceneVariantDescriptor = {
 		clusteredLighting: true,
 		sh: true,
 		localLightProbes: true,
-		irradianceProbeGrid: true,
 		reflectionProbes: true,
 		environmentSpecular: true,
 	},
@@ -171,7 +169,6 @@ export function normalizeWebGLSceneVariantDescriptor(
 			clusteredLighting: variant.scene.clusteredLighting === true,
 			sh: variant.scene.sh === true,
 			localLightProbes: variant.scene.localLightProbes === true,
-			irradianceProbeGrid: variant.scene.irradianceProbeGrid === true,
 			reflectionProbes: variant.scene.reflectionProbes === true,
 			environmentSpecular: variant.scene.environmentSpecular === true,
 		},
@@ -233,7 +230,6 @@ export function getWebGLSceneVariantKey(
 		`cl:${bit(scene.clusteredLighting)}`,
 		`sh:${bit(scene.sh)}`,
 		`lp:${bit(scene.localLightProbes)}`,
-		`grid:${bit(scene.irradianceProbeGrid)}`,
 		`rp:${bit(scene.reflectionProbes)}`,
 		`env:${bit(scene.environmentSpecular)}`,
 		`mat:${material.model}`,

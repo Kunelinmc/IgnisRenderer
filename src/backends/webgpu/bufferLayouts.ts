@@ -299,12 +299,6 @@ export const WEBGPU_FRAME_ENVIRONMENT_UNIFORM_LAYOUT = new StructuredBufferLayou
 				MAX_LOCAL_LIGHT_PROBES * WEBGPU_SH_COEFFICIENT_COUNT
 			),
 		},
-		{ name: "irradianceProbeGridWorldToGridRow0", type: VEC4_F32 },
-		{ name: "irradianceProbeGridWorldToGridRow1", type: VEC4_F32 },
-		{ name: "irradianceProbeGridWorldToGridRow2", type: VEC4_F32 },
-		{ name: "irradianceProbeGridDataA", type: VEC4_F32 },
-		{ name: "irradianceProbeGridDataB", type: VEC4_F32 },
-		{ name: "irradianceProbeGridDataC", type: VEC4_F32 },
 	]),
 	"uniform"
 );

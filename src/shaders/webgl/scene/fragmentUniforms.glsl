@@ -189,15 +189,6 @@ uniform vec4 uLocalLightProbeDataA[MAX_LOCAL_LIGHT_PROBES];
 uniform vec4 uLocalLightProbeDataB[MAX_LOCAL_LIGHT_PROBES];
 uniform sampler2D uLocalLightProbeCoeffs;
 uniform vec2 uLocalLightProbeCoeffsSize;
-__WEBGL_IRRADIANCE_PROBE_GRID_UNIFORMS__
-uniform int uIrradianceProbeGridEnabled;
-uniform vec4 uIrradianceProbeGridWorldToGridRow0;
-uniform vec4 uIrradianceProbeGridWorldToGridRow1;
-uniform vec4 uIrradianceProbeGridWorldToGridRow2;
-uniform vec4 uIrradianceProbeGridDataA;
-uniform vec4 uIrradianceProbeGridDataB;
-uniform sampler2D uIrradianceProbeGridCoeffs;
-uniform vec2 uIrradianceProbeGridCoeffsSize;
 __WEBGL_SCENE_REFLECTION_PROBE_UNIFORMS__
 uniform int uReflectionProbeCount;
 uniform vec4 uReflectionProbeWorldToProbeRow0[MAX_REFLECTION_PROBES];

@@ -1061,7 +1061,7 @@ inputs and target these `sceneFrameBindGroupLayout` resources:
 | `packFrameCameraUniformData` | `0` | `FrameCameraUniforms` | 272 bytes |
 | `packFrameLightUniformData` | `10` | `FrameLightUniforms` | 1,712 bytes |
 | `packFrameShadowUniformData` | `11` | `FrameShadowUniforms` | 6,544 bytes |
-| `packFrameEnvironmentUniformData` | `12` | `FrameEnvironmentUniforms` | 4,224 bytes |
+| `packFrameEnvironmentUniformData` | `12` | `FrameEnvironmentUniforms` | 4,128 bytes |
 
 `FrameCameraUniforms` must contain unjittered `viewProjection`,
 `prevViewProjection`, `inverseView`, and `inverseProjection` matrices at byte

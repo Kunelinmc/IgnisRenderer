@@ -75,7 +75,6 @@ export function createTestBuiltinSceneVariant(overrides = {}) {
 			clusteredLighting: false,
 			sh: false,
 			localLightProbes: false,
-			irradianceProbeGrid: false,
 			reflectionProbes: false,
 			environmentSpecular: false,
 			...(overrides.scene ?? {}),

@@ -628,10 +628,10 @@ async function testSceneFrameBindingLayoutMatchesShaderContract() {
 	assert.ok(sceneLayout);
 	assert.deepEqual(
 		sceneLayout.desc.entries.map((entry) => entry.binding),
-		[0, 1, 2, 3, 6, 7, 8, 9, 10, 11, 12],
+		[0, 1, 2, 3, 6, 7, 9, 10, 11, 12],
 	);
 	const entries = new Map(sceneLayout.desc.entries.map((entry) => [entry.binding, entry]));
-	for (const binding of [6, 7, 8]) {
+	for (const binding of [6, 7]) {
 		assert.equal(entries.get(binding).texture?.sampleType, "float");
 	}
 	assert.equal(entries.get(9).sampler?.type, "comparison");
@@ -664,7 +664,7 @@ function createFrameBindingFixture() {
 	const features = { enableLighting: true, enableShadows: false,
 		enableClusteredLighting: false, postProcess: createResolvedPostProcess() };
 	const environment = { shAmbientCoeffs: null, localLightProbeCount: 0,
-		localLightProbes: [], irradianceProbeGrid: null, reflectionProbeCount: 0,
+		localLightProbes: [], reflectionProbeCount: 0,
 		reflectionProbes: [], brdfLUTTexture: null, envSpecularMaxMipLevel: 0 };
 	return { backend, cache, frame, lighting, features, environment };
 }
@@ -745,7 +745,7 @@ function testIndependentEnvironmentFlagsAndWriterReuse() {
 		const flags = new Uint32Array(environmentData);
 		assert.equal(flags[0], enableSH && hasSH ? 1 : 0);
 		assert.equal(flags[1], iblSpace ? 1 : 0);
-		assert.equal(environmentData.byteLength, 4224);
+		assert.equal(environmentData.byteLength, 4128);
 		assert.equal(new Float32Array(environmentData)[3], 3.5);
 		const background = latestData("WebGPUEnvironmentBackgroundParams");
 		assert.equal(background.byteLength, 16);

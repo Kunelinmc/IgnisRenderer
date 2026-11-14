@@ -206,17 +206,6 @@ function createFrameInput() {
 		shAmbientCoeffs: null,
 		localLightProbeCount: 0,
 		localLightProbes: [],
-		irradianceProbeGrid: {
-			id: "grid-0",
-			worldToGridMatrix: matrix(3000),
-			dimensions: [3, 4, 5],
-			invHalfExtents: [0.25, 0.5, 0.75],
-			blendDistance: 12,
-			cellCount: 60,
-			textureRevision: 1,
-			sh: [],
-			validMask: new Uint8Array(60),
-		},
 		directionalLights: [
 			{
 				direction: [18, 19, 20],
@@ -435,7 +424,7 @@ function testFrameUniformPacking() {
 	);
 	assert.equal(
 		cameraData.byteLength + lightData.byteLength + shadowData.byteLength + environmentData.byteLength,
-		12752
+		12656
 	);
 	assert.deepEqual(
 		readVec(
@@ -458,7 +447,7 @@ function testFrameUniformPacking() {
 	assert.ok(cameraData instanceof ArrayBuffer);
 	assert.equal(cameraData.byteLength, 272);
 	assert.equal(lightData.byteLength, 1712);
-	assert.equal(environmentData.byteLength, 4224);
+	assert.equal(environmentData.byteLength, 4128);
 	for (const [field, offset] of Object.entries({
 		viewProjection: 0, prevViewProjection: 64, inverseView: 128,
 		inverseProjection: 192, jitterNdc: 256, prevJitterNdc: 264,
@@ -510,18 +499,6 @@ function testFrameUniformPacking() {
 	);
 	assert.deepEqual(readVec(WEBGPU_FRAME_ENVIRONMENT_UNIFORM_LAYOUT, environmentData, ["reflectionProbes", 1, "dataC"], 4), [
 		1, 9, 10, 11,
-	]);
-	assert.deepEqual(readVec(WEBGPU_FRAME_ENVIRONMENT_UNIFORM_LAYOUT, environmentData, "irradianceProbeGridWorldToGridRow1", 4), [
-		3004, 3005, 3006, 3007,
-	]);
-	assert.deepEqual(readVec(WEBGPU_FRAME_ENVIRONMENT_UNIFORM_LAYOUT, environmentData, "irradianceProbeGridDataA", 4), [
-		3, 4, 5, 60,
-	]);
-	assert.deepEqual(readVec(WEBGPU_FRAME_ENVIRONMENT_UNIFORM_LAYOUT, environmentData, "irradianceProbeGridDataB", 4), [
-		0.25, 0.5, 0.75, 12,
-	]);
-	assert.deepEqual(readVec(WEBGPU_FRAME_ENVIRONMENT_UNIFORM_LAYOUT, environmentData, "irradianceProbeGridDataC", 4), [
-		1, WEBGPU_SH_COEFFICIENT_COUNT, 60, 0,
 	]);
 	assert.equal(
 		readVec(WEBGPU_FRAME_SHADOW_UNIFORM_LAYOUT, shadowData, ["directionalShadows", 0, "paramsA"], 4)[0],

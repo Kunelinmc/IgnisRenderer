@@ -3,7 +3,6 @@ import { CubeTexture } from "../../../src/core/CubeTexture.ts";
 import { Scene } from "../../../src/core/Scene.ts";
 import { Texture } from "../../../src/core/Texture.ts";
 import { AmbientLight } from "../../../src/lights/AmbientLight.ts";
-import { IrradianceProbeGrid } from "../../../src/lights/IrradianceProbeGrid.ts";
 import { LightProbe } from "../../../src/lights/LightProbe.ts";
 import { ReflectionProbe } from "../../../src/lights/ReflectionProbe.ts";
 import { IBLPrefilter } from "../../../src/lights/ibl/IBLPrefilter.ts";
@@ -466,91 +465,6 @@ async function testSharedCaptureSkipsStaleLightProbeResult() {
 	);
 }
 
-async function testGridManualCellAndWholeGridCaptureRequests() {
-	const runtime = new ProbeCaptureRuntime();
-	const scene = new Scene();
-	scene.add(new AmbientLight({ intensity: 1 }));
-	const grid = scene.add(
-		new IrradianceProbeGrid({
-			dimensions: { x: 2, y: 1, z: 1 },
-			source: "capturedScene",
-			captureResolution: { width: 16, height: 8 },
-			includeMeshes: false,
-			includeEnvironment: false,
-		})
-	);
-	scene.updateWorldMatrices();
-
-	grid.requestCapture(1);
-	await driveRuntimeUntil(
-		runtime,
-		(step) => ({ scene, nowMs: step * 16 }),
-		() => grid.isCellValid(1)
-	);
-	assert.equal(grid.isCellValid(0), false);
-	assert.equal(grid.isCellValid(1), true);
-	assert.ok(grid.getCellSH(1)[0].r > 0);
-
-	grid.requestCapture();
-	await driveRuntimeUntil(
-		runtime,
-		(step) => ({ scene, nowMs: 1000 + step * 16 }),
-		() => grid.isCellValid(0) && grid.isCellValid(1),
-		32
-	);
-	assert.equal(grid.isCellValid(0), true);
-	assert.equal(grid.isCellValid(1), true);
-}
-
-async function testGridCaptureRequiresExplicitRequest() {
-	const runtime = new ProbeCaptureRuntime({ captureBudgetMs: 100 });
-	const scene = new Scene();
-	scene.add(new AmbientLight({ intensity: 1 }));
-	const grid = scene.add(
-		new IrradianceProbeGrid({
-			dimensions: { x: 2, y: 1, z: 1 },
-			source: "capturedScene",
-			captureResolution: { width: 16, height: 8 },
-			includeMeshes: false,
-			includeEnvironment: false,
-		})
-	);
-	scene.updateWorldMatrices();
-
-	for (let step = 0; step < 4; step++) {
-		await runtime.execute({ scene, nowMs: 200 + step * 16 });
-		await flushAsyncTasks();
-	}
-	assert.equal(grid.isCellValid(0), false);
-	assert.equal(grid.isCellValid(1), false);
-
-	scene.invalidate("lighting");
-	for (let step = 0; step < 4; step++) {
-		await runtime.execute({ scene, nowMs: 400 + step * 16 });
-		await flushAsyncTasks();
-	}
-	assert.equal(grid.isCellValid(0), false);
-	assert.equal(grid.isCellValid(1), false);
-
-	grid.requestCapture();
-	await driveRuntimeUntil(
-		runtime,
-		(step) => ({ scene, nowMs: 1000 + step * 16 }),
-		() => grid.isCellValid(0) && grid.isCellValid(1),
-		8
-	);
-	assert.equal(grid.captureRevision, 3);
-	assert.equal(grid.isCellValid(0), true);
-	assert.equal(grid.isCellValid(1), true);
-
-	scene.invalidate("transform");
-	for (let step = 0; step < 4; step++) {
-		await runtime.execute({ scene, nowMs: 2000 + step * 16 });
-		await flushAsyncTasks();
-	}
-	assert.equal(grid.captureRevision, 3);
-}
-
 async function run() {
 	await testLightProbeManualCaptureProjectsSHWithoutPrefilter();
 	await testLightProbeCaptureWritesBoundTextures();
@@ -559,8 +473,6 @@ async function run() {
 	await testSoftwareCapturePreservesHDREnvironmentRadiance();
 	await testCubemapConversionUsesSeamAwareBilinearSampling();
 	await testSharedCaptureSkipsStaleLightProbeResult();
-	await testGridManualCellAndWholeGridCaptureRequests();
-	await testGridCaptureRequiresExplicitRequest();
 	console.log("Probe capture runtime tests passed");
 }
 

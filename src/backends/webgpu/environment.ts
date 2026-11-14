@@ -1,7 +1,6 @@
 import type { Texture } from "../../core/Texture";
 import {
 	LightType,
-	type IrradianceProbeGrid,
 	type LightProbe,
 	type SceneLight,
 } from "../../lights";
@@ -13,10 +12,6 @@ import {
 	collectActiveLocalizedLightProbes,
 	collectGlobalLightProbes,
 } from "../../lights/runtime/lightProbeRuntime";
-import {
-	collectIrradianceProbeGrids,
-	selectActiveIrradianceProbeGrid,
-} from "../../lights/runtime/irradianceProbeGridRuntime";
 import { collectReflectionProbeEnvironment } from "../../lights/runtime/reflectionProbeRuntime";
 import {
 	ensureEnvironmentTextureEquirect,
@@ -31,7 +26,6 @@ import {
 } from "../constants";
 import type {
 	WebGPUEnvironmentState,
-	WebGPUIrradianceProbeGridUniform,
 	WebGPULocalLightProbeUniform,
 	WebGPUReflectionProbeUniform,
 	WebGPUWarning,
@@ -142,29 +136,11 @@ export function collectWebGPUEnvironment(
 		createWebGPULocalLightProbeUniform(probe)
 	);
 	const localLightProbeCount = localizedProbeUniforms.length;
-	const activeIrradianceProbeGrid = enableSH ?
-			selectActiveIrradianceProbeGrid(
-				scene.lights,
-				reflectionProbeCameraWorldPosition
-			)
-		:	null;
-	const irradianceProbeGridCount =
-		enableSH ? collectIrradianceProbeGrids(scene.lights).length : 0;
-	if (irradianceProbeGridCount > 1) {
-		warnings.push({
-			key: "webgpu-irradiance-probe-grid-extra-ignored",
-			message:
-				"WebGPU supports one active irradiance probe grid per frame; extra grids are ignored after priority selection.",
-		});
-	}
-	const irradianceProbeGrid = activeIrradianceProbeGrid ?
-			createWebGPUIrradianceProbeGridUniform(activeIrradianceProbeGrid)
-		:	null;
 
 	const hasInputSHAmbient = hasNonZeroSH(resolvedSHAmbientCoeffs);
 	const hasSHAmbient =
 		enableSH &&
-		(hasInputSHAmbient || localLightProbeCount > 0 || !!irradianceProbeGrid);
+		(hasInputSHAmbient || localLightProbeCount > 0);
 
 	return {
 		shAmbientCoeffs: resolvedSHAmbientCoeffs,
@@ -174,7 +150,6 @@ export function collectWebGPUEnvironment(
 		envSpecularTexture,
 		localLightProbeCount,
 		localLightProbes: localizedProbeUniforms,
-		irradianceProbeGrid,
 		reflectionProbeCount,
 		reflectionProbes,
 		brdfLUTTexture: IBLBRDF.getLUT(),
@@ -259,31 +234,6 @@ function cloneSHCoefficients(source: SHCoefficients): SHCoefficients {
 		result[i].b = source[i].b;
 	}
 	return result;
-}
-
-function createWebGPUIrradianceProbeGridUniform(
-	grid: IrradianceProbeGrid
-): WebGPUIrradianceProbeGridUniform {
-	const cache = grid.getRuntimeCache();
-	return {
-		id: grid.id,
-		worldToGridMatrix: cache.worldToGridMatrix.clone(),
-		dimensions: [
-			cache.dimensions.x,
-			cache.dimensions.y,
-			cache.dimensions.z,
-		],
-		invHalfExtents: [
-			cache.invHalfExtents.x,
-			cache.invHalfExtents.y,
-			cache.invHalfExtents.z,
-		],
-		blendDistance: cache.effectiveBlendDistance,
-		cellCount: cache.cellCount,
-		textureRevision: cache.textureRevision,
-		sh: grid.sh,
-		validMask: cache.validMask,
-	};
 }
 
 function hasNonZeroSH(coeffs: SHCoefficients | null): boolean {

@@ -93,7 +93,7 @@ function createFrameCase(moving, scopes = 1) {
 	};
 	const environment = {
 		shAmbientCoeffs: null, localLightProbeCount: 0, localLightProbes: [],
-		irradianceProbeGrid: null, reflectionProbeCount: 0, reflectionProbes: [],
+		reflectionProbeCount: 0, reflectionProbes: [],
 		brdfLUTTexture: null, envSpecularMaxMipLevel: 0,
 	};
 	const features = {

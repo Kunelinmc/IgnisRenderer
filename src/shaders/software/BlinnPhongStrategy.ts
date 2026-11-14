@@ -3,14 +3,13 @@ import { SH } from "../../maths/SH";
 import {
 	isShadowCastingLight,
 } from "../../lights";
-import { sampleActiveIrradianceProbeGrid } from "../../lights/runtime/irradianceProbeGridRuntime";
 import {
 	createLightContribution,
 	evaluateLightContribution,
 	type SurfacePoint,
 } from "./LightEvaluator";
 import { sRGBToLinear } from "../../maths/Common";
-import type { IVector3, SHCoefficients } from "../../maths/types";
+import type { IVector3 } from "../../maths/types";
 import type { RGB } from "../../foundation/Color";
 import type {
 	ILightingStrategy,
@@ -24,7 +23,6 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 		normal: { x: 0, y: 0, z: 1 },
 	};
 	private _lightContribution = createLightContribution();
-	private _gridSHAmbient: SHCoefficients = SH.empty();
 
 	public calculate(
 		world: IVector3,
@@ -36,22 +34,7 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 		// N and V are already normalized in LitShader
 		const N = normal;
 		const V = viewDir;
-		const baseSHAmbient = context.shAmbientCoeffs;
-		const gridAmbient =
-			context.enableSH ?
-				sampleActiveIrradianceProbeGrid(
-					context.lights,
-					world,
-					context.cameraPos,
-					this._gridSHAmbient
-				)
-			:	null;
-		const gridCoverage = gridAmbient?.coverage ?? 0;
-		const shAmbient = this._resolveSHAmbient(
-			baseSHAmbient,
-			gridAmbient?.sh ?? null,
-			gridCoverage
-		);
+		const shAmbient = context.shAmbientCoeffs;
 		const hasSHAmbient = this._hasNonZeroSH(shAmbient);
 		const useSHAmbient = context.enableSH && hasSHAmbient;
 
@@ -106,13 +89,8 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 			const lightIntensity = contrib.intensity ?? 1.0;
 
 			if (contrib.type === "ambient" || contrib.type === "irradiance") {
-				const fallbackScale = this._resolveAmbientFallbackScale(
-					useSHAmbient,
-					baseSHAmbient,
-					gridCoverage
-				);
-				if (useSHAmbient && fallbackScale <= 0) continue;
-				const intensity = lightIntensity * fallbackScale;
+				if (useSHAmbient) continue;
+				const intensity = lightIntensity;
 				ambR += sRGBToLinear(contrib.color.r / 255) * intensity / Math.PI;
 				ambG += sRGBToLinear(contrib.color.g / 255) * intensity / Math.PI;
 				ambB += sRGBToLinear(contrib.color.b / 255) * intensity / Math.PI;
@@ -177,34 +155,5 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 		}
 
 		return false;
-	}
-
-	private _resolveSHAmbient(
-		base: SHCoefficients | null,
-		grid: SHCoefficients | null,
-		gridCoverage: number
-	): SHCoefficients | null {
-		if (!grid || gridCoverage <= 0) {
-			return base;
-		}
-		if (!base || gridCoverage >= 1) {
-			return grid;
-		}
-		for (let i = 0; i < grid.length; i++) {
-			grid[i].r = base[i].r * (1 - gridCoverage) + grid[i].r * gridCoverage;
-			grid[i].g = base[i].g * (1 - gridCoverage) + grid[i].g * gridCoverage;
-			grid[i].b = base[i].b * (1 - gridCoverage) + grid[i].b * gridCoverage;
-		}
-		return grid;
-	}
-
-	private _resolveAmbientFallbackScale(
-		useSHAmbient: boolean,
-		baseSHAmbient: SHCoefficients | null,
-		gridCoverage: number
-	): number {
-		if (!useSHAmbient) return 1;
-		if (baseSHAmbient || gridCoverage <= 0 || gridCoverage >= 1) return 0;
-		return 1 - gridCoverage;
 	}
 }

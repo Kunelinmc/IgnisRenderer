@@ -176,7 +176,6 @@ struct RefractionResult {
 @group(0) @binding(3) var envSpecularSampler: sampler;
 @group(0) @binding(6) var shadowTransmittanceAtlas: texture_2d<f32>;
 @group(0) @binding(7) var brdfLUTTexture: texture_2d<f32>;
-@group(0) @binding(8) var irradianceProbeGridCoeffs: texture_2d<f32>;
 @group(0) @binding(9) var shadowComparisonSampler: sampler_comparison;
 @group(0) @binding(10) var<uniform> frameLights: FrameLightUniforms;
 @group(0) @binding(11) var<uniform> frameShadows: FrameShadowUniforms;

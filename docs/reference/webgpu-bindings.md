@@ -81,11 +81,10 @@ pass-specific.
 | `3` | `envSpecularSampler` | Filtering sampler |
 | `6` | `shadowTransmittanceAtlas` | `texture_2d<f32>` |
 | `7` | `brdfLUTTexture` | `texture_2d<f32>` |
-| `8` | `irradianceProbeGridCoeffs` | `texture_2d<f32>` |
 | `9` | `shadowComparisonSampler` | Comparison sampler |
 | `10` | `frameLights` | `FrameLightUniforms` uniform buffer (1,712 bytes) |
 | `11` | `frameShadows` | `FrameShadowUniforms` uniform buffer (6,544 bytes) |
-| `12` | `frameEnvironment` | `FrameEnvironmentUniforms` uniform buffer (4,224 bytes) |
+| `12` | `frameEnvironment` | `FrameEnvironmentUniforms` uniform buffer (4,128 bytes) |
 
 ### `environmentFrameBindGroupLayout` - `group(0)`
 

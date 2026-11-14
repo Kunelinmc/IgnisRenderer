@@ -87,7 +87,7 @@ or a backend fallback that loses sRGB decoding, now throws instead of relying on
 shader conversion. Import current shared WGSL declarations. The background
 parameters now occupy 16 bytes. The environment header places the maximum mip
 level at offset `12` and SH coefficients at offset `16`; its complete buffer is
-4,224 bytes. Remove obsolete decoding-field padding from custom environment
+4,128 bytes. Remove obsolete decoding-field padding from custom environment
 layouts. Material transform vectors retain their existing aligned layout.
 
 See the [material contract](../contracts/materials.md).

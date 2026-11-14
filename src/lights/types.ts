@@ -1,7 +1,6 @@
 import type { AmbientLight } from "./AmbientLight";
 import type { AreaLight } from "./AreaLight";
 import type { DirectionalLight } from "./DirectionalLight";
-import type { IrradianceProbeGrid } from "./IrradianceProbeGrid";
 import type { LightProbe } from "./LightProbe";
 import type { PointLight } from "./PointLight";
 import type { ReflectionProbe } from "./ReflectionProbe";
@@ -13,7 +12,6 @@ export type SceneLight =
 	| PointLight
 	| SpotLight
 	| LightProbe
-	| IrradianceProbeGrid
 	| ReflectionProbe
 	| AreaLight;
 

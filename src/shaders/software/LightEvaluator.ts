@@ -71,8 +71,6 @@ export function evaluateLightContribution(
 			return evaluateSpotLight(light, surface, contribution);
 		case LightType.LightProbe:
 			return evaluateLightProbe(light, surface, contribution);
-		case LightType.IrradianceProbeGrid:
-			return null;
 		case LightType.ReflectionProbe:
 			return null;
 		case LightType.RectArea:

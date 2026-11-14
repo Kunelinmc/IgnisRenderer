@@ -28,7 +28,6 @@ export function createWebGLSceneSamplerLayout(
 		add("uClusterIndexTexture", scene.clusteredLighting);
 		add("uClusterLightTexture", scene.clusteredLighting);
 		add("uLocalLightProbeCoeffs", scene.localLightProbes);
-		add("uIrradianceProbeGridCoeffs", scene.irradianceProbeGrid);
 		add("uEnvSpecularMap", scene.environmentSpecular);
 		add("uEnvSpecularFallbackMap", scene.environmentSpecular);
 		add("uBrdfLUT", scene.environmentSpecular);

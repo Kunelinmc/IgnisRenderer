@@ -191,7 +191,6 @@ export function resolveWebGLSceneDrawVariant(
 		{
 			lightState,
 			enableShadowTransmittance: shadowTransmittanceAvailable,
-			enableIrradianceProbeGrid: true,
 		},
 		materialGBuffer,
 		deformation,

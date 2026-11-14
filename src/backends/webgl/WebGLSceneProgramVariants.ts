@@ -57,7 +57,6 @@ export function createWebGLShaderMaterialFallbackVariant(
 			clusteredLighting: false,
 			sh: false,
 			localLightProbes: false,
-			irradianceProbeGrid: false,
 			reflectionProbes: false,
 			environmentSpecular: false,
 		},
@@ -95,7 +94,6 @@ export function createWebGLShaderMaterialFallbackVariant(
 export interface WebGLSceneVariantEnvironment {
 	lightState: WebGLLightState | null;
 	enableShadowTransmittance: boolean;
-	enableIrradianceProbeGrid: boolean;
 }
 
 export function resolveWebGLBuiltinSceneVariant(
@@ -147,10 +145,6 @@ export function resolveWebGLBuiltinSceneVariant(
 			sh: hasSH,
 			localLightProbes:
 				hasSH && (lightState?.localLightProbeCount ?? 0) > 0,
-			irradianceProbeGrid:
-				hasSH &&
-				environment.enableIrradianceProbeGrid &&
-				!!lightState?.irradianceProbeGrid,
 			reflectionProbes:
 				hasEnvironmentSpecular &&
 				(lightState?.reflectionProbeCount ?? 0) > 0,

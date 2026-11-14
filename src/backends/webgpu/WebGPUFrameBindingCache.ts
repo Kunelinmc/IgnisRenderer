@@ -11,12 +11,10 @@ import type {
 	IRenderTexture,
 	ISampler,
 } from "../types";
-import { TextureFormat } from "../../core/TextureFormat";
 import {
 	AddressMode,
 	BufferUsage,
 	FilterMode,
-	TextureUsage,
 } from "../types";
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
 import type { WebGPUResourceManager } from "./WebGPUResourceManager";
@@ -25,7 +23,6 @@ import {
 	WEBGPU_FRAME_ENVIRONMENT_UNIFORM_BYTE_SIZE,
 	WEBGPU_FRAME_LIGHT_UNIFORM_BYTE_SIZE,
 	WEBGPU_FRAME_SHADOW_UNIFORM_BYTE_SIZE,
-	WEBGPU_SH_COEFFICIENT_COUNT,
 	packFrameCameraUniformData,
 	packFrameEnvironmentUniformData,
 	packFrameLightUniformData,
@@ -46,7 +43,6 @@ import type { FramePreparationRequirements } from "../../pipeline/FrameRequireme
 import { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
 import type { WebGPUShadowRuntime } from "./WebGPUShadowRuntime";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
-import { finiteOr } from "../../maths/Misc";
 import {
 	TemporalFrameState,
 	type TemporalFrameSnapshot,
@@ -111,7 +107,7 @@ export class WebGPUFrameBindingCache {
 	};
 	private readonly _environmentInput: WebGPUFrameEnvironmentUniformInput = {
 		shAmbientCoeffs: null, localLightProbeCount: 0, localLightProbes: [],
-		irradianceProbeGrid: null, reflectionProbeCount: 0, reflectionProbes: [],
+		reflectionProbeCount: 0, reflectionProbes: [],
 		shAmbientEnabled: false, hasEnvSpecular: false,
 		hasBRDFLUT: false, envSpecularMaxMipLevel: 0,
 	};
@@ -124,12 +120,6 @@ export class WebGPUFrameBindingCache {
 	private _environmentTexture: IRenderTexture | null = null;
 	private _envSpecularTexture: IRenderTexture | null = null;
 	private _brdfLUTTexture: IRenderTexture | null = null;
-	private _irradianceProbeGridTexture: IRenderTexture | null = null;
-	private _ownedIrradianceProbeGridTexture: IRenderTexture | null = null;
-	private _irradianceProbeGridTextureRevision = -1;
-	private _irradianceProbeGridTextureCellCount = 0;
-	private _irradianceProbeGridTextureGridId: string | null = null;
-	private _irradianceProbeGridTextureData = new Float32Array(WEBGPU_SH_COEFFICIENT_COUNT * 4);
 	private _environmentSampler: ISampler | null = null;
 	private _envSpecularSampler: ISampler | null = null;
 	private _shadowComparisonSampler: ISampler | null = null;
@@ -210,7 +200,6 @@ export class WebGPUFrameBindingCache {
 		environmentInput.shAmbientCoeffs = environmentState.shAmbientCoeffs;
 		environmentInput.localLightProbeCount = environmentState.localLightProbeCount;
 		environmentInput.localLightProbes = environmentState.localLightProbes;
-		environmentInput.irradianceProbeGrid = environmentState.irradianceProbeGrid;
 		environmentInput.reflectionProbeCount = environmentState.reflectionProbeCount;
 		environmentInput.reflectionProbes = environmentState.reflectionProbes;
 		environmentInput.shAmbientEnabled = environmentState.enableSH && environmentState.hasSHAmbient;
@@ -249,7 +238,6 @@ export class WebGPUFrameBindingCache {
 		const currentBRDFLUT = environmentState.brdfLUTTexture
 			? this._textureRegistry.getTextureForSlot(environmentState.brdfLUTTexture, 0)
 			: this._textureRegistry.getWhiteTexture();
-		const currentIrradianceProbeGrid = this._getIrradianceProbeGridTexture(environmentState);
 
 		if (
 			this._shadowAtlas !== currentShadowAtlas ||
@@ -257,7 +245,6 @@ export class WebGPUFrameBindingCache {
 			this._environmentTexture !== currentEnvironment ||
 			this._envSpecularTexture !== currentEnvSpecular ||
 			this._brdfLUTTexture !== currentBRDFLUT ||
-			this._irradianceProbeGridTexture !== currentIrradianceProbeGrid ||
 			this._environmentSampler !== currentEnvironmentSampler ||
 			this._envSpecularSampler !== currentEnvSpecularSampler
 		) {
@@ -270,84 +257,9 @@ export class WebGPUFrameBindingCache {
 			this._environmentTexture = currentEnvironment;
 			this._envSpecularTexture = currentEnvSpecular;
 			this._brdfLUTTexture = currentBRDFLUT;
-			this._irradianceProbeGridTexture = currentIrradianceProbeGrid;
 			this._environmentSampler = currentEnvironmentSampler;
 			this._envSpecularSampler = currentEnvSpecularSampler;
 		}
-	}
-
-	private _getIrradianceProbeGridTexture(
-		environmentState: WebGPUEnvironmentState,
-	): IRenderTexture {
-		const grid = environmentState.irradianceProbeGrid;
-		if (!grid || grid.cellCount <= 0) {
-			return this._textureRegistry.getWhiteTexture();
-		}
-
-		const width = WEBGPU_SH_COEFFICIENT_COUNT;
-		const height = Math.max(1, Math.floor(grid.cellCount));
-		if (
-			!this._ownedIrradianceProbeGridTexture ||
-			this._ownedIrradianceProbeGridTexture.width !== width ||
-			this._ownedIrradianceProbeGridTexture.height !== height
-		) {
-			this._ownedIrradianceProbeGridTexture?.destroy();
-			this._ownedIrradianceProbeGridTexture = this._backend.createTexture({
-				width,
-				height,
-				format: TextureFormat.RGBA32Float,
-				usage: TextureUsage.TextureBinding | TextureUsage.CopyDst,
-				label: `WebGPUIrradianceProbeGridSH_${height}`,
-			});
-			this._irradianceProbeGridTextureRevision = -1;
-			this._irradianceProbeGridTextureCellCount = 0;
-			this._irradianceProbeGridTextureGridId = null;
-		}
-
-		if (
-			this._irradianceProbeGridTextureRevision !== grid.textureRevision ||
-			this._irradianceProbeGridTextureCellCount !== height ||
-			this._irradianceProbeGridTextureGridId !== grid.id
-		) {
-			const data = this._packIrradianceProbeGridTextureData(grid);
-			this._resources.writeTexture(
-				this._ownedIrradianceProbeGridTexture,
-				data as Float32Array<ArrayBuffer>,
-				{ bytesPerRow: width * 4 * 4, rowsPerImage: height },
-				{ width, height, depthOrArrayLayers: 1 },
-			);
-			this._irradianceProbeGridTextureRevision = grid.textureRevision;
-			this._irradianceProbeGridTextureCellCount = height;
-			this._irradianceProbeGridTextureGridId = grid.id;
-		}
-
-		return this._ownedIrradianceProbeGridTexture;
-	}
-
-	private _packIrradianceProbeGridTextureData(
-		grid: NonNullable<WebGPUEnvironmentState["irradianceProbeGrid"]>,
-	): Float32Array {
-		const width = WEBGPU_SH_COEFFICIENT_COUNT;
-		const height = Math.max(1, Math.floor(grid.cellCount));
-		const requiredLength = width * height * 4;
-		if (this._irradianceProbeGridTextureData.length !== requiredLength) {
-			this._irradianceProbeGridTextureData = new Float32Array(requiredLength);
-		}
-		const data = this._irradianceProbeGridTextureData;
-		data.fill(0);
-		for (let cellIndex = 0; cellIndex < height; cellIndex++) {
-			const valid = grid.validMask[cellIndex] ? 1 : 0;
-			const cellSH = grid.sh[cellIndex];
-			for (let coeffIndex = 0; coeffIndex < width; coeffIndex++) {
-				const coeff = cellSH?.[coeffIndex];
-				const base = (cellIndex * width + coeffIndex) * 4;
-				data[base] = finiteOr(coeff?.r, 0);
-				data[base + 1] = finiteOr(coeff?.g, 0);
-				data[base + 2] = finiteOr(coeff?.b, 0);
-				data[base + 3] = valid;
-			}
-		}
-		return data;
 	}
 
 	private _resolveTemporalFrameUniforms(
@@ -452,12 +364,6 @@ export class WebGPUFrameBindingCache {
 					{
 						binding: 7,
 						resource: this._brdfLUTTexture ?? this._textureRegistry.getWhiteTexture(),
-					},
-					{
-						binding: 8,
-						resource:
-							this._irradianceProbeGridTexture ??
-							this._textureRegistry.getWhiteTexture(),
 					},
 					{
 						binding: 9,
@@ -639,12 +545,6 @@ export class WebGPUFrameBindingCache {
 		this._frameEnvironmentUniformBuffer = null;
 		this._environmentBackgroundParamsBuffer?.destroy();
 		this._environmentBackgroundParamsBuffer = null;
-		this._ownedIrradianceProbeGridTexture?.destroy();
-		this._ownedIrradianceProbeGridTexture = null;
-		this._irradianceProbeGridTexture = null;
-		this._irradianceProbeGridTextureRevision = -1;
-		this._irradianceProbeGridTextureCellCount = 0;
-		this._irradianceProbeGridTextureGridId = null;
 		this._shadowAtlas = null;
 		this._shadowTransmittanceAtlas = null;
 		this._environmentTexture = null;

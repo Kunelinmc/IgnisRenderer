@@ -25,9 +25,6 @@ export class WebGLProbeSHTextures {
 	public localLightProbeSHTexture: WebGLTexture | null = null;
 	public localLightProbeSHTextureWidth = SH_COEFFICIENT_COUNT;
 	public localLightProbeSHTextureHeight = 1;
-	public irradianceProbeGridSHTexture: WebGLTexture | null = null;
-	public irradianceProbeGridSHTextureWidth = SH_COEFFICIENT_COUNT;
-	public irradianceProbeGridSHTextureHeight = 1;
 
 	private readonly _gl: WebGL2RenderingContext;
 
@@ -171,80 +168,6 @@ export class WebGLProbeSHTextures {
 		}
 	}
 
-	public uploadIrradianceProbeGridCoefficients(
-		grid: WebGLLightState["irradianceProbeGrid"] | null | undefined
-	): boolean {
-		if (!grid || grid.cellCount <= 0) {
-			return false;
-		}
-		const gl = this._gl;
-		const width = SH_COEFFICIENT_COUNT;
-		const height = Math.max(1, Math.floor(grid.cellCount));
-		const data = new Float32Array(width * height * 4);
-
-		for (let cellIndex = 0; cellIndex < height; cellIndex++) {
-			const cellSH = grid.sh[cellIndex];
-			const valid = grid.validMask[cellIndex] ? 1 : 0;
-			for (let coeffIndex = 0; coeffIndex < width; coeffIndex++) {
-				const coeff = cellSH?.[coeffIndex];
-				const base = (cellIndex * width + coeffIndex) * 4;
-				data[base] = finiteOr(coeff?.r, 0);
-				data[base + 1] = finiteOr(coeff?.g, 0);
-				data[base + 2] = finiteOr(coeff?.b, 0);
-				data[base + 3] = valid;
-			}
-		}
-
-		if (!this.irradianceProbeGridSHTexture) {
-			if (typeof gl.createTexture !== "function") {
-				logWebGLProbeSHTexturesWarning(
-					"webgl-irradiance-probe-grid-texture-create-unsupported",
-					"WebGL context does not expose createTexture(); disabling irradiance probe grid for this frame."
-				);
-				return false;
-			}
-			this.irradianceProbeGridSHTexture = gl.createTexture();
-			if (!this.irradianceProbeGridSHTexture) {
-				logWebGLProbeSHTexturesWarning(
-					"webgl-irradiance-probe-grid-texture-create-failed",
-					"Failed to create WebGL irradiance probe grid texture; disabling the grid for this frame."
-				);
-				return false;
-			}
-			this._configureNearestClampTexture(this.irradianceProbeGridSHTexture);
-		}
-
-		gl.bindTexture(gl.TEXTURE_2D, this.irradianceProbeGridSHTexture);
-		try {
-			const internalFormat =
-				(
-					gl as WebGL2RenderingContext & {
-						RGBA32F?: number;
-					}
-				).RGBA32F ?? gl.RGBA;
-			gl.texImage2D(
-				gl.TEXTURE_2D,
-				0,
-				internalFormat,
-				width,
-				height,
-				0,
-				gl.RGBA,
-				gl.FLOAT,
-				data
-			);
-			this.irradianceProbeGridSHTextureWidth = width;
-			this.irradianceProbeGridSHTextureHeight = height;
-			return true;
-		} catch (error) {
-			logWebGLProbeSHTexturesWarning(
-				"webgl-irradiance-probe-grid-texture-upload-failed",
-				`WebGL irradiance probe grid texture upload failed; disabling the grid for this frame (${String(error)})`
-			);
-			return false;
-		}
-	}
-
 	public destroy(): void {
 		const gl = this._gl;
 		if (this.shAmbientTexture) {
@@ -254,10 +177,6 @@ export class WebGLProbeSHTextures {
 		if (this.localLightProbeSHTexture) {
 			gl.deleteTexture(this.localLightProbeSHTexture);
 			this.localLightProbeSHTexture = null;
-		}
-		if (this.irradianceProbeGridSHTexture) {
-			gl.deleteTexture(this.irradianceProbeGridSHTexture);
-			this.irradianceProbeGridSHTexture = null;
 		}
 	}
 

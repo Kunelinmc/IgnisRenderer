@@ -224,7 +224,6 @@ export interface WebGPUEnvironmentState {
 	envSpecularTexture: Texture | null;
 	localLightProbeCount: number;
 	localLightProbes: WebGPULocalLightProbeUniform[];
-	irradianceProbeGrid: WebGPUIrradianceProbeGridUniform | null;
 	reflectionProbeCount: number;
 	reflectionProbes: WebGPUReflectionProbeUniform[];
 	brdfLUTTexture: Texture | null;
@@ -241,18 +240,6 @@ export interface WebGPULocalLightProbeUniform {
 	blendDistance: number;
 	priority: number;
 	sh: SHCoefficients;
-}
-
-export interface WebGPUIrradianceProbeGridUniform {
-	id: string;
-	worldToGridMatrix: Matrix4;
-	dimensions: Vec3Tuple;
-	invHalfExtents: Vec3Tuple;
-	blendDistance: number;
-	cellCount: number;
-	textureRevision: number;
-	sh: SHCoefficients[];
-	validMask: Uint8Array;
 }
 
 export interface WebGPUReflectionProbeUniform {
@@ -371,7 +358,6 @@ export interface WebGPUFrameEnvironmentUniformInput {
 	shAmbientCoeffs: SHCoefficients | null;
 	localLightProbeCount: number;
 	localLightProbes: WebGPULocalLightProbeUniform[];
-	irradianceProbeGrid: WebGPUIrradianceProbeGridUniform | null;
 	reflectionProbeCount: number;
 	reflectionProbes: WebGPUReflectionProbeUniform[];
 	shAmbientEnabled: boolean;

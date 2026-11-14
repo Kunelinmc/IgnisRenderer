@@ -108,13 +108,7 @@ function createBinderHost(gl, pointLights) {
 			localLightProbeSHTexture: null,
 			localLightProbeSHTextureWidth: 1,
 			localLightProbeSHTextureHeight: 1,
-			irradianceProbeGridSHTexture: null,
-			irradianceProbeGridSHTextureWidth: 1,
-			irradianceProbeGridSHTextureHeight: 1,
 			uploadLocalLightProbeCoefficients() {
-				return false;
-			},
-			uploadIrradianceProbeGridCoefficients() {
 				return false;
 			},
 		},

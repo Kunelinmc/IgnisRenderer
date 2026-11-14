@@ -301,8 +301,8 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
 - WebGL custom target readback must preserve native bottom-left row order and
   must return bytes matching the exact attachment format.
 - SH lighting must use 16 coefficients. Global SH coefficients must use the
-  scene uniform array; localized light-probe and irradiance-grid coefficients
-  must use texture-backed data for shader sampling.
+  scene uniform array; localized light-probe coefficients must use
+  texture-backed data for shader sampling.
 - Clustered lighting must be CPU-built with tile and z-slice partitioning.
 - Clustered lighting must provide runtime fallback to legacy forward lighting
   when requirements are not met.
@@ -428,10 +428,9 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   `WebGLCapabilityError` with code `material-texture-unit-overflow`; the message
   must include required, available, and all active sampler names.
 - The exact `WebGLSceneSamplerLayout` must be the sole authority for scene
-  texture-unit allocation. WebGL must not disable shadow transmittance,
-  irradiance-probe grids, or material samplers through
-  fixed texture-unit thresholds. An over-budget exact layout must fail rather
-  than remove an active sampler.
+  texture-unit allocation. WebGL must not disable shadow transmittance or
+  material samplers through fixed texture-unit thresholds. An over-budget
+  exact layout must fail rather than remove an active sampler.
 - WebGL frame preparation must prepare every exact built-in scene variant that
   a frame may select, including both available and temporarily unavailable
   shadow-transmittance sampling states. Resolving an unprepared exact variant
