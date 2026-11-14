@@ -102,7 +102,6 @@ function createSoftwareFrameContext(options = {}) {
 		},
 		shCoeffs: [],
 		shAmbientCoeffs: [],
-		worldMatrix: null,
 		incremental: createIncremental(width, height),
 		transient: new Map(),
 	};

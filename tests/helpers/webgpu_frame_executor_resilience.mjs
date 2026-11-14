@@ -31,6 +31,7 @@ function preparePacketFixture(packet) {
 
 function createPreparedSceneFixture() {
 	return new Proxy({
+		environment: { backgroundEnabled: false, backgroundTexture: null },
 		camera: {},
 		shadowPlan: EMPTY_SHADOW_FRAME_PLAN,
 		particleSystems: [],
@@ -268,7 +269,6 @@ function createFrameContext(width, height) {
 			enableSH: false,
 			enableShadows: false,
 			enableReflection: false,
-			enableEnvironment: false,
 			enableOIT: false,
 			enableClusteredLighting: false,
 			warnings: [],
@@ -282,7 +282,6 @@ function createFrameContext(width, height) {
 		scene: createPreparedSceneFixture(),
 		shCoeffs: [],
 		shAmbientCoeffs: [],
-		worldMatrix: {},
 		transient: new Map(),
 	};
 }

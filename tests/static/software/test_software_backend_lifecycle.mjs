@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { SoftwareBackend } from "../../../src/backends/software/SoftwareBackend.ts";
 import { createSoftwareFrameView } from "../../../src/backends/software/SoftwareFrameView.ts";
 import { Camera } from "../../../src/cameras/Camera.ts";
-import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 
 function createBackend(events = []) {
@@ -27,7 +26,6 @@ function createContext(backend, options = {}) {
 			enableSH: false,
 			enableShadows: false,
 			enableReflection: false,
-			enableEnvironment: false,
 			warnings: [],
 		},
 		postProcess: createResolvedPostProcess({
@@ -54,7 +52,6 @@ function createContext(backend, options = {}) {
 		},
 		shCoeffs: zeroSH,
 		shAmbientCoeffs: zeroSH,
-		worldMatrix: Matrix4.identity(),
 		incremental: {
 			enabled: false,
 			forceFullFrame: true,

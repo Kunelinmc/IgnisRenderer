@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { Camera } from "../../../src/cameras/Camera.ts";
 import { Texture } from "../../../src/core/Texture.ts";
-import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { SH } from "../../../src/maths/SH.ts";
 import { resolveFeatureState } from "../../../src/pipeline/FeatureResolver.ts";
 import {
@@ -95,7 +94,6 @@ function createContext(particleSystems = []) {
 		scene,
 		shCoeffs: SH.empty(),
 		shAmbientCoeffs: SH.empty(),
-		worldMatrix: Matrix4.identity(),
 		incremental: {
 			enabled: false,
 			forceFullFrame: true,

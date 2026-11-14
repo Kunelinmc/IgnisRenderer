@@ -163,7 +163,6 @@ export interface WebGPUFeatureState {
 	enableSH: boolean;
 	enableShadows: boolean;
 	enableReflection: boolean;
-	enableEnvironment: boolean;
 	enableOIT: boolean;
 	enableClusteredLighting: boolean;
 	clusteredLightingOptions?: ClusteredLightingOptions;

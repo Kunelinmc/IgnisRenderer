@@ -235,7 +235,6 @@ function createWebGPUFrameContextForTemporalTest(
 		scene: frame,
 		shCoeffs: SH.empty(),
 		shAmbientCoeffs: SH.empty(),
-		worldMatrix: Matrix4.identity(),
 		incremental: {
 			enabled: false,
 			forceFullFrame: true,

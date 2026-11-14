@@ -551,6 +551,15 @@ when changing multiple settings so the scene is invalidated once.
 `ShadowFramePlan` directly. There is no compatibility adapter or transition
 window.
 
+## Scene Transforms and Environment Background
+
+`Renderer.features.worldMatrix` and `FrameContext.worldMatrix` are removed.
+Author scene-wide transforms on a parent scene node instead.
+`Renderer.features.enableEnvironment` and
+`RendererFeatureRequest.enableEnvironment` are removed. Use
+`scene.environment.backgroundEnabled` to control background rendering;
+`scene.environment.lightingEnabled` continues to control environment lighting.
+
 ## Material Unlit Shading
 
 `Renderer.features.enableLighting` and `RendererFeatureRequest.enableLighting`

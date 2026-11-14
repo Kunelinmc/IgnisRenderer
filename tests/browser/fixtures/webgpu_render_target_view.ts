@@ -11,7 +11,7 @@ export function setup() {
 		const { TextureFormat } = await import("../../../src/core/TextureFormat.ts");
 		const renderer = new Renderer(canvas, new WebGPUBackend(), new Camera());
 		defer(() => renderer.destroy());
-		renderer.features.enableEnvironment = false;
+		renderer.scene.environment.backgroundEnabled = false;
 		try {
 			await renderer.initialize();
 		} catch {

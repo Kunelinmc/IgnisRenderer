@@ -204,7 +204,6 @@ async function createExecutorHarness(postProcessRequest = {
 			enableSH: false,
 			enableShadows: false,
 			enableReflection: false,
-			enableEnvironment: false,
 			enableOIT: false,
 			enableClusteredLighting: false,
 			warnings: [],
@@ -213,6 +212,7 @@ async function createExecutorHarness(postProcessRequest = {
 		postProcess: createResolvedPostProcess(postProcessRequest, "webgpu"),
 		shadowMaps: new Map(),
 		scene: {
+			environment: { backgroundEnabled: false, backgroundTexture: null },
 			particleSystems: [],
 			opaquePackets: [],
 			transparentPackets: [],
@@ -223,7 +223,6 @@ async function createExecutorHarness(postProcessRequest = {
 		},
 		shCoeffs: [],
 		shAmbientCoeffs: [],
-		worldMatrix: {},
 		incremental: {
 			enabled: false,
 			forceFullFrame: true,
@@ -618,7 +617,6 @@ async function testWarmupHintsFollowPlanPostProcessPasses() {
 		{
 			materials: [],
 			shaderMaterials: [],
-			enableEnvironment: false,
 			enableShadows: false,
 			enableParticles: false,
 			includePostProcess: true,
@@ -641,7 +639,6 @@ async function testWarmupHintsFollowPlanPostProcessPasses() {
 		{
 			materials: [],
 			shaderMaterials: [],
-			enableEnvironment: false,
 			enableShadows: false,
 			enableParticles: false,
 			includePostProcess: true,

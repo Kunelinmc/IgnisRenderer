@@ -82,13 +82,17 @@ function testEnvironmentRendererOwnsProgramAndDrawLifecycle() {
 			},
 		},
 	};
+	context.scene.environment.backgroundEnabled = false;
+	assert.equal(renderer.render(context, {}, [gl.COLOR_ATTACHMENT0]), false);
+	assert.equal(gl.calls.drawArrays ?? 0, 0);
+	context.scene.environment.backgroundEnabled = true;
 	const rendered = renderer.render(context);
 	assert.equal(rendered, true);
 	assert.equal(gl.calls.drawArrays, 1);
 	assert.deepEqual(gl.calls.depthMask, [false, true]);
 	assert.equal(renderer.collectWarmupTasks({
 		context: {},
-		plan: { enableEnvironment: true },
+		plan: { hasEnvironmentBackground: true },
 		postProcessPlan: null,
 	}).length, 1);
 	const dirtyRects = [
@@ -117,7 +121,7 @@ function testEnvironmentRendererOwnsProgramAndDrawLifecycle() {
 			gl.scissor(x, viewportHeight - y - height, width, height),
 		renderEnvironment: (frame) => renderer.render(frame),
 	});
-	scene.renderEnvironment({ ...context, features: { enableEnvironment: true } });
+	scene.renderEnvironment({ ...context, features: {} });
 	assert.deepEqual(draws, [
 		{ x: 2, y: 24, width: 4, height: 5 },
 		{ x: 40, y: 16, width: 6, height: 4 },
@@ -419,14 +423,13 @@ async function testWebGLBackendWarmupDelegatesToCoordinator() {
 			enableSH: false,
 			enableShadows: false,
 			enableReflection: false,
-			enableEnvironment: false,
 			warnings: [],
 		},
 		postProcess: createResolvedPostProcess(),
 		shadowMaps: new Map(),
 		scene: {
 			camera: {},
-			environment: null,
+			environment: { backgroundEnabled: false, backgroundTexture: null },
 			particleSystems: [],
 			opaquePackets: [],
 			transparentPackets: [],
@@ -437,7 +440,6 @@ async function testWebGLBackendWarmupDelegatesToCoordinator() {
 		},
 		shCoeffs: [],
 		shAmbientCoeffs: [],
-		worldMatrix: Matrix4.identity(),
 		transient: new Map(),
 	});
 	assert.equal(report.total, 3);

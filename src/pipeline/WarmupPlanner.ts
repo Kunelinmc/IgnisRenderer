@@ -17,7 +17,7 @@ export type WarmupSceneTargetMode = "single" | "mrt";
 export interface WarmupPlan {
 	materials: Material[];
 	shaderMaterials: ShaderMaterial[];
-	enableEnvironment: boolean;
+	hasEnvironmentBackground: boolean;
 	enableShadows: boolean;
 	enableParticles: boolean;
 	postProcessPasses: string[];
@@ -52,8 +52,7 @@ export function buildWarmupPlan(
 	return {
 		materials,
 		shaderMaterials,
-		enableEnvironment:
-			context.features.enableEnvironment &&
+		hasEnvironmentBackground:
 			context.scene.environment.backgroundEnabled &&
 			!!context.scene.environment.backgroundTexture,
 		enableShadows:

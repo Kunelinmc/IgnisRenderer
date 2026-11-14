@@ -140,7 +140,7 @@ async function bootDemo(): Promise<DemoState> {
 		const renderer = await createRenderer(canvas, camera);
 		renderer.setScene(scene);
 		renderer.features.enableShadows = false;
-		renderer.features.enableEnvironment = false;
+		renderer.scene.environment.backgroundEnabled = false;
 		renderer.features.enableReflection = false;
 		renderer.features.enableOIT = false;
 		renderer.features.enableClusteredLighting = settings.clustered;

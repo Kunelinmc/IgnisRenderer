@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 
 import { Renderer } from "../../../src/rendering/Renderer.ts";
 import { Camera } from "../../../src/cameras/Camera.ts";
-import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { ParticleSystem } from "../../../src/particles/ParticleSystem.ts";
 import {
 	PARTICLE_SIM_DELTA_TIME_SECONDS_KEY,
@@ -100,10 +99,9 @@ async function run() {
 		};
 		const camera = new Camera();
 		const renderer = new Renderer(canvas, backend, camera);
-		renderer.features.worldMatrix = Matrix4.identity();
 		renderer.postProcess.getPass("gamma")?.disable();
 		renderer.features.enableReflection = false;
-		renderer.features.enableEnvironment = false;
+		renderer.scene.environment.backgroundEnabled = false;
 
 		const system = new ParticleSystem({
 			position: { x: 0, y: 0, z: -5 },

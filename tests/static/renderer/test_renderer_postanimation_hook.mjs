@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { Camera } from "../../../src/cameras/Camera.ts";
 import { Renderer } from "../../../src/rendering/Renderer.ts";
-import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { Node } from "../../../src/core/Node.ts";
 import { PhysicsSystem } from "../../../src/physics/PhysicsSystem.ts";
 import {
@@ -71,7 +70,6 @@ async function testPostAnimationHookOrder() {
 		};
 		const camera = new Camera();
 		const renderer = new Renderer(canvas, backend, camera);
-		renderer.features.worldMatrix = Matrix4.identity();
 		renderer.postProcess.getPass("gamma")?.disable();
 
 		renderer.on("postanimation", () => {

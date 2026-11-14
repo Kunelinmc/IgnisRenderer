@@ -7,7 +7,6 @@ import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 function createContext(overrides = {}) {
 	return {
 		features: {
-			enableEnvironment: false,
 		},
 		scene: {
 			particleSystems: [],

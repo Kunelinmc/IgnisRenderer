@@ -25,7 +25,6 @@ function createContext(overrides = {}) {
 	return {
 		framePlan: { stageOrder: [], backendPasses: [] },
 		features: {
-			enableEnvironment: false,
 		},
 		scene: {
 			particleSystems: [],
@@ -520,7 +519,7 @@ function testPartialFramePlansEnvironmentAfterClear() {
 	const events = [];
 	const runtime = createRuntime(events);
 	const context = createContext({
-		features: { enableEnvironment: true },
+		features: {},
 		scene: {
 			particleSystems: [],
 			environment: { backgroundEnabled: true, backgroundTexture: {} },
@@ -570,7 +569,6 @@ function testWholeFrameCacheTracksTransmissionOrderAndPlannerState() {
 	]);
 	assert.strictEqual(frame(), reordered);
 
-	context.features.enableEnvironment = true;
 	context.scene.environment.backgroundEnabled = true;
 	context.scene.environment.backgroundTexture = {};
 	const background = frame();

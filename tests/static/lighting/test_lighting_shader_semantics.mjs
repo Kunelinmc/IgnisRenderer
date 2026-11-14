@@ -21,7 +21,6 @@ function createContext(overrides = {}) {
 		renderer: { shadowMaps: new Map() },
 		cameraPos: { x: 0, y: 0, z: 1 },
 		lights: [],
-		worldMatrix: undefined,
 		shAmbientCoeffs: null,
 		enableShadows: false,
 		enableSH: true,

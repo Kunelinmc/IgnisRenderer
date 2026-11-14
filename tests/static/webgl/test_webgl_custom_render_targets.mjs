@@ -205,7 +205,6 @@ function createContext(passExecute, targetDescriptor = {}) {
 		scene: {},
 		shCoeffs: [],
 		shAmbientCoeffs: [],
-		worldMatrix: {},
 		incremental: { enabled: false, forceFullFrame: true, dirtyRects: [] },
 		transient: new Map(),
 	};

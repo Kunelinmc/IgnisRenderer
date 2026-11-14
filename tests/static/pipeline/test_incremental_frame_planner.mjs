@@ -9,7 +9,6 @@ function createFeatures(overrides = {}) {
 	return {
 		enableSH: false,
 		enableReflection: false,
-		enableEnvironment: false,
 		enableClusteredLighting: false,
 		warnings: [],
 		...overrides,

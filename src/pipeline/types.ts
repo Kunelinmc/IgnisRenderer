@@ -223,7 +223,6 @@ export interface FrameContext {
 	readonly scene: PreparedScene;
 	readonly shCoeffs: SHCoefficients;
 	readonly shAmbientCoeffs: SHCoefficients;
-	readonly worldMatrix: Matrix4;
 	readonly incremental: IncrementalFrameContext;
 	/** Pass-specific transient data */
 	readonly transient: TransientStore;
@@ -327,7 +326,6 @@ export interface FeatureWarning {
 export interface RendererFeatureRequest {
 	enableSH?: boolean;
 	enableReflection?: boolean;
-	enableEnvironment?: boolean;
 	enableOIT?: boolean;
 	enableClusteredLighting?: boolean;
 	clusteredLightingOptions?: ClusteredLightingOptions;

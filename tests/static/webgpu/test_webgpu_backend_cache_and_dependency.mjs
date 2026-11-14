@@ -296,7 +296,6 @@ function createFrameContext(overrides = {}) {
 			enableSH: false,
 			enableShadows: false,
 			enableReflection: false,
-			enableEnvironment: false,
 			warnings: [],
 		},
 		postProcess: createResolvedPostProcess({
@@ -316,7 +315,6 @@ function createFrameContext(overrides = {}) {
 		},
 		shCoeffs: [],
 		shAmbientCoeffs: [],
-		worldMatrix: {},
 		transient: new Map(),
 		...overrides,
 	};

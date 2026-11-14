@@ -105,7 +105,6 @@ function createFrameContext() {
 		},
 		shCoeffs: [],
 		shAmbientCoeffs: [],
-		worldMatrix: null,
 		incremental: {
 			enabled: false,
 			forceFullFrame: true,

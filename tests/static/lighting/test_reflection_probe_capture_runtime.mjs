@@ -5,7 +5,6 @@ import { Texture } from "../../../src/core/Texture.ts";
 import { Logger } from "../../../src/foundation/Logger.ts";
 import { ReflectionProbe } from "../../../src/lights/ReflectionProbe.ts";
 import { IBLPrefilter } from "../../../src/lights/ibl/IBLPrefilter.ts";
-import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { ProbeCaptureRuntime } from "../../../src/lights/runtime/ProbeCaptureRuntime.ts";
 import { renderDirtyReasonToMask } from "../../../src/pipeline/incremental.ts";
 import { Renderer } from "../../../src/rendering/Renderer.ts";
@@ -593,7 +592,6 @@ async function testRendererCaptureStageRunsWithoutReflectivePackets() {
 			},
 		};
 		const renderer = new Renderer(canvas, backend, camera);
-		renderer.features.worldMatrix = Matrix4.identity();
 		renderer.postProcess.getPass("gamma")?.disable();
 
 		const capturedProbe = renderer.scene.add(

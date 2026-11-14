@@ -10,7 +10,7 @@ export function setup() {
 		const { TextureFormat } = await import("../../../src/core/TextureFormat.ts");
 		const renderer = new Renderer(canvas, new WebGLBackend(), new Camera());
 		defer(() => renderer.destroy());
-		renderer.features.enableEnvironment = false;
+		renderer.scene.environment.backgroundEnabled = false;
 		await renderer.initialize();
 		const target = renderer.renderTargets.create({
 			size: { mode: "fixed", width: 4, height: 4 },

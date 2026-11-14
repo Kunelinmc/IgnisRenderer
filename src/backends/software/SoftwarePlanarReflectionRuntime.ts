@@ -147,7 +147,6 @@ export class SoftwarePlanarReflectionRuntime {
 		};
 
 		if (
-			frame.features.enableEnvironment &&
 			environment.backgroundEnabled &&
 			environment.backgroundTexture
 		) {

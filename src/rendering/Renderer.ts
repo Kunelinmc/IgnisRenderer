@@ -24,10 +24,7 @@ import {
 	type RendererFeatureResolvedOptions,
 } from "../pipeline/types";
 
-export type RendererFeatures = RendererFeatureFlags &
-	RendererFeatureResolvedOptions & {
-		worldMatrix: Matrix4;
-	};
+export type RendererFeatures = RendererFeatureFlags & RendererFeatureResolvedOptions;
 
 export type RenderFrameResult =
 	| { rendered: true; incremental: IncrementalFrameStatus }
@@ -72,7 +69,6 @@ import {
 } from "./FrameCoordinator";
 import type { SHCoefficients } from "../maths/types";
 import { refreshReflectionProbeCaches } from "../lights/runtime/reflectionProbeRuntime";
-import { Matrix4 } from "../maths/Matrix4";
 import { SH } from "../maths/SH";
 import { Texture } from "../core/Texture";
 import { Material } from "../materials/Material";
@@ -247,13 +243,11 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		const requestedFeatures: RendererFeatures = {
 			enableSH: false,
 			enableReflection: true,
-			enableEnvironment: true,
 			enableOIT: false,
 			enableClusteredLighting: false,
 			clusteredLightingOptions: {},
 			enableOcclusionCulling: false,
 			occlusionCullingOptions: {},
-			worldMatrix: Matrix4.identity(),
 		};
 		this.features = new Proxy(requestedFeatures, {
 			set: (target, property, value) => {

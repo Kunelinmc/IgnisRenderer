@@ -140,10 +140,9 @@ async function testShakeAppliedBeforeFrameAndRestoredAfterFrame() {
 		camera.updateMatrices();
 
 		const renderer = new Renderer(TEST_CANVAS, backend, camera);
-		renderer.features.worldMatrix = Matrix4.identity();
 		renderer.postProcess.getPass("gamma")?.disable();
 		renderer.features.enableReflection = false;
-		renderer.features.enableEnvironment = false;
+		renderer.scene.environment.backgroundEnabled = false;
 
 		const plugin = new CameraShakePlugin({
 			defaultIntensity: 1,
@@ -192,10 +191,9 @@ async function testOnDemandSchedulingStaysAwakeWhileShakeIsActive() {
 		const backend = new StubBackend("on-demand");
 		const camera = new Camera();
 		const renderer = new Renderer(TEST_CANVAS, backend, camera);
-		renderer.features.worldMatrix = Matrix4.identity();
 		renderer.postProcess.getPass("gamma")?.disable();
 		renderer.features.enableReflection = false;
-		renderer.features.enableEnvironment = false;
+		renderer.scene.environment.backgroundEnabled = false;
 
 		const plugin = new CameraShakePlugin();
 		plugin.attach(renderer);
@@ -230,10 +228,9 @@ async function testStackedShakesKeepIndependentEnvelopes() {
 		const backend = new StubBackend("always");
 		const camera = new Camera();
 		const renderer = new Renderer(TEST_CANVAS, backend, camera);
-		renderer.features.worldMatrix = Matrix4.identity();
 		renderer.postProcess.getPass("gamma")?.disable();
 		renderer.features.enableReflection = false;
-		renderer.features.enableEnvironment = false;
+		renderer.scene.environment.backgroundEnabled = false;
 
 		const plugin = new CameraShakePlugin({
 			defaultFalloffExponent: 2,
@@ -301,10 +298,9 @@ async function testTraumaAccumulatesDecaysAndUsesExponent() {
 		const backend = new StubBackend("always");
 		const camera = new Camera();
 		const renderer = new Renderer(TEST_CANVAS, backend, camera);
-		renderer.features.worldMatrix = Matrix4.identity();
 		renderer.postProcess.getPass("gamma")?.disable();
 		renderer.features.enableReflection = false;
-		renderer.features.enableEnvironment = false;
+		renderer.scene.environment.backgroundEnabled = false;
 
 		const plugin = new CameraShakePlugin({
 			defaultFrequencyHz: 1,
@@ -357,10 +353,9 @@ async function testTraumaKeepsOnDemandRendererAwakeUntilDecayCompletes() {
 		const backend = new StubBackend("on-demand");
 		const camera = new Camera();
 		const renderer = new Renderer(TEST_CANVAS, backend, camera);
-		renderer.features.worldMatrix = Matrix4.identity();
 		renderer.postProcess.getPass("gamma")?.disable();
 		renderer.features.enableReflection = false;
-		renderer.features.enableEnvironment = false;
+		renderer.scene.environment.backgroundEnabled = false;
 
 		const plugin = new CameraShakePlugin({
 			defaultTraumaDecayRatePerSecond: 2,
@@ -398,10 +393,9 @@ async function testOrbitCameraShakeDoesNotDriftPoseBetweenFrames() {
 		camera.updatePosition();
 
 		const renderer = new Renderer(TEST_CANVAS, backend, camera);
-		renderer.features.worldMatrix = Matrix4.identity();
 		renderer.postProcess.getPass("gamma")?.disable();
 		renderer.features.enableReflection = false;
-		renderer.features.enableEnvironment = false;
+		renderer.scene.environment.backgroundEnabled = false;
 
 		const plugin = new CameraShakePlugin({
 			defaultIntensity: 1,
@@ -462,10 +456,9 @@ async function testOrbitRotationShakeRotatesAroundPivot() {
 		camera.updatePosition();
 
 		const renderer = new Renderer(TEST_CANVAS, backend, camera);
-		renderer.features.worldMatrix = Matrix4.identity();
 		renderer.postProcess.getPass("gamma")?.disable();
 		renderer.features.enableReflection = false;
-		renderer.features.enableEnvironment = false;
+		renderer.scene.environment.backgroundEnabled = false;
 
 		const plugin = new CameraShakePlugin({
 			defaultIntensity: 1,

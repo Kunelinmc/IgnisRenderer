@@ -408,7 +408,6 @@ function testFeatureGate() {
 		{
 			enableSH: true,
 			enableReflection: true,
-			enableEnvironment: true,
 		},
 		{
 			sh: false,
@@ -424,8 +423,7 @@ function testFeatureGate() {
 	assert.equal("enableLighting" in featureState, false);
 	assert.equal(featureState.enableSH, false);
 	assert.equal(featureState.enableReflection, false);
-	assert.equal(featureState.enableEnvironment, false);
-	assert.ok(featureState.warnings.length >= 3);
+	assert.equal(featureState.warnings.length, 2);
 }
 
 async function testSceneSourcesPreserveSourceLocations() {

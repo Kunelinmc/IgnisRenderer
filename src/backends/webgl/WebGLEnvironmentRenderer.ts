@@ -88,7 +88,7 @@ export class WebGLEnvironmentRenderer implements WebGLProgramWarmupContributor {
 	public collectWarmupTasks(
 		request: WebGLProgramWarmupRequest,
 	): readonly WebGLProgramWarmupTask[] {
-		return request.plan.enableEnvironment
+		return request.plan.hasEnvironmentBackground
 			? [
 					{
 						label: "WebGLEnvironmentProgram",
@@ -104,13 +104,14 @@ export class WebGLEnvironmentRenderer implements WebGLProgramWarmupContributor {
 		framebuffer: WebGLFramebuffer | null = this._host.targets._sceneFramebuffer,
 		drawBuffers?: number[],
 	): boolean {
-		const backgroundTexture = context.scene.environment.backgroundTexture;
+		const environment = context.scene.environment;
+		if (!environment.backgroundEnabled) return false;
+		const backgroundTexture = environment.backgroundTexture;
 		const vao = this._host.getFullscreenVao();
 		if (!backgroundTexture || !vao) return false;
 		const program = this._program.tryGet();
 		if (!program) return false;
 
-		const environment = context.scene.environment;
 		const resolved = this._host.textures.getEnvironmentTexture(backgroundTexture);
 		const view = context.scene.camera.viewMatrix.elements;
 		const isOrthographic = context.scene.camera.type === CameraType.Orthographic;

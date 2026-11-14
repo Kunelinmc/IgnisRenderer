@@ -40,7 +40,6 @@ function createContext(backend, camera, packetsByStage = {}) {
 			enableSH: false,
 			enableShadows: false,
 			enableReflection: false,
-			enableEnvironment: false,
 			warnings: [],
 		},
 		postProcess: createResolvedPostProcess({
@@ -68,7 +67,6 @@ function createContext(backend, camera, packetsByStage = {}) {
 		},
 		shCoeffs: zeroSH,
 		shAmbientCoeffs: zeroSH,
-		worldMatrix: Matrix4.identity(),
 		incremental: {
 			enabled: false,
 			forceFullFrame: true,

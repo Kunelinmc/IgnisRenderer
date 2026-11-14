@@ -20,7 +20,7 @@ function createScene({ background = false, secondMesh = false } = {}) {
 		getBoundingClientRect: () => ({ width: WIDTH, height: HEIGHT }),
 	}, backend, camera);
 	renderer.features.enableReflection = false;
-	renderer.features.enableEnvironment = background;
+	renderer.scene.environment.backgroundEnabled = background;
 	if (background) {
 		renderer.scene.environment.backgroundTexture = new Texture({
 			width: 1, height: 1, data: new Uint8Array([0, 0, 255, 255]),
@@ -150,9 +150,31 @@ async function testEnabledPostProcessReconstructsCompleteScene() {
 	}
 }
 
+async function testEnvironmentBackgroundToggleInvalidatesPixels() {
+	const { renderer, pixels } = createScene({ background: true });
+	try {
+		renderer.postProcess.getPass("tonemap").disable();
+		renderer.postProcess.getPass("gamma").disable();
+		await renderer.renderFrame(0);
+		const visible = pixels();
+		assert.deepEqual(Array.from(visible.slice(0, 3)), [0, 0, 255]);
+		renderer.scene.environment.backgroundEnabled = false;
+		const hidden = await renderer.renderFrame(16);
+		assert.equal(hidden.rendered, true);
+		assert.deepEqual(Array.from(pixels().slice(0, 3)), [0, 0, 0]);
+		assert.equal(renderer.scene.environment.lightingEnabled, true);
+		renderer.scene.environment.backgroundEnabled = true;
+		await renderer.renderFrame(32);
+		assert.deepEqual(pixels(), visible);
+	} finally {
+		await renderer.destroy();
+	}
+}
+
 const originalWindow = globalThis.window;
 try {
 	globalThis.window = { devicePixelRatio: 1 };
+	await testEnvironmentBackgroundToggleInvalidatesPixels();
 	await testEnabledPostProcessReconstructsCompleteScene();
 	await testPostProcessReplayPreservesScenePixels();
 	await testGlobalExposureAndLocalEditMatchFullReplay();

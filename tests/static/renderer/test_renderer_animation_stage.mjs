@@ -134,11 +134,10 @@ async function run() {
 		const camera = new Camera();
 		camera.position.set(0, 0, 5);
 		const renderer = new Renderer(canvas, backend, camera);
-		renderer.features.worldMatrix = Matrix4.identity();
 		renderer.postProcess.getPass("tonemap")?.disable();
 		renderer.postProcess.getPass("gamma")?.disable();
 		renderer.features.enableReflection = false;
-		renderer.features.enableEnvironment = false;
+		renderer.scene.environment.backgroundEnabled = false;
 
 		const meshInstance = renderer.scene.add(
 			new MeshInstance({

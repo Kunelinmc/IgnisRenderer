@@ -132,7 +132,6 @@ async function testWebGPUEnvironmentCombinationsRegression() {
 				enableGamma: true,
 				enableSH: scenario.enableSH,
 				enableShadows: true,
-				enableEnvironment: true,
 			},
 			caps,
 			"webgpu"
@@ -146,7 +145,6 @@ async function testWebGPUEnvironmentCombinationsRegression() {
 				scene,
 				shCoeffs: SH.empty(),
 				shAmbientCoeffs: scenario.enableSH ? shAmbient : SH.empty(),
-				worldMatrix: Matrix4.identity(),
 				transient: new Map(),
 			},
 			createMainFrameOptions()
@@ -183,7 +181,6 @@ async function testScopedSceneTargetModesUseDistinctBindings() {
 		{
 			enableGamma: true,
 			enableShadows: true,
-			enableEnvironment: true,
 			enableClusteredLighting: true,
 		},
 		{
@@ -281,7 +278,6 @@ async function testSampleCountOverrideUsesSingleSampleCapturePipelines() {
 		{
 			enableGamma: true,
 			enableShadows: false,
-			enableEnvironment: true,
 			enableClusteredLighting: true,
 		},
 		{
@@ -355,7 +351,6 @@ async function testFrameBindingReplacementDestroysOldBinding() {
 	const features = resolveFeatureState(
 		{
 			enableGamma: true,
-			enableEnvironment: true,
 		},
 		{
 			sh: false,

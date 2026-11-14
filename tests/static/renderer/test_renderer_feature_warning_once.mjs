@@ -75,7 +75,7 @@ async function run() {
 		const renderer = new Renderer(canvas, backend, camera);
 		assert.equal("enableShadows" in renderer.features, false);
 		assert.equal("enableLighting" in renderer.features, false);
-		renderer.features.enableEnvironment = false;
+		renderer.scene.environment.backgroundEnabled = false;
 		renderer.postProcess.getPass("gamma")?.disable();
 
 		await renderer.renderFrame(0);
@@ -89,7 +89,7 @@ async function run() {
 		const shadowBackend = new StubBackend();
 		const shadowRenderer = new Renderer(canvas, shadowBackend, new Camera());
 		shadowRenderer.features.enableReflection = false;
-		shadowRenderer.features.enableEnvironment = false;
+		shadowRenderer.scene.environment.backgroundEnabled = false;
 		shadowRenderer.postProcess.getPass("gamma")?.disable();
 		const spot = shadowRenderer.scene.add(new SpotLight());
 		const definition = shadowRenderer.scene.shadows.createCascaded();

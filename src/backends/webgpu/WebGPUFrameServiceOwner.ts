@@ -288,7 +288,7 @@ export class WebGPUFrameServiceOwner {
 					yieldIfNeeded: () => yieldController.yieldIfNeeded(),
 				}));
 			}
-			if (plan.enableEnvironment) {
+			if (plan.hasEnvironmentBackground) {
 				phases.push(await this._environmentResources.warmup({
 					modes: [mainSceneTargetMode],
 					sampleCount: runtimeOptions.sampleCount,
@@ -391,7 +391,6 @@ export class WebGPUFrameServiceOwner {
 			enableSH: features.enableSH,
 			enableShadows: context.shadowPlan?.hasRasterWork === true,
 			enableReflection: features.enableReflection,
-			enableEnvironment: features.enableEnvironment,
 			enableOIT: features.enableOIT,
 			enableClusteredLighting: features.enableClusteredLighting,
 			clusteredLightingOptions: features.clusteredLightingOptions,
@@ -787,10 +786,7 @@ export class WebGPUFrameServiceOwner {
 			"getEnvironmentResources",
 		);
 		const resolvedSceneTargetMode = sceneTargetMode;
-		if (
-			!prepared.featureState.enableEnvironment ||
-			!prepared.environmentState.environmentTexture
-		) {
+		if (!prepared.environmentState.environmentTexture) {
 			return null;
 		}
 

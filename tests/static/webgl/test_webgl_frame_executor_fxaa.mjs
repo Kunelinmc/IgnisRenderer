@@ -1618,7 +1618,6 @@ async function testWarmupCollectsPostProcessHintsFromPlanOrder() {
 		{
 			materials: [],
 			shaderMaterials: [],
-			enableEnvironment: false,
 			enableShadows: false,
 			enableParticles: false,
 			includePostProcess: true,

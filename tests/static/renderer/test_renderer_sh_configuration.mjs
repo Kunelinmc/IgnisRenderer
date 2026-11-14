@@ -35,7 +35,7 @@ function createRenderer() {
 	};
 	const renderer = new Renderer(canvas, backend);
 	renderer.features.enableReflection = false;
-	renderer.features.enableEnvironment = false;
+	renderer.scene.environment.backgroundEnabled = false;
 	return renderer;
 }
 

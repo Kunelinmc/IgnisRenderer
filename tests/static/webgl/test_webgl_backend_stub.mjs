@@ -629,7 +629,6 @@ function createDependencyContext() {
 			enableSH: true,
 			enableShadows: false,
 			enableReflection: false,
-			enableEnvironment: true,
 			enableClusteredLighting: true,
 			warnings: [],
 			clusteredLightingOptions: {},

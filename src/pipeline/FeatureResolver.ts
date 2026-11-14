@@ -12,7 +12,6 @@ import { normalizeOcclusionCullingOptions } from "./OcclusionCulling";
 type RendererFeatureCapability =
 	| "sh"
 	| "reflection"
-	| "environment"
 	| "oit"
 	| "clusteredLighting"
 	| "occlusionCulling";
@@ -20,7 +19,6 @@ type RendererFeatureCapability =
 const FEATURE_WARNING_KEYS: Record<RendererFeatureCapability, string> = {
 	sh: "feature-sh",
 	reflection: "feature-reflection",
-	environment: "feature-environment",
 	oit: "feature-oit",
 	clusteredLighting: "feature-clustered-lighting",
 	occlusionCulling: "feature-occlusion-culling",
@@ -29,7 +27,6 @@ const FEATURE_WARNING_KEYS: Record<RendererFeatureCapability, string> = {
 const FEATURE_WARNING_LABELS: Record<RendererFeatureCapability, string> = {
 	sh: "spherical harmonics",
 	reflection: "planar reflections",
-	environment: "environment rendering",
 	oit: "order-independent transparency",
 	clusteredLighting: "clustered lighting",
 	occlusionCulling: "occlusion culling",
@@ -62,13 +59,6 @@ export function resolveFeatureState(
 			request.enableReflection,
 			capabilities.reflection,
 			"reflection",
-			backendType,
-			warnings
-		),
-		enableEnvironment: resolveBooleanFeature(
-			request.enableEnvironment,
-			capabilities.environment,
-			"environment",
 			backendType,
 			warnings
 		),

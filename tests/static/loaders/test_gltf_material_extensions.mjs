@@ -368,7 +368,6 @@ function testSpecularColorUsesLinearSemanticsInPBRStrategy() {
 		renderer: { shadowMaps: new Map() },
 		cameraPos: { x: 0, y: 0, z: 1 },
 		lights: [],
-		worldMatrix: undefined,
 		shAmbientCoeffs: sh,
 		enableShadows: false,
 		enableSH: true,

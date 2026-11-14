@@ -34,7 +34,7 @@ export function setup(backendKind: "webgpu" | "webgl") {
 			new WebGLBackend({ shaderMode: "strict" }) : new WebGPUBackend();
 		const renderer = new Renderer(canvas, backend, camera);
 		defer(() => renderer.destroy());
-		renderer.features.enableEnvironment = false;
+		renderer.scene.environment.backgroundEnabled = false;
 		renderer.features.enableReflection = false;
 		const material = new PBRMaterial({
 			albedo: { r: 255, g: 255, b: 255 }, metalness: 0,

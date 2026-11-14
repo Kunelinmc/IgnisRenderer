@@ -34,7 +34,6 @@ function createFrameContext(postProcess, incremental = {}) {
 		shadowMaps: [],
 		shCoeffs: [],
 		shAmbientCoeffs: [],
-		worldMatrix: null,
 		postProcess,
 		incremental: {
 			enabled: false,

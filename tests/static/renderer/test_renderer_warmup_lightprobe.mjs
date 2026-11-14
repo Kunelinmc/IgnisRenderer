@@ -4,7 +4,6 @@ import { Node } from "../../../src/core/Node.ts";
 import { Texture } from "../../../src/core/Texture.ts";
 import { LightProbe } from "../../../src/lights/LightProbe.ts";
 import { ReflectionProbe } from "../../../src/lights/ReflectionProbe.ts";
-import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { SH } from "../../../src/maths/SH.ts";
 import { Renderer } from "../../../src/rendering/Renderer.ts";
 import { buildWarmupPlan } from "../../../src/pipeline/WarmupPlanner.ts";
@@ -104,7 +103,6 @@ function createRendererFixture() {
 		},
 	};
 	const renderer = new Renderer(canvas, backend, camera);
-	renderer.features.worldMatrix = Matrix4.identity();
 	return { backend, renderer };
 }
 
@@ -203,12 +201,17 @@ async function testWarmupDoesNotBakeEnvironmentProbes() {
 
 async function testWarmupDoesNotCreateProbeWhenSceneHasNone() {
 	await withDOMGlobals(async () => {
-		const { renderer } = createRendererFixture();
+		const { renderer, backend } = createRendererFixture();
 		const environmentTexture = createEnvironmentTexture();
 		renderer.scene.environment.backgroundTexture = environmentTexture;
 		renderer.scene.environment.iblTexture = environmentTexture;
 
 		await renderer.warmup();
+		assert.equal(buildWarmupPlan(backend.lastWarmupContext).hasEnvironmentBackground, true);
+		renderer.scene.environment.backgroundEnabled = false;
+		await renderer.warmup();
+		assert.equal(buildWarmupPlan(backend.lastWarmupContext).hasEnvironmentBackground, false);
+		assert.equal(renderer.scene.environment.lightingEnabled, true);
 
 		const probes = renderer.scene
 			.getLights()

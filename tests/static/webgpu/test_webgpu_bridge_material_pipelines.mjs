@@ -1039,7 +1039,6 @@ async function testFeatureOwnedWarmupCompilesForwardSceneVariants() {
 			{
 				materials: [packet.material],
 				shaderMaterials: [],
-				enableEnvironment: false,
 				enableShadows: false,
 				enableParticles: false,
 				postProcessPasses: [],

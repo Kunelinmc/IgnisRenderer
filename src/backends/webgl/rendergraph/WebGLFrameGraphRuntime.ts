@@ -491,7 +491,6 @@ export class WebGLFrameGraphRuntime {
 			oitActive: this._executor.isOITActive(),
 			hasParticleSystems: (context.scene.particleSystems?.length ?? 0) > 0,
 			hasEnvironmentBackground:
-				context.features.enableEnvironment &&
 				context.scene.environment.backgroundEnabled &&
 				!!context.scene.environment.backgroundTexture,
 		};

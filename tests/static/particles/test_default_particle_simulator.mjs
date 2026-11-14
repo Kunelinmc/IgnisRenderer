@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 
 import { Camera } from "../../../src/cameras/Camera.ts";
-import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { SH } from "../../../src/maths/SH.ts";
 import {
 	PARTICLE_MESH_TRANSIENT_BATCHES_KEY,
@@ -28,7 +27,6 @@ function createContext(systems) {
 			enableGamma: true,
 			enableSH: false,
 			enableReflection: false,
-			enableEnvironment: false,
 			enableSSAO: false,
 			enableTAA: false,
 			enableSSR: false,
@@ -54,7 +52,6 @@ function createContext(systems) {
 		},
 		shCoeffs: SH.empty(),
 		shAmbientCoeffs: SH.empty(),
-		worldMatrix: Matrix4.identity(),
 		transient: new Map(),
 	};
 }

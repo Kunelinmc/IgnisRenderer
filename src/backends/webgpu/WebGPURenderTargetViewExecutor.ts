@@ -169,10 +169,7 @@ export class WebGPURenderTargetViewExecutor {
 		depth: IRenderTexture,
 		frameResources: WebGPUPreparedFrameResources,
 	): Promise<boolean> {
-		if (
-			!context.features.enableEnvironment ||
-			!context.scene.environment.backgroundEnabled
-		) return false;
+		if (!context.scene.environment.backgroundEnabled) return false;
 		const environment = await this._resources.getEnvironmentResources(
 			frameResources,
 			"color",

@@ -897,7 +897,6 @@ export class FrameCoordinator {
 			scene: frame,
 			shCoeffs,
 			shAmbientCoeffs,
-			worldMatrix: delegate.features.worldMatrix || Matrix4.identity(),
 			incremental,
 			transient,
 		};

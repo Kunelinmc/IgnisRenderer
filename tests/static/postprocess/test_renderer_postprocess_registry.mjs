@@ -172,7 +172,7 @@ async function run() {
 		assert.equal(defaults.isEnabled("tonemap"), true);
 		assert.equal(defaults.isEnabled("gamma"), true);
 		renderer.features.enableReflection = false;
-		renderer.features.enableEnvironment = false;
+		renderer.scene.environment.backgroundEnabled = false;
 
 		const pass = new (class CustomEdgePass extends PostProcessPass {
 			constructor() {
@@ -231,7 +231,7 @@ async function run() {
 		const noopBackend = new RegistryBackend();
 		const noopRenderer = new Renderer(canvas, noopBackend, new Camera());
 		noopRenderer.features.enableReflection = false;
-		noopRenderer.features.enableEnvironment = false;
+		noopRenderer.scene.environment.backgroundEnabled = false;
 		noopRenderer.postProcess.getPass("tonemap")?.disable();
 		noopRenderer.postProcess.getPass("gamma")?.disable();
 		await noopRenderer.renderFrame(0);
@@ -253,7 +253,7 @@ async function run() {
 		const missingAdapterBackend = new NoAdapterBackend();
 		const missingAdapterRenderer = new Renderer(canvas, missingAdapterBackend, new Camera());
 		missingAdapterRenderer.features.enableReflection = false;
-		missingAdapterRenderer.features.enableEnvironment = false;
+		missingAdapterRenderer.scene.environment.backgroundEnabled = false;
 		missingAdapterRenderer.postProcess.getPass("tonemap")?.disable();
 		missingAdapterRenderer.postProcess.getPass("gamma")?.disable();
 		missingAdapterRenderer.postProcess.registerPass(
@@ -285,7 +285,7 @@ async function run() {
 		const historyBackend = new RegistryBackend();
 		const historyRenderer = new Renderer(canvas, historyBackend, new Camera());
 		historyRenderer.features.enableReflection = false;
-		historyRenderer.features.enableEnvironment = false;
+		historyRenderer.scene.environment.backgroundEnabled = false;
 		historyRenderer.postProcess.getPass("tonemap")?.disable();
 		historyRenderer.postProcess.getPass("gamma")?.disable();
 		historyRenderer.postProcess.registerPass(
@@ -343,7 +343,7 @@ async function run() {
 		const throwingBackend = new RegistryBackend();
 		const throwingRenderer = new Renderer(canvas, throwingBackend, new Camera());
 		throwingRenderer.features.enableReflection = false;
-		throwingRenderer.features.enableEnvironment = false;
+		throwingRenderer.scene.environment.backgroundEnabled = false;
 		throwingRenderer.postProcess.getPass("tonemap")?.disable();
 		throwingRenderer.postProcess.getPass("gamma")?.disable();
 		throwingRenderer.postProcess.registerPass(

@@ -147,7 +147,6 @@ export class WebGLSceneRuntime {
 
 	public renderEnvironment(context: FrameContext): void {
 		if (
-			!context.features.enableEnvironment ||
 			!context.scene.environment.backgroundEnabled ||
 			!context.scene.environment.backgroundTexture
 		) {

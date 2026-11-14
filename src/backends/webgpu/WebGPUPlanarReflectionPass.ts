@@ -323,7 +323,6 @@ export class WebGPUPlanarReflectionPass {
 				temporalStateMode: "disabled",
 			});
 			if (
-				context.features.enableEnvironment &&
 				context.scene.environment.backgroundEnabled &&
 				context.scene.environment.backgroundTexture
 			) {
@@ -675,7 +674,6 @@ function createPlanarCaptureContext(
 		scene: captureScene,
 		shCoeffs: context.shCoeffs,
 		shAmbientCoeffs: context.shAmbientCoeffs,
-		worldMatrix: context.worldMatrix,
 		incremental: {
 			enabled: false,
 			forceFullFrame: true,

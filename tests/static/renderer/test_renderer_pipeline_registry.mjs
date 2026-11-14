@@ -94,7 +94,7 @@ function createRenderer(backend, { postProcess = false } = {}) {
 		renderer.postProcess.getPass("gamma").disable();
 	}
 	renderer.features.enableReflection = false;
-	renderer.features.enableEnvironment = false;
+	renderer.scene.environment.backgroundEnabled = false;
 	return renderer;
 }
 

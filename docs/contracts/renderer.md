@@ -4,6 +4,15 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
 
 ## Contract
 
+### Scene-owned transforms and background
+
+- `Renderer.features` must not expose `worldMatrix` or `enableEnvironment`.
+  `FrameContext` must not carry a renderer-level `worldMatrix`.
+- Applications must author transforms on scene nodes. Environment background
+  rendering and warmup must follow `Environment.backgroundEnabled` and
+  `Environment.backgroundTexture`, independently of environment lighting,
+  for both main views and scene-view render targets.
+
 ### Opaque renderer resources
 
 - `IRenderBuffer`, `IRenderTexture`, `ISampler`, `IShaderModule`,

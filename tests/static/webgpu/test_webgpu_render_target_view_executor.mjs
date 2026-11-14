@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { Camera } from "../../../src/cameras/Camera.ts";
-import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { SH } from "../../../src/maths/SH.ts";
 import { WebGPURenderTargetViewExecutor } from
 	"../../../src/backends/webgpu/WebGPURenderTargetViewExecutor.ts";
@@ -45,7 +44,6 @@ const context = {
 	alphaMode: "opaque",
 	attachments: { width: 4, height: 4 },
 	features: {
-		enableEnvironment: false,
 		enableReflection: true,
 		enableShadows: false,
 		warnings: [],
@@ -56,7 +54,6 @@ const context = {
 	scene,
 	shCoeffs: SH.empty(),
 	shAmbientCoeffs: SH.empty(),
-	worldMatrix: Matrix4.identity(),
 	incremental: { enabled: false, forceFullFrame: true, dirtyRects: [] },
 	transient: new Map(),
 };
