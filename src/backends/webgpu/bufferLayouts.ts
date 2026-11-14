@@ -209,8 +209,6 @@ export const WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT = new StructuredBufferLayout(
 		{ name: "lightCounts", type: VEC4_U32 },
 		{ name: "lightingEnabled", type: U32 },
 		{ name: "clusteredLightingEnabled", type: U32 },
-		{ name: "_pad0", type: U32 },
-		{ name: "_pad1", type: U32 },
 		{
 			name: "directionalLights",
 			type: arrayOf(DIRECTIONAL_LIGHT_SCHEMA, MAX_DIRECTIONAL_LIGHTS),
@@ -238,9 +236,6 @@ WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT.assertByteSize(
 export const WEBGPU_FRAME_SHADOW_UNIFORM_LAYOUT = new StructuredBufferLayout(
 	structOf([
 		{ name: "shadowsEnabled", type: U32 },
-		{ name: "_pad0", type: U32 },
-		{ name: "_pad1", type: U32 },
-		{ name: "_pad2", type: U32 },
 		{
 			name: "directionalShadows",
 			type: arrayOf(SHADOW_DATA_SCHEMA, MAX_DIRECTIONAL_LIGHTS),

@@ -5,8 +5,6 @@ struct FrameLightUniforms {
 	lightCounts: vec4<u32>,
 	lightingEnabled: u32,
 	clusteredLightingEnabled: u32,
-	_pad0: u32,
-	_pad1: u32,
 	directionalLights: array<DirectionalLightData, __WEBGPU_MAX_DIRECTIONAL_LIGHTS__>,
 	pointLights: array<PointLightData, __WEBGPU_MAX_POINT_LIGHTS__>,
 	spotLights: array<SpotLightData, __WEBGPU_MAX_SPOT_LIGHTS__>,
@@ -15,9 +13,6 @@ struct FrameLightUniforms {
 
 struct FrameShadowUniforms {
 	shadowsEnabled: u32,
-	_pad0: u32,
-	_pad1: u32,
-	_pad2: u32,
 	directionalShadows: array<ShadowData, __WEBGPU_MAX_DIRECTIONAL_LIGHTS__>,
 	spotShadows: array<ShadowData, __WEBGPU_MAX_SPOT_LIGHTS__>,
 }

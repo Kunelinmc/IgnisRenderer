@@ -1087,6 +1087,9 @@ Clustered lighting must retain its perspective-only fallback policy.
 `FrameLightUniforms` must prepend a 48-byte header containing `ambientColor`,
 `lightCounts: vec4<u32>`, `lightingEnabled`, and `clusteredLightingEnabled`.
 `FrameShadowUniforms` must prepend a 16-byte `shadowsEnabled` header.
+Their CPU schemas and WGSL declarations must use implicit alignment padding
+before `directionalLights` at byte offset `48` and `directionalShadows` at byte
+offset `16`.
 `FrameEnvironmentUniforms` must prepend a 16-byte header containing
 `shAmbientEnabled`, `hasEnvSpecular`, and `hasBRDFLUT` as `u32` values `0` or `1`
 at offsets `0`, `4`, and `8`, followed by non-negative `envSpecularMaxMipLevel`

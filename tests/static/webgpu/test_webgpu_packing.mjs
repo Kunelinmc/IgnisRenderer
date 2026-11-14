@@ -447,12 +447,25 @@ function testFrameUniformPacking() {
 	assert.ok(cameraData instanceof ArrayBuffer);
 	assert.equal(cameraData.byteLength, 272);
 	assert.equal(lightData.byteLength, 1712);
+	assert.equal(shadowData.byteLength, 6544);
 	assert.equal(environmentData.byteLength, 4128);
 	for (const [field, offset] of Object.entries({
 		viewProjection: 0, prevViewProjection: 64, inverseView: 128,
 		inverseProjection: 192, jitterNdc: 256, prevJitterNdc: 264,
 	})) {
 		assert.equal(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT.byteOffsetOf(field), offset);
+	}
+	for (const [field, offset] of Object.entries({
+		ambientColor: 0, lightCounts: 16, lightingEnabled: 32,
+		clusteredLightingEnabled: 36, directionalLights: 48,
+		pointLights: 176, spotLights: 688, areaLights: 1072,
+	})) {
+		assert.equal(WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT.byteOffsetOf(field), offset);
+	}
+	for (const [field, offset] of Object.entries({
+		shadowsEnabled: 0, directionalShadows: 16, spotShadows: 2192,
+	})) {
+		assert.equal(WEBGPU_FRAME_SHADOW_UNIFORM_LAYOUT.byteOffsetOf(field), offset);
 	}
 	assert.deepEqual(readVec(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT, cameraData, "inverseView", 4), [201, 205, 209, 213]);
 	assert.deepEqual(readVec(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT, cameraData, "inverseProjection", 4), [301, 305, 309, 313]);
