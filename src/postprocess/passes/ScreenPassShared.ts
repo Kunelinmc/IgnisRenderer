@@ -46,7 +46,6 @@ export interface WebGLScreenPostProcessContext {
 	getSourceTexture(): WebGLTexture | null;
 	bindColorTarget(texture: WebGLTexture): void;
 	drawFullscreen(): void;
-	warn(key: string, message: string): void;
 }
 
 export interface ResolvedWebGLTarget {

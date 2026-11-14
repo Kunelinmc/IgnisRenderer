@@ -81,7 +81,6 @@ export interface WebGLSceneProgramRepositoryOptions {
 	readonly compiler: WebGLProgramCompiler;
 	readonly shaderRuntime?: ShaderRuntime;
 	readonly shaderCompileStage?: ShaderBackendCompileStage;
-	readonly warn?: WebGLProgramWarn;
 }
 
 interface WebGLProgramCompileRequest {
@@ -97,8 +96,6 @@ interface WebGLBuiltinProgramCacheEntry {
 	directiveTag: string;
 	sourceIdentity: string;
 }
-
-type WebGLProgramWarn = (key: string, message: string) => void;
 
 function resolveMaxFragmentTextureUnits(
 	gl: WebGL2RenderingContext
@@ -126,7 +123,6 @@ export class WebGLSceneProgramRepository {
 	private _shaderCompileStage: ShaderBackendCompileStage | null;
 	private _compiler: WebGLProgramCompiler;
 	private _disposeCompilerInvalidationListener: (() => void) | null = null;
-	private _warnCallback: WebGLProgramWarn | null = null;
 	private _builtinScenePrograms = new Map<string, WebGLBuiltinProgramCacheEntry>();
 	private _customScenePrograms = new Map<string, WebGLSceneProgram>();
 	private _builtinSceneDepthPrepassPrograms =
@@ -139,7 +135,6 @@ export class WebGLSceneProgramRepository {
 		this._gl = options.compiler.context;
 		this._shaderRuntime = options.shaderRuntime ?? null;
 		this._shaderCompileStage = options.shaderCompileStage ?? null;
-		this._warnCallback = options.warn ?? null;
 		this._disposeCompilerInvalidationListener = this._compiler.onDidInvalidate(
 			() => this._disposePrograms()
 		);
@@ -1193,7 +1188,6 @@ export class WebGLSceneProgramRepository {
 	}
 
 	private _warn(key: string, message: string): void {
-		this._warnCallback?.(key, message);
 		Logger.warn(`[${key}] ${message}`, {
 			scope: "WebGLSceneProgramRepository",
 			onceKey: key,

@@ -49,18 +49,16 @@ export function createTinyCubeTexture(mips = 1, value = 1) {
 	});
 }
 
-export function createSceneProgramRepository(gl, warn, shaderRuntime, shaderCompileStage) {
+export function createSceneProgramRepository(gl, shaderRuntime, shaderCompileStage) {
 	const compiler = new WebGLProgramCompiler(
 		gl,
 		shaderRuntime,
 		shaderCompileStage,
-		{ warn },
 	);
 	return new WebGLSceneProgramRepository({
 		compiler,
 		shaderRuntime,
 		shaderCompileStage,
-		warn,
 	});
 }
 

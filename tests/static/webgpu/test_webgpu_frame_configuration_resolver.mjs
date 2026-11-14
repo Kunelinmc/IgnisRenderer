@@ -20,7 +20,7 @@ import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
 const unused = {};
 const transparencyRuntime = new WebGPUTransparencyRuntime(
-	unused, unused, unused, unused, unused,
+	unused, unused, unused, unused,
 );
 const modules = [
 	transparencyRuntime,

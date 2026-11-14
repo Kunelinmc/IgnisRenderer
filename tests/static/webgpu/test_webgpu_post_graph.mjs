@@ -1,3 +1,5 @@
+import { recordLoggerWarnings } from "../../helpers/logger.mjs";
+import { Logger } from "../../../src/foundation/Logger.ts";
 import assert from "node:assert/strict";
 import {
 	PostProcessPlanner,
@@ -158,7 +160,7 @@ function testIncrementalFramePlansCompletePostProcessSequence() {
 
 function testSSGIRequiresHiZAndSharesMotionHistory() {
 	const planner = new PostProcessPlanner();
-	const unavailableWarnings = [];
+	const unavailableWarnings = recordLoggerWarnings();
 	const ssgiOnly = createPostProcess({ ssgi: { enabled: true } });
 	const unavailable = planner.plan({
 		frameContext: createFrameContext(ssgiOnly),
@@ -167,10 +169,9 @@ function testSSGIRequiresHiZAndSharesMotionHistory() {
 		gBuffer: createGBufferBridge(),
 		resolveImplementation: (pass) => pass.getImplementation("webgpu"),
 		isSharedResourceAvailable: () => false,
-		warn: (key, message) => unavailableWarnings.push([key, message]),
 	});
 	assert.deepEqual(unavailable.passes, []);
-	assert.deepEqual(unavailableWarnings, [[
+	assert.deepEqual(unavailableWarnings.map(({ key, message }) => [key, message]), [[
 		"postprocess-backend-shared-unavailable-ssgi",
 		"Post-process pass \"ssgi\" requires unavailable shared resource " +
 			"\"backend:frame-hiz\"; skipping it",
@@ -199,6 +200,7 @@ function testSSGIRequiresHiZAndSharesMotionHistory() {
 }
 
 function planColorDomains(overrides, warnings = []) {
+	recordLoggerWarnings(warnings);
 	const postProcess = createPostProcess(overrides);
 	const frameContext = createFrameContext(postProcess);
 	return new PostProcessPlanner().plan({
@@ -208,7 +210,6 @@ function planColorDomains(overrides, warnings = []) {
 		gBuffer: createGBufferBridge(),
 		resolveImplementation: (pass) => pass.getImplementation("webgpu"),
 		isSharedResourceAvailable: () => true,
-		warn: (key, message) => warnings.push([key, message]),
 		displayOutput: {
 			requested: { mode: "hdr", exposure: 1, hdrHeadroom: 4 },
 			activeDynamicRange: "hdr",
@@ -235,7 +236,7 @@ function testColorDomainPlanning() {
 	assert.deepEqual(graph.passes.map((pass) => pass.id), []);
 	assert.equal(graph.outputColorDomain, "scene-linear-hdr");
 	assert.equal(
-		warnings.some(([key]) =>
+		warnings.some(({ key }) =>
 			key === "postprocess-color-domain-mismatch-gamma"
 		),
 		true,
@@ -270,7 +271,7 @@ function testUndeclaredHDRCustomPassWarnsButRuns() {
 	registry.registerPass(new LegacyHDRPass());
 	const postProcess = registry.createSnapshot("webgpu");
 	const frameContext = createFrameContext(postProcess);
-	const warnings = [];
+	const warnings = recordLoggerWarnings();
 	const graph = new PostProcessPlanner().plan({
 		frameContext,
 		backend: "webgpu",
@@ -278,7 +279,6 @@ function testUndeclaredHDRCustomPassWarnsButRuns() {
 		gBuffer: createGBufferBridge(),
 		resolveImplementation: (pass) => pass.getImplementation("webgpu"),
 		isSharedResourceAvailable: () => true,
-		warn: (key, message) => warnings.push([key, message]),
 		displayOutput: {
 			requested: { mode: "hdr", exposure: 1, hdrHeadroom: 4 },
 			activeDynamicRange: "hdr",
@@ -288,7 +288,7 @@ function testUndeclaredHDRCustomPassWarnsButRuns() {
 	assert.deepEqual(graph.passes.map((pass) => pass.id), ["legacy-hdr"]);
 	assert.equal(graph.outputColorDomain, "scene-linear-hdr");
 	assert.equal(
-		warnings.some(([key]) =>
+		warnings.some(({ key }) =>
 			key === "postprocess-color-domain-undeclared-legacy-hdr"
 		),
 		true,
@@ -305,4 +305,8 @@ async function run() {
 	console.log("WebGPU post-process pipeline-order tests passed");
 }
 
-await run();
+try {
+	await run();
+} finally {
+	Logger.reset();
+}

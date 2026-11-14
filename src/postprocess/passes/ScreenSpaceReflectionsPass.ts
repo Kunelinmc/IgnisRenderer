@@ -1,3 +1,4 @@
+import { Logger } from "../../foundation/Logger";
 import { CameraType } from "../../cameras/Camera";
 import type { ICommandEncoder } from "../../backends/ICommandEncoder";
 import {
@@ -354,9 +355,10 @@ export class WebGPUScreenSpaceReflectionsImplementation implements PostProcessPa
 			return { ran: false };
 		}
 		if (request.frameContext.scene.camera.type === CameraType.Orthographic) {
-			context.shared.warn(
-				"webgpu-ssr-orthographic-disabled",
-				"WebGPU SSR is disabled for orthographic cameras.",
+			Logger.warn(
+				"[webgpu-ssr-orthographic-disabled] " +
+					"WebGPU SSR is disabled for orthographic cameras.",
+				{ scope: "WebGPUBackend", onceKey: "webgpu-ssr-orthographic-disabled" },
 			);
 			return { ran: false };
 		}

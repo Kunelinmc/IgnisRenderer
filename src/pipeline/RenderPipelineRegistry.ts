@@ -160,17 +160,17 @@ export class RenderPipelineRegistry {
 	/**
 	 * Resolves enabled stages in dependency order.
 	 *
+	 * @internal Owned by renderer scheduling; applications register stages through
+	 * registerPipelineStage().
 	 * @param context Current renderer stage enablement inputs.
-	 * @param warn Receives dependency cycle and missing-dependency diagnostics.
+	 * @sideEffects Logs dependency cycle and missing-dependency warnings through Logger.
 	 * @returns Stage definitions with independent dependency arrays.
 	 */
 	public getExecutionOrder(
-		context: RendererStageEnableContext,
-		warn: (key: string, message: string) => void
+		context: RendererStageEnableContext
 	): RendererStageDefinition[] {
-		return resolveRendererStageOrder(this._stages, context, warn);
+		return resolveRendererStageOrder(this._stages, context);
 	}
-
 
 	public getStageKind(stageId: FramePassStage): RenderPipelineStageKind | null {
 		return this._stages.get(stageId)?.kind ?? null;

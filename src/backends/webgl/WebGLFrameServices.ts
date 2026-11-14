@@ -199,13 +199,13 @@ export class WebGLFrameServices {
 			shaderRuntime,
 			shaderCompileStage,
 		});
-		this._geometry = new WebGLGeometryRegistry(gl, undefined, {
+		this._geometry = new WebGLGeometryRegistry(gl, {
 			uploadScheduling: "deferred",
 			maxUploadsPerFrame: DEFAULT_DEFERRED_GEOMETRY_UPLOADS_PER_FRAME,
 			maxUploadBytesPerFrame: DEFAULT_DEFERRED_GEOMETRY_UPLOAD_BYTES_PER_FRAME,
 			onUploadPending: options.onGeometryUploadPending,
 		});
-		this._textures = new WebGLTextureRegistry(gl, undefined, {
+		this._textures = new WebGLTextureRegistry(gl, {
 			uploadScheduling: "deferred",
 			maxUploadsPerFrame: DEFAULT_DEFERRED_UPLOADS_PER_FRAME,
 			maxUploadBytesPerFrame: DEFAULT_DEFERRED_UPLOAD_BYTES_PER_FRAME,
@@ -452,7 +452,6 @@ export class WebGLFrameServices {
 	public commitTemporalFrame(): void {
 		this._temporalFrameState.commitFrame();
 	}
-
 
 	/** @internal Builds the graph-facing execution facade over owned runtimes. */
 	public createFrameNodeAdapter(): WebGLFrameNodeAdapter {

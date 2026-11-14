@@ -1,3 +1,5 @@
+import { Logger } from "../foundation/Logger";
+
 export interface RendererStageEnableContext {
 	hasActiveAnimations: boolean;
 	hasParticleSystems: boolean;
@@ -11,8 +13,7 @@ export interface RendererStageDefinition {
 
 export function resolveRendererStageOrder(
 	stages: ReadonlyMap<string, RendererStageDefinition>,
-	context: RendererStageEnableContext,
-	warn: (key: string, message: string) => void
+	context: RendererStageEnableContext
 ): RendererStageDefinition[] {
 	const enabled = new Map<string, RendererStageDefinition>();
 	for (const [id, stage] of stages) {
@@ -30,9 +31,10 @@ export function resolveRendererStageOrder(
 		const current = state.get(id) ?? 0;
 		if (current === 2) return true;
 		if (current === 1) {
-			warn(
-				`renderer-stage-cycle-${id}`,
-				`Renderer stage dependency cycle detected at "${id}", skipping cycle branch`
+			const key = `renderer-stage-cycle-${id}`;
+			Logger.warn(
+				`[${key}] Renderer stage dependency cycle detected at "${id}", skipping cycle branch`,
+				{ scope: "Renderer", onceKey: key },
 			);
 			invalid.add(id);
 			return false;
@@ -44,9 +46,11 @@ export function resolveRendererStageOrder(
 
 		for (const dependencyId of stage.dependsOn) {
 			if (!stages.has(dependencyId)) {
-				warn(
-					`renderer-stage-dependency-missing-${id}-${dependencyId}`,
-					`Renderer stage "${id}" depends on unknown stage "${dependencyId}", skipping "${id}"`
+				const key = `renderer-stage-dependency-missing-${id}-${dependencyId}`;
+				Logger.warn(
+					`[${key}] Renderer stage "${id}" depends on unknown stage ` +
+						`"${dependencyId}", skipping "${id}"`,
+					{ scope: "Renderer", onceKey: key },
 				);
 				invalid.add(id);
 				state.set(id, 2);

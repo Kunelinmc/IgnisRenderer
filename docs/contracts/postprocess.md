@@ -201,6 +201,17 @@ This document defines logical post-process declarations, planning, backend execu
   duplicate jitter checkpoints or pending previous-view-projection ownership.
 - Warmup must use the same planner and declaration validation with synthetic
   availability. It must not allocate frame resources.
+- `PostProcessPlanner` must emit planning warnings directly through
+  `Logger.warn` with scope `"PostProcessPlanner"`, retaining the existing warning
+  keys and global once-key deduplication. Its declaration and finalization
+  requests must emit warnings by default and may set `emitWarnings: false` to
+  suppress log output without changing validation or pass eligibility.
+- `BackendPostProcessRuntime.planWarmup()` must suppress planner warnings in
+  both declaration and finalization. Suppression must not change global Logger
+  configuration or consume once keys, so a later render can emit the warning.
+- Built-in backend pass implementations must emit log-only execution warnings
+  directly through `Logger.warn`. Execution contexts and shared post-process
+  services must not relay warning callbacks.
 
 #### WebGPU
 
@@ -273,8 +284,8 @@ This document defines logical post-process declarations, planning, backend execu
 
 #### WebGL
 
-- The fixed WebGL context must expose GL, fullscreen draw helpers, diagnostics,
-  and a typed resource accessor.
+- The fixed WebGL context must expose GL, fullscreen draw helpers, and a typed
+  resource accessor.
 - G-buffer, history, transient, and shared textures must be obtained through
   the accessor, never through dynamically injected properties.
 - The graph-assigned color output must be bound as the final framebuffer target

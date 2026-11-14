@@ -22,7 +22,6 @@ interface CachedBindGroup {
 /** @internal Owns shared WebGPU post-process services, not pass dispatch. */
 export class WebGPUPostProcessRuntime implements WebGPUPostProcessServices {
 	private readonly _compute: IWebGPUComputeFacade;
-	private readonly _warn: (key: string, message: string) => void;
 	private _sampler: ISampler | null = null;
 	private _denoiser: WebGPUDenoiser | null = null;
 	private _hiZBuilder: WebGPUHiZBuilder | null;
@@ -33,13 +32,11 @@ export class WebGPUPostProcessRuntime implements WebGPUPostProcessServices {
 
 	constructor(
 		computeFacade: IWebGPUComputeFacade,
-		warn: (key: string, message: string) => void,
 		frameBindGroupLayout?: GPUBindGroupLayout,
 		hiZBuilder?: WebGPUHiZBuilder,
 		getDisplayOutputState?: () => DisplayOutputState,
 	) {
 		this._compute = computeFacade;
-		this._warn = warn;
 		this._frameBindGroupLayout = frameBindGroupLayout ?? null;
 		this._hiZBuilder = hiZBuilder ?? null;
 		this._ownsHiZBuilder = !hiZBuilder;
@@ -77,10 +74,6 @@ export class WebGPUPostProcessRuntime implements WebGPUPostProcessServices {
 			this._hiZBuilder = new WebGPUHiZBuilder(this._compute);
 		}
 		return this._hiZBuilder;
-	}
-
-	public warn(key: string, message: string): void {
-		this._warn(key, message);
 	}
 
 	public async ensureCommonResources(): Promise<void> {

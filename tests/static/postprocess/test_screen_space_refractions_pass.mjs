@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { Logger } from "../../../src/foundation/Logger.ts";
+import { recordLoggerWarnings } from "../../helpers/logger.mjs";
 import { createWebGPUComputeFacade } from "../../../src/backends/webgpu/ComputeFacade.ts";
 import { readFile } from "node:fs/promises";
 
@@ -206,7 +208,7 @@ function testUnsupportedBackendsDisableWithoutBuiltInWarning() {
 async function testPipelineRequiresTransmissionChannel() {
 	const pass = new ScreenSpaceRefractionsPass({ enabled: true });
 	const frameContext = createFrameContext(1);
-	const warnings = [];
+	const warnings = recordLoggerWarnings();
 	const graph = new PostProcessPlanner().plan({
 		frameContext,
 		backend: "webgpu",
@@ -214,9 +216,6 @@ async function testPipelineRequiresTransmissionChannel() {
 		gBuffer: createGBuffer(false),
 		resolveImplementation: (descriptor) => descriptor.getImplementation("webgpu"),
 		isSharedResourceAvailable: () => true,
-		warn(key, message) {
-			warnings.push({ key, message });
-		},
 	});
 	assert.deepEqual(graph.passes, []);
 	assert.deepEqual(
@@ -229,7 +228,7 @@ async function testPipelineRequiresTransmissionChannel() {
 async function testPipelineRequiresNormalChannel() {
 	const pass = new ScreenSpaceRefractionsPass({ enabled: true });
 	const frameContext = createFrameContext(1);
-	const warnings = [];
+	const warnings = recordLoggerWarnings();
 	const graph = new PostProcessPlanner().plan({
 		frameContext,
 		backend: "webgpu",
@@ -237,9 +236,6 @@ async function testPipelineRequiresNormalChannel() {
 		gBuffer: createGBuffer(true, false),
 		resolveImplementation: (descriptor) => descriptor.getImplementation("webgpu"),
 		isSharedResourceAvailable: () => true,
-		warn(key, message) {
-			warnings.push({ key, message });
-		},
 	});
 	assert.deepEqual(graph.passes, []);
 	assert.deepEqual(
@@ -278,7 +274,7 @@ async function testTraceAndComposeDispatchPayloads() {
 	const createTexture = (width, height, label) => backend.createTexture({
 		width, height, label, format: label === "hiz" ? "r32float" : "rgba16float", usage: 0,
 	});
-	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend), () => {});
+	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend));
 	const encoder = new FakeEncoder();
 	const input = createTexture(64, 32, "scene");
 	const output = createTexture(64, 32, "output");
@@ -410,12 +406,16 @@ async function testShaderPreservesTransmissionEnergyContract() {
 	);
 }
 
-testDescriptorAndOptions();
-testShouldExecuteRequiresTransmissionPackets();
-testUnsupportedBackendsDisableWithoutBuiltInWarning();
-await testPipelineRequiresTransmissionChannel();
-await testPipelineRequiresNormalChannel();
-testTransientDescriptors();
-await testTraceAndComposeDispatchPayloads();
-await testShaderPreservesTransmissionEnergyContract();
-console.log("ScreenSpaceRefractionsPass tests passed");
+try {
+	testDescriptorAndOptions();
+	testShouldExecuteRequiresTransmissionPackets();
+	testUnsupportedBackendsDisableWithoutBuiltInWarning();
+	await testPipelineRequiresTransmissionChannel();
+	await testPipelineRequiresNormalChannel();
+	testTransientDescriptors();
+	await testTraceAndComposeDispatchPayloads();
+	await testShaderPreservesTransmissionEnergyContract();
+	console.log("ScreenSpaceRefractionsPass tests passed");
+} finally {
+	Logger.reset();
+}

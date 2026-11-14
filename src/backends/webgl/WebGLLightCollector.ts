@@ -131,14 +131,12 @@ export interface WebGLClusteredLight {
 	shadowIndex: number;
 }
 
-type WebGLLightCollectorWarn = (key: string, message: string) => void;
 /**
  * Configuration for collecting backend-ready WebGL lighting state.
  *
  * @internal WebGL backend frame preparation owns this contract.
  */
 export interface WebGLLightCollectorOptions {
-	warn?: WebGLLightCollectorWarn;
 	enableShadows?: boolean;
 	shadowPlan?: ShadowFramePlan;
 	enableSH?: boolean;
@@ -157,7 +155,6 @@ export function collectWebGLLights(
 	options: WebGLLightCollectorOptions
 ): WebGLLightState {
 	const {
-		warn,
 		enableShadows = false,
 		shadowPlan,
 		enableSH = false,
@@ -165,10 +162,6 @@ export function collectWebGLLights(
 		enableClusteredLighting = false,
 		cameraWorldPosition = null,
 	} = options;
-	const emitWarning: WebGLLightCollectorWarn = (key, message) => {
-		warn?.(key, message);
-		logWebGLLightCollectorWarning(key, message);
-	};
 	const state: WebGLLightState = {
 		ambientColor: [0, 0, 0],
 		directionalLights: [],
@@ -197,7 +190,7 @@ export function collectWebGLLights(
 			}
 			case LightType.Directional: {
 				if (state.directionalLights.length >= MAX_DIRECTIONAL_LIGHTS) {
-					emitWarning(
+					logWebGLLightCollectorWarning(
 						"webgl-directional-light-limit",
 						`WebGL forward shading supports at most ${MAX_DIRECTIONAL_LIGHTS} directional lights; extra lights are ignored`
 					);
@@ -236,7 +229,7 @@ export function collectWebGLLights(
 
 				if (state.pointLights.length >= MAX_POINT_LIGHTS) {
 					if (!enableClusteredLighting) {
-						emitWarning(
+						logWebGLLightCollectorWarning(
 							"webgl-point-light-limit",
 							`WebGL forward shading supports at most ${MAX_POINT_LIGHTS} point lights; extra lights are ignored`
 						);
@@ -282,7 +275,7 @@ export function collectWebGLLights(
 
 				if (state.spotLights.length >= MAX_SPOT_LIGHTS) {
 					if (!enableClusteredLighting) {
-						emitWarning(
+						logWebGLLightCollectorWarning(
 							"webgl-spot-light-limit",
 							`WebGL forward shading supports at most ${MAX_SPOT_LIGHTS} spot lights; extra lights are ignored`
 						);
@@ -309,7 +302,7 @@ export function collectWebGLLights(
 			}
 			case LightType.RectArea:
 			default: {
-				emitWarning(
+				logWebGLLightCollectorWarning(
 					`webgl-light-unsupported-${light.type}`,
 					`WebGL backend does not support ${light.type} lights yet; ignoring this light`
 				);
@@ -359,14 +352,14 @@ export function collectWebGLLights(
 			};
 		});
 		state.reflectionProbeCount = state.reflectionProbes.length;
-		const atlas = resolveEnvSpecularMap(reflectionEnvironment.atlas, emitWarning);
+		const atlas = resolveEnvSpecularMap(reflectionEnvironment.atlas);
 		if (atlas) {
 			state.envSpecularMap = atlas;
 		}
 	}
 
 	if (!state.envSpecularMap) {
-		state.envSpecularMap = resolveEnvSpecularMap(environmentTexture, emitWarning);
+		state.envSpecularMap = resolveEnvSpecularMap(environmentTexture);
 	}
 
 	return state;
@@ -416,22 +409,21 @@ function cloneSHCoefficients(source: SHCoefficients): SHCoefficients {
 }
 
 function resolveEnvSpecularMap(
-	texture: Texture | null,
-	warn: WebGLLightCollectorWarn
+	texture: Texture | null
 ): Texture | null {
 	const normalizedTexture = ensureEnvironmentTextureEquirect(texture);
 	if (!normalizedTexture) {
 		return null;
 	}
 	if (normalizedTexture.isLoadErrorFallback) {
-		warn(
+		logWebGLLightCollectorWarning(
 			"webgl-env-specular-load-error-fallback",
 			"WebGL environment specular texture resolved to a load-error fallback; skipping IBL specular."
 		);
 		return null;
 	}
 	if (!isTextureReadyForEnvironment(normalizedTexture)) {
-		warn(
+		logWebGLLightCollectorWarning(
 			"webgl-env-specular-texture-not-ready",
 			"WebGL environment specular texture is not ready (missing pixels or invalid dimensions); skipping IBL specular."
 		);

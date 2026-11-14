@@ -1,3 +1,4 @@
+import { Logger } from "../../foundation/Logger";
 import { CameraType } from "../../cameras/Camera";
 import type { ICommandEncoder } from "../../backends/ICommandEncoder";
 import {
@@ -448,9 +449,10 @@ export class WebGPUScreenSpaceGlobalIlluminationImplementation
 			return { ran: false };
 		}
 		if (request.frameContext.scene.camera.type === CameraType.Orthographic) {
-			context.shared.warn(
-				"webgpu-ssgi-orthographic-disabled",
-				"WebGPU SSGI is disabled for orthographic cameras."
+			Logger.warn(
+				"[webgpu-ssgi-orthographic-disabled] " +
+					"WebGPU SSGI is disabled for orthographic cameras.",
+				{ scope: "WebGPUBackend", onceKey: "webgpu-ssgi-orthographic-disabled" },
 			);
 			this._breakHistoryContinuity(context.shared);
 			return { ran: false };

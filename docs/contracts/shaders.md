@@ -136,6 +136,9 @@ This document defines shader source ownership, composition, diagnostics, and cus
 - Backend directive hooks may add namespaced include modules and injection
   scripts. A hook patch must not replace a profile module; a module collision
   must disable the entire patch for that invocation context.
+- Directive stages must emit log-only warnings directly through `Logger.warn`
+  without injected warning callbacks. Strict and silent modes must retain
+  their existing error and diagnostic suppression behavior.
 
 ### ShaderMaterial custom chunks
 

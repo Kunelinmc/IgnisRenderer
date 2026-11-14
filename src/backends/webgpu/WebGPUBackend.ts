@@ -576,22 +576,12 @@ export class WebGPUBackend implements IRenderBackend {
 		this._postProcessRuntime = new BackendPostProcessRuntime({
 			executor: this._postProcessExecutor,
 			backend: this,
-			warn: (key, message) =>
-				Logger.warn(`[${key}] ${message}`, {
-					scope: "WebGPUBackend",
-					onceKey: key,
-				}),
 		});
 		this._frameRuntime = createWebGPUFrameRuntimeComposition({
 			host: this._frameHost,
 			frameServices: this._resources,
 			shadowRenderer: this._resources.getShadowRenderProvider(),
 			sampleCountResolver: this._sampleCountResolver,
-			warnOnce: (code, message, cause) =>
-				Logger.warn(`[${code}] ${message}${cause ? ` ${String(cause)}` : ""}`, {
-					scope: "WebGPUBackend",
-					onceKey: code,
-				}),
 		});
 		this._frameOrchestrator = new WebGPUFrameOrchestrator(
 			this._frameHost,

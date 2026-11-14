@@ -1271,6 +1271,15 @@ const packed = packer.pack({
 
 ## Diagnostics
 
+- Backend runtimes and built-in post-process implementations must emit
+  log-only warnings directly through `Logger.warn`; backend composition must
+  not inject forwarding warning sinks.
+- `WebGPUClusteredLightingRuntime` warnings must remain deduplicated per runtime
+  instance. Moving emission into the runtime must retain its local warning-key
+  set rather than replace it with global Logger once keys.
+- Structured lighting, material, environment, and graph diagnostics must retain
+  their existing consumers and validation policies.
+
 ### Geometry packing
 
 - A packed semantic that exceeds its finite range or error threshold must use

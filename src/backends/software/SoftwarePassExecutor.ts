@@ -70,11 +70,6 @@ export class SoftwarePassExecutor {
 		this._postProcessRuntime = new BackendPostProcessRuntime({
 			executor: this._softwarePostProcessExecutor,
 			backend: options.backend,
-			warn: (key, message) =>
-				Logger.warn(`[${key}] ${message}`, {
-					scope: "SoftwareBackend",
-					onceKey: key,
-				}),
 		});
 		this._createStageHandlers();
 	}

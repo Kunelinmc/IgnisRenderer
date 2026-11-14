@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { Logger } from "../../../src/foundation/Logger.ts";
+import { BackendPostProcessRuntime } from "../../../src/postprocess/BackendPostProcessRuntime.ts";
 
 import {
 	PostProcessPass,
@@ -103,18 +105,28 @@ function gBuffer(channels = {}) {
 
 function plan(registry, overrides = {}) {
 	const warnings = [];
+	Logger.configure({
+		resetOnceKeys: true,
+		sink: { warn: (_scope, message) => warnings.push({
+			key: message.match(/^\[([^\]]+)\]/)?.[1], message,
+		}) },
+	});
 	const context = overrides.frameContext ?? frame();
 	const snapshot = registry.createSnapshot("software");
-	const result = new PostProcessPlanner().plan({
-		postProcess: snapshot,
-		backend: "software",
-		frameContext: context,
-		gBuffer: overrides.gBuffer ?? gBuffer(),
-		resolveImplementation: (pass) => overrides.missingIds?.has(pass.id) ?
-			null : pass.getImplementation("software"),
-		isSharedResourceAvailable: overrides.isSharedResourceAvailable,
-		warn: (key, message) => warnings.push({ key, message }),
-	});
+	let result;
+	try {
+		result = new PostProcessPlanner().plan({
+			postProcess: snapshot,
+			backend: "software",
+			frameContext: context,
+			gBuffer: overrides.gBuffer ?? gBuffer(),
+			resolveImplementation: (pass) => overrides.missingIds?.has(pass.id) ?
+				null : pass.getImplementation("software"),
+			isSharedResourceAvailable: overrides.isSharedResourceAvailable,
+		});
+	} finally {
+		Logger.reset();
+	}
 	return { result, warnings, snapshot };
 }
 
@@ -246,10 +258,15 @@ function testDeclarationPlanFinalizesAvailabilityWithoutRedescribing() {
 	assert.deepEqual(declarations.passes.map((entry) => entry.id), ["shared-reader"]);
 
 	const warnings = [];
+	Logger.configure({
+		resetOnceKeys: true,
+		sink: { warn: (_scope, message) => warnings.push({
+			key: message.match(/^\[([^\]]+)\]/)?.[1], message,
+		}) },
+	});
 	const unavailable = planner.finalize(declarations, {
 		gBuffer: gBuffer(),
 		isSharedResourceAvailable: () => false,
-		warn: (key, message) => warnings.push({ key, message }),
 	});
 	assert.equal(descriptions, 1);
 	assert.deepEqual(unavailable.passes, []);
@@ -263,12 +280,61 @@ function testDeclarationPlanFinalizesAvailabilityWithoutRedescribing() {
 	});
 	assert.equal(descriptions, 1);
 	assert.deepEqual(available.passes.map((entry) => entry.id), ["shared-reader"]);
+	Logger.reset();
+}
+
+function testWarmupSilencePreservesRenderWarnings() {
+	const registry = new PostProcessPassRegistry();
+	const missing = new TestPass({ id: "missing-runtime", declaration: { color: COLOR } });
+	registry.registerPass(missing);
+	registry.registerPass(new TestPass({
+		id: "missing-motion",
+		declaration: { color: COLOR, gBuffer: [{ semantic: "motion", ...READ }] },
+	}));
+	registry.registerPass(new TestPass({
+		id: "missing-shared",
+		declaration: { color: COLOR, shared: [{ id: "missing", ...READ }] },
+	}));
+	const context = { ...frame(), postProcess: registry.createSnapshot("software") };
+	// Retain snapshot eligibility while simulating an unavailable runtime implementation.
+	missing.getImplementationFactory = () => null;
+	const executor = {
+		backend: "software",
+		createGBufferBridge: () => gBuffer(),
+		isGraphResourceAvailable: () => false,
+	};
+	const warnings = [];
+	Logger.configure({
+		resetOnceKeys: true,
+		sink: { warn: (...args) => warnings.push(args.join(" ")) },
+	});
+	try {
+		const runtime = new BackendPostProcessRuntime({ executor, backend: {} });
+		assert.deepEqual(runtime.planWarmup(context).passes.map((pass) => pass.id), [
+			"missing-shared",
+		]);
+		assert.deepEqual(warnings, [], "warmup must remain silent");
+		Logger.warn("unrelated warning");
+		assert.equal(warnings.length, 1, "warmup must not silence the global logger");
+		assert.deepEqual(runtime.planFrame(context).passes, []);
+		assert.equal(warnings.length, 4);
+		for (const key of [
+			"postprocess-implementation-missing-missing-runtime",
+			"postprocess-requirement-missing-missing-motion",
+			"postprocess-backend-shared-unavailable-missing-shared",
+		]) assert.ok(warnings.some((message) => message.includes(key)), key);
+		new BackendPostProcessRuntime({ executor, backend: {} }).planFrame(context);
+		assert.equal(warnings.length, 4, "render warnings retain global deduplication");
+	} finally {
+		Logger.reset();
+	}
 }
 
 testOrderingAvailabilityAndCompleteIncrementalSequence();
 testDescriptorsAndDeterministicSignature();
 testDeclarationPlanFinalizesAvailabilityWithoutRedescribing();
 testTransparentOutputAlphaCompatibility();
+testWarmupSilencePreservesRenderWarnings();
 
 // Keep the conflict assertion separate so its message checks backend, pass and resource.
 {

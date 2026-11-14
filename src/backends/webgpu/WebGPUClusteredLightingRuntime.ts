@@ -1,3 +1,4 @@
+import { Logger } from "../../foundation/Logger";
 import { CameraType } from "../../cameras/Camera";
 import type { PreparedScene } from "../../pipeline/types";
 import { ShaderSource } from "../../shaders/ShaderSource";
@@ -171,7 +172,6 @@ export class WebGPUClusteredLightingRuntime {
 	private _compute: IWebGPUComputeFacade;
 	private _sceneLayout: GPUBindGroupLayout;
 	private _frameLayout: GPUBindGroupLayout;
-	private _warn: (key: string, message: string) => void = () => {};
 	private _warningKeys = new Set<string>();
 	private _state: FrameClusterState = {
 		enabled: false,
@@ -233,15 +233,11 @@ export class WebGPUClusteredLightingRuntime {
 	}
 
 	/**
-	 * Installs the clustered-lighting warning sink.
+	 * Invalidates pipelines and bindings after shader runtime changes.
 	 *
-	 * @internal Owned by the WebGPU frame-service warning bridge. Renderer
-	 * consumers should use the configured logger instead.
+	 * @internal Owned by WebGPU frame services; applications configure shaders
+	 * through the renderer shader runtime.
 	 */
-	public onWarn(warn: (key: string, message: string) => void): void {
-		this._warn = warn;
-	}
-
 	public onShaderRuntimeChanged(): void {
 		this._computeShaderModule = null;
 		this._clearPipeline = null;
@@ -1034,7 +1030,7 @@ export class WebGPUClusteredLightingRuntime {
 	private _warnOnce(key: string, message: string): void {
 		if (this._warningKeys.has(key)) return;
 		this._warningKeys.add(key);
-		this._warn(key, message);
+		Logger.warn(`[${key}] ${message}`, { scope: "WebGPUClusteredLightingRuntime" });
 	}
 }
 

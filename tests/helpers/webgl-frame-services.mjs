@@ -57,7 +57,6 @@ export class WebGLFrameServiceTestHarness extends WebGLFrameServices {
 					getDeviceServices: () => services,
 				}),
 				backend: TEST_BACKEND,
-				warn: () => {},
 			});
 		super(gl, shaderRuntime, shaderCompileStage, {
 			...options,

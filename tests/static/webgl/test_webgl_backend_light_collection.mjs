@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { Logger } from "../../../src/foundation/Logger.ts";
+import { recordLoggerWarnings } from "../../helpers/logger.mjs";
 import { AmbientLight } from "../../../src/lights/AmbientLight.ts";
 import { DirectionalLight } from "../../../src/lights/DirectionalLight.ts";
 import { LightProbe } from "../../../src/lights/LightProbe.ts";
@@ -24,8 +26,7 @@ import { createTinyCubeTexture, runWebGLBackendFile } from "../../helpers/webgl-
 import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
 function testLightCollectorLimitsAndWarnings() {
-	const warnings = [];
-	const warn = (key, message) => warnings.push({ key, message });
+	const warnings = recordLoggerWarnings();
 	const lights = [new AmbientLight()];
 
 	for (let i = 0; i < MAX_DIRECTIONAL_LIGHTS + 2; i++) {
@@ -39,7 +40,6 @@ function testLightCollectorLimitsAndWarnings() {
 	}
 
 	const state = collectWebGLLights(lights, {
-		warn,
 	});
 	assert.equal(state.directionalLights.length, MAX_DIRECTIONAL_LIGHTS);
 	assert.equal(state.pointLights.length, MAX_POINT_LIGHTS);
@@ -50,8 +50,7 @@ function testLightCollectorLimitsAndWarnings() {
 }
 
 function testLightProbeAmbientAndReflectionProbeSpecularCollection() {
-	const warnings = [];
-	const warn = (key, message) => warnings.push({ key, message });
+	const warnings = recordLoggerWarnings();
 	const sh = SH.empty();
 	sh[0] = { r: 120, g: 60, b: 30 };
 	const probeMap = new Texture({
@@ -68,7 +67,6 @@ function testLightProbeAmbientAndReflectionProbeSpecularCollection() {
 	});
 
 	const withoutSH = collectWebGLLights([lightProbe, reflectionProbe], {
-		warn,
 	});
 	assert.ok(withoutSH.ambientColor[0] > 0);
 	assert.ok(withoutSH.ambientColor[1] > 0);
@@ -82,7 +80,6 @@ function testLightProbeAmbientAndReflectionProbeSpecularCollection() {
 	);
 
 	const withSH = collectWebGLLights([lightProbe, reflectionProbe], {
-		warn,
 		enableSH: true,
 	});
 	assert.equal(withSH.ambientColor[0], 0);
@@ -91,8 +88,7 @@ function testLightProbeAmbientAndReflectionProbeSpecularCollection() {
 }
 
 function testLightCollectorCollectsLocalizedLightProbes() {
-	const warnings = [];
-	const warn = (key, message) => warnings.push({ key, message });
+	const warnings = recordLoggerWarnings();
 	const globalProbe = new LightProbe({ sh: SH.empty() });
 
 	const localProbe = new LightProbe({
@@ -106,7 +102,6 @@ function testLightCollectorCollectsLocalizedLightProbes() {
 	localProbe.markRuntimeDirty();
 
 	const state = collectWebGLLights([globalProbe, localProbe], {
-		warn,
 		enableSH: true,
 		cameraWorldPosition: { x: 0, y: 0, z: 0 },
 	});
@@ -119,8 +114,7 @@ function testLightCollectorCollectsLocalizedLightProbes() {
 }
 
 function testLightCollectorSupportsCubeTextureEnvironmentMaps() {
-	const warnings = [];
-	const warn = (key, message) => warnings.push({ key, message });
+	const warnings = recordLoggerWarnings();
 	const cubeProbeMap = createTinyCubeTexture(3, 0.75);
 	const cubeEnvironment = createTinyCubeTexture(2, 0.5);
 	const reflectionProbe = new ReflectionProbe({
@@ -129,7 +123,6 @@ function testLightCollectorSupportsCubeTextureEnvironmentMaps() {
 	});
 
 	const probeState = collectWebGLLights([reflectionProbe], {
-		warn,
 		environmentTexture: cubeEnvironment,
 	});
 	assert.ok(probeState.envSpecularMap);
@@ -140,7 +133,6 @@ function testLightCollectorSupportsCubeTextureEnvironmentMaps() {
 	assert.equal(probeState.reflectionProbeCount, 1);
 
 	const environmentState = collectWebGLLights([], {
-		warn,
 		environmentTexture: cubeEnvironment,
 	});
 	assert.ok(environmentState.envSpecularMap);
@@ -157,7 +149,6 @@ function testLightCollectorSupportsCubeTextureEnvironmentMaps() {
 }
 
 function testLightCollectorUsesParentedProbeCaptureOrigin() {
-	const warn = () => {};
 	const probeMap = createTinyCubeTexture(3, 0.75);
 	const model = new Node();
 	model.position.set(5, 0, 0);
@@ -170,14 +161,12 @@ function testLightCollectorUsesParentedProbeCaptureOrigin() {
 	model.updateWorldMatrix();
 
 	const state = collectWebGLLights([probe], {
-		warn,
 	});
 	assert.equal(state.reflectionProbeCount, 1);
 	assert.deepEqual(state.reflectionProbes[0].captureWorldPosition, [5, 0, 0]);
 }
 
 function testLightCollectorUsesProbeCaptureOriginWhenParentedToSceneRoot() {
-	const warn = () => {};
 	const probeMap = createTinyCubeTexture(3, 0.75);
 	const scene = new Scene();
 	const probe = new ReflectionProbe({
@@ -189,7 +178,6 @@ function testLightCollectorUsesProbeCaptureOriginWhenParentedToSceneRoot() {
 	scene.updateWorldMatrices();
 
 	const state = collectWebGLLights([probe], {
-		warn,
 	});
 	assert.equal(state.reflectionProbeCount, 1);
 	assert.deepEqual(state.reflectionProbes[0].captureWorldPosition, [5, 0, 0]);
@@ -199,7 +187,6 @@ function testLightCollectorShadowBias() {
 	const light = new DirectionalLight();
 	const shadowPlan = createShadowPlan(light, { size: 1024 });
 	const state = collectWebGLLights([light], {
-		warn: () => {},
 		enableShadows: true,
 		shadowPlan,
 	});
@@ -220,7 +207,6 @@ function testLightCollectorPCSSShadowParams() {
 		sampling: { quality: "high" },
 	});
 	const state = collectWebGLLights([light], {
-		warn: () => {},
 		enableShadows: true,
 		shadowPlan,
 	});
@@ -239,7 +225,6 @@ function testLightCollectorDirectionalCSMShadowData() {
 	});
 
 	const state = collectWebGLLights([light], {
-		warn: () => {},
 		enableShadows: true,
 		shadowPlan,
 	});

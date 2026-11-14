@@ -36,7 +36,6 @@ const DEFAULT_POST_PROCESS_DISPLAY_OUTPUT = createSDRDisplayOutputState(
 export interface BackendPostProcessRuntimeOptions {
 	readonly executor: IPostProcessExecutor;
 	readonly backend: IRenderBackend;
-	readonly warn?: (key: string, message: string) => void;
 }
 
 interface PendingBackendPostProcessFrame {
@@ -105,7 +104,6 @@ export interface PreparedPostProcessFrame {
 export class BackendPostProcessRuntime {
 	private readonly _executor: IPostProcessExecutor;
 	private readonly _backend: IRenderBackend;
-	private readonly _warn: (key: string, message: string) => void;
 	private readonly _planner = new PostProcessPlanner();
 	private readonly _subgraphBuilder = new PostProcessSubgraphBuilder();
 	private readonly _resources = new PostProcessResourcePool();
@@ -118,7 +116,6 @@ export class BackendPostProcessRuntime {
 	constructor(options: BackendPostProcessRuntimeOptions) {
 		this._executor = options.executor;
 		this._backend = options.backend;
-		this._warn = options.warn ?? (() => {});
 	}
 
 	private _resolveImplementation(pass: PostProcessPass): PostProcessPassImplementation | null {
@@ -163,7 +160,7 @@ export class BackendPostProcessRuntime {
 	 * @internal Owned by render backends.
 	 * @param context Active renderer frame context.
 	 * @returns Compiled graph filtered by runtime G-buffer availability.
-	 * @sideEffects May emit diagnostics through the configured warning sink.
+	 * @sideEffects May emit planning diagnostics through Logger.
 	 */
 	public planFrame(context: FrameContext): PostProcessPlan {
 		return this.finalizeFrame(this.describeFrame(context), context);
@@ -184,7 +181,6 @@ export class BackendPostProcessRuntime {
 			backend: this._executor.backend,
 			frameContext: context,
 			gBuffer: this._createWarmupGBuffer(context),
-			warn: this._warn,
 			resolveImplementation: (pass) => this._resolveImplementation(pass),
 			displayOutput: this._getDisplayOutputState(),
 		});
@@ -217,7 +213,6 @@ export class BackendPostProcessRuntime {
 		}
 		const graph = this._planner.finalize(declarations, {
 			gBuffer: this._executor.createGBufferBridge(context),
-			warn: this._warn,
 			isSharedResourceAvailable: (resourceId) =>
 				this._executor.isGraphResourceAvailable?.(resourceId) ?? true,
 		});
@@ -250,7 +245,7 @@ export class BackendPostProcessRuntime {
 			backend: this._executor.backend,
 			frameContext: context,
 			gBuffer: this._createWarmupGBuffer(context),
-			warn: () => {},
+			emitWarnings: false,
 			resolveImplementation: (pass) => this._resolveImplementation(pass),
 			displayOutput: this._getDisplayOutputState(),
 		});

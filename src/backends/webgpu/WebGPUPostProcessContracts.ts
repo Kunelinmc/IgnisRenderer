@@ -28,7 +28,6 @@ export interface WebGPUPostProcessServices {
 	getDisplayOutputState(): DisplayOutputState;
 	getDenoiser(): WebGPUDenoiser;
 	getHiZBuilder(): WebGPUHiZBuilder;
-	warn(key: string, message: string): void;
 	ensureCommonResources(): Promise<void>;
 	getCachedBindGroup(
 		key: string,

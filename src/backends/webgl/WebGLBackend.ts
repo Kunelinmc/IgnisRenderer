@@ -116,11 +116,6 @@ export class WebGLBackend implements IRenderBackend {
 			getDeviceServices: () => this._frameServices,
 		}),
 		backend: this,
-		warn: (key, message) =>
-			Logger.warn(`[${key}] ${message}`, {
-				scope: "WebGLBackend",
-				onceKey: key,
-			}),
 	});
 	public readonly extensions: RenderBackendExtensionRegistry;
 	public readonly profile: RenderBackendProfile = {

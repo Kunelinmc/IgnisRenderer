@@ -1,4 +1,5 @@
 import type { RenderBackendType } from "../backends/IRenderBackend";
+import { Logger } from "../foundation/Logger";
 import type {
 	CameraJitterRequirement,
 	FramePreparationRequirements,
@@ -47,21 +48,31 @@ export interface PostProcessExecutionOrderContext {
 	readonly frameContext?: FrameContext;
 }
 
+/**
+ * @internal Backend post-process planning inputs; applications configure
+ * Renderer.postProcess instead.
+ */
 export interface PostProcessDeclarationPlanRequest {
 	readonly postProcess: PostProcessPassRegistrySnapshot;
 	readonly backend: RenderBackendType;
 	readonly frameContext: FrameContext;
 	readonly gBuffer: LogicalGBufferBridge;
-	readonly warn?: (key: string, message: string) => void;
+	/** Defaults to true; false suppresses logs without consuming Logger once keys. */
+	readonly emitWarnings?: boolean;
 	readonly resolveImplementation: (
 		pass: PostProcessPass
 	) => PostProcessPassImplementation | null;
 	readonly displayOutput?: DisplayOutputState;
 }
 
+/**
+ * @internal Backend post-process availability inputs; applications configure
+ * Renderer.postProcess instead.
+ */
 export interface PostProcessPlanFinalizationRequest {
 	readonly gBuffer: LogicalGBufferBridge;
-	readonly warn?: (key: string, message: string) => void;
+	/** Defaults to true; false suppresses logs without changing eligibility checks. */
+	readonly emitWarnings?: boolean;
 	readonly isSharedResourceAvailable?: (resourceId: string) => boolean;
 }
 
@@ -145,7 +156,6 @@ export class PostProcessPlanner {
 	public describe(
 		request: PostProcessDeclarationPlanRequest,
 	): PostProcessDeclarationPlan {
-		const warn = request.warn ?? (() => {});
 		const orderedPasses = resolvePostProcessExecutionOrder(request.postProcess, {
 			backend: request.backend,
 			frameContext: request.frameContext,
@@ -168,21 +178,27 @@ export class PostProcessPlanner {
 		for (const resolved of orderedPasses) {
 			const implementation = request.resolveImplementation(resolved.pass);
 			if (!implementation) {
-				warn(
-					`postprocess-implementation-missing-${resolved.id}`,
-					`Post-process pass "${resolved.id}" has no ${request.backend} implementation; skipping it`,
-				);
+				if (request.emitWarnings !== false) {
+					const key = `postprocess-implementation-missing-${resolved.id}`;
+					Logger.warn(
+						`[${key}] Post-process pass "${resolved.id}" has no ` +
+							`${request.backend} implementation; skipping it`,
+						{ scope: "PostProcessPlanner", onceKey: key },
+					);
+				}
 				continue;
 			}
 			if (
 				!resolved.pass.colorContract &&
 				!resolved.pass.builtIn &&
-				request.displayOutput?.activeDynamicRange === "hdr"
+				request.displayOutput?.activeDynamicRange === "hdr" &&
+				request.emitWarnings !== false
 			) {
-				warn(
-					`postprocess-color-domain-undeclared-${resolved.id}`,
-					`HDR post-process pass "${resolved.id}" has no color domain; ` +
+				const key = `postprocess-color-domain-undeclared-${resolved.id}`;
+				Logger.warn(
+					`[${key}] HDR post-process pass "${resolved.id}" has no color domain; ` +
 						"assuming it preserves the current domain.",
+					{ scope: "PostProcessPlanner", onceKey: key },
 				);
 			}
 			const resolveRequest = this._createResolveRequest(
@@ -234,20 +250,22 @@ export class PostProcessPlanner {
 		declarations: PostProcessDeclarationPlan,
 		request: PostProcessPlanFinalizationRequest,
 	): PostProcessPlan {
-		const warn = request.warn ?? (() => {});
 		const eligiblePasses = declarations.passes.filter((pass) =>
-			this._isEligible(pass.id, pass.declaration, request, warn)
+			this._isEligible(pass.id, pass.declaration, request)
 		);
 		const passes: PlannedPostProcessPass[] = [];
 		let outputColorDomain = declarations.initialColorDomain;
 		for (const pass of eligiblePasses) {
 			const contract = pass.pass.colorContract;
 			if (contract && contract.input !== outputColorDomain) {
-				warn(
-					`postprocess-color-domain-mismatch-${pass.id}`,
-					`Post-process pass "${pass.id}" expects "${contract.input}" but ` +
-						`received "${outputColorDomain}"; skipping it.`,
-				);
+				if (request.emitWarnings !== false) {
+					const key = `postprocess-color-domain-mismatch-${pass.id}`;
+					Logger.warn(
+						`[${key}] Post-process pass "${pass.id}" expects "${contract.input}" but ` +
+							`received "${outputColorDomain}"; skipping it.`,
+						{ scope: "PostProcessPlanner", onceKey: key },
+					);
+				}
 				continue;
 			}
 			passes.push(pass);
@@ -390,8 +408,7 @@ export class PostProcessPlanner {
 	private _isEligible(
 		passId: string,
 		declaration: PostProcessExecutionDeclaration,
-		request: PostProcessPlanFinalizationRequest,
-		warn: (key: string, message: string) => void
+		request: PostProcessPlanFinalizationRequest
 	): boolean {
 		for (const entry of declaration.gBuffer ?? []) {
 			if (entry.optional === true) continue;
@@ -399,10 +416,14 @@ export class PostProcessPlanner {
 				request.gBuffer.worldPosition.available || !!request.gBuffer.channels[entry.semantic]
 				: !!request.gBuffer.channels[entry.semantic];
 			if (!available) {
-				warn(
-					`postprocess-requirement-missing-${passId}`,
-					`Post-process pass "${passId}" is missing required G-buffer channel "${entry.semantic}"; skipping it`,
-				);
+				if (request.emitWarnings !== false) {
+					const key = `postprocess-requirement-missing-${passId}`;
+					Logger.warn(
+						`[${key}] Post-process pass "${passId}" is missing required ` +
+							`G-buffer channel "${entry.semantic}"; skipping it`,
+						{ scope: "PostProcessPlanner", onceKey: key },
+					);
+				}
 				return false;
 			}
 		}
@@ -411,10 +432,14 @@ export class PostProcessPlanner {
 				entry.optional !== true &&
 				request.isSharedResourceAvailable?.(entry.id) === false
 			) {
-				warn(
-					`postprocess-backend-shared-unavailable-${passId}`,
-					`Post-process pass "${passId}" requires unavailable shared resource "${entry.id}"; skipping it`,
-				);
+				if (request.emitWarnings !== false) {
+					const key = `postprocess-backend-shared-unavailable-${passId}`;
+					Logger.warn(
+						`[${key}] Post-process pass "${passId}" requires unavailable ` +
+							`shared resource "${entry.id}"; skipping it`,
+						{ scope: "PostProcessPlanner", onceKey: key },
+					);
+				}
 				return false;
 			}
 		}

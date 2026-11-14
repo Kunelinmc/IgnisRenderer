@@ -635,6 +635,11 @@ bun tests/static/webgl/test_webgl_frame_graph_runtime.mjs
 
 ### Backend lifecycle and execution
 
+- Compiler, scene-program, geometry, texture, and light-collection services
+  must emit log-only warnings locally through `Logger.warn`, preserving their
+  warning keys and global once-key deduplication. Their options and constructors
+  must not accept forwarding warning callbacks. Tests may observe output through
+  the Logger sink.
 - With `Logger.setLevel("debug")`, `WebGLProgramCompiler` must report `issue`,
   `wait`, and `finalize` timings with the program label or batch label, program
   count, duration in milliseconds, and parallel-compile availability. `issue`

@@ -308,7 +308,7 @@ async function testSourceOverwriteAndValidation() {
 
 async function testRuntimeOwnershipAndInvalidation() {
 	const backend = new FakeBackend();
-	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend), () => {});
+	const runtime = new WebGPUPostProcessRuntime(createWebGPUComputeFacade(backend));
 	const denoiser = runtime.getDenoiser();
 	assert.equal(runtime.getDenoiser(), denoiser);
 

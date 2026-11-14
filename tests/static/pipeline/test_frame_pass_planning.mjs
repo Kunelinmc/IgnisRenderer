@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { Logger } from "../../../src/foundation/Logger.ts";
+import { recordLoggerWarnings } from "../../helpers/logger.mjs";
 
 import { RenderPipelineRegistry } from "../../../src/pipeline/RenderPipelineRegistry.ts";
 import {
@@ -50,7 +52,6 @@ function createFramePlan(frame, features, postProcess, options = {}) {
 				hasActiveAnimations: frame.hasActiveAnimations,
 				hasParticleSystems: (frame.particleSystems?.length ?? 0) > 0,
 			},
-			() => {},
 		);
 	const requirements =
 		options.requirements ??
@@ -96,14 +97,11 @@ function testExecutionOrderIsAnIndependentSnapshot() {
 		],
 	});
 	const context = { hasActiveAnimations: false, hasParticleSystems: false };
-	const firstOrder = registry.getExecutionOrder(context, () => {});
+	const firstOrder = registry.getExecutionOrder(context);
 	firstOrder[1].dependsOn.push("missing");
 
-	const warnings = [];
-	const nextOrder = registry.getExecutionOrder(
-		context,
-		(...args) => warnings.push(args),
-	);
+	const warnings = recordLoggerWarnings();
+	const nextOrder = registry.getExecutionOrder(context);
 	assert.deepEqual(nextOrder.map((stage) => stage.id), ["first", "second"]);
 	assert.deepEqual(nextOrder[1].dependsOn, ["first"]);
 	assert.deepEqual(registry.createFramePass("second").dependsOn, ["first"]);
@@ -357,7 +355,6 @@ function run() {
 	const defaultStageOrder = registry
 		.getExecutionOrder(
 			{ hasActiveAnimations: true, hasParticleSystems: false },
-			() => {},
 		)
 		.map((stage) => stage.id);
 	assert.ok(
@@ -390,5 +387,9 @@ function run() {
 	console.log("Frame pass planning tests passed");
 }
 
-testExecutionOrderIsAnIndependentSnapshot();
-run();
+try {
+	testExecutionOrderIsAnIndependentSnapshot();
+	run();
+} finally {
+	Logger.reset();
+}

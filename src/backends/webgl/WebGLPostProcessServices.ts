@@ -14,7 +14,6 @@ import type {
 	PostProcessResourceHandle,
 } from "../../postprocess";
 import { createPostProcessResourceAccessor } from "../../postprocess/PostProcessResourceAccessor";
-import { Logger } from "../../foundation/Logger";
 import type { WebGLProgramCompiler } from "./WebGLProgramCompiler";
 import type { WebGLFrameTargetManager } from "./WebGLFrameTargetManager";
 import type {
@@ -209,7 +208,6 @@ export class WebGLPostProcessServices {
 				height = this._host.getHeight(),
 				frameContext = this._host.getActiveContext(),
 			) => this._host.drawFullscreen(width, height, frameContext),
-			warn: (key: string, message: string) => this._warn(key, message),
 			resources: createPostProcessResourceAccessor<WebGLTexture>({
 				passId: request.passId,
 				declaration: request.declaration,
@@ -247,7 +245,6 @@ export class WebGLPostProcessServices {
 			bindColorTarget: (texture: WebGLTexture) =>
 				this._host.targets.bindPostSingleColorTarget(texture),
 			drawFullscreen: () => {},
-			warn: (key: string, message: string) => this._warn(key, message),
 			resources: createPostProcessResourceAccessor<WebGLTexture>({
 				passId,
 				declaration,
@@ -304,13 +301,6 @@ export class WebGLPostProcessServices {
 	private _getSourceTexture(): WebGLTexture | null {
 		return this._host.targets._presentSourceTexture ??
 			this._host.targets._sceneColorTexture;
-	}
-
-	private _warn(key: string, message: string): void {
-		Logger.warn(`[${key}] ${message}`, {
-			scope: "WebGLPostProcessServices",
-			onceKey: key,
-		});
 	}
 }
 
