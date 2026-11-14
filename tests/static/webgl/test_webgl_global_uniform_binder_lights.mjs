@@ -208,6 +208,11 @@ function testSHAmbientCoefficientsUseUniformVectors() {
 	assert.equal(packed[45], 16);
 	assert.equal(packed[46], 17);
 	assert.equal(packed[47], 18);
+
+	frameContext.shAmbientCoeffs = Array.from({ length: 16 }, () => ({ r: 0, g: 0, b: 0 }));
+	bindWebGLGlobalUniforms(host, sceneProgram, frameContext);
+	assert.equal(gl._calls.uniform1iCalls.get(enableSH), 0,
+		"An empty probe buffer must not enable SH lighting");
 }
 
 function testLocalLightProbeSHUsesFreedTextureUnit() {

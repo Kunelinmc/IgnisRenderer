@@ -743,9 +743,9 @@ fn shadePBR(
 	}
 
 	let shAmbientEnabled = useSHAmbient();
-	var ambientColor = frameLights.ambientColor.rgb;
+	let ambientColor = frameLights.ambientColor.rgb;
 
-	var diffuseAmbient = ambientColor / PI;
+	var diffuseAmbient = vec3<f32>(0.0);
 	var specularAmbientRadiance = vec3<f32>(0.0);
 	if (shAmbientEnabled) {
 		diffuseAmbient =
@@ -781,30 +781,27 @@ fn shadePBR(
 			sampleBRDFLUT(nDotV, roughness), splitSumFresnel, energyCompensation
 		);
 	}
-	var kdAmbient = vec3<f32>((1.0 - metalness) * (1.0 - transmission));
-	if (shAmbientEnabled) {
-		kdAmbient =
-			(vec3<f32>(1.0) - specularIBLWeight) *
-			(1.0 - metalness) *
-			(1.0 - transmission);
-	}
+	let kdAmbient =
+		(vec3<f32>(1.0) - specularIBLWeight) *
+		(1.0 - metalness) *
+		(1.0 - transmission);
 	let ktAmbient =
 		(vec3<f32>(1.0) - effectiveFAmbient) *
 		(1.0 - metalness) *
 		transmission;
 
 	let ccAmbientFresnel = select(0.0, fresnelSchlickScalar(nDotV, 0.04), clearcoat > 0.0);
-	let diffuseCcAmbientFresnel = select(
-		select(0.0, 0.04, clearcoat > 0.0),
-		ccAmbientFresnel,
-		shAmbientEnabled
-	);
-	let clearcoatDiffuseAttenuation = 1.0 - diffuseCcAmbientFresnel * clearcoat;
 	let clearcoatSpecularAttenuation = 1.0 - ccAmbientFresnel * clearcoat;
 	let baseAmbientAttenuation =
-		vec3<f32>(clearcoatDiffuseAttenuation) * (vec3<f32>(1.0) - sheenColor * 0.5);
+		vec3<f32>(clearcoatSpecularAttenuation) * (vec3<f32>(1.0) - sheenColor * 0.5);
 
-	var ambientLight = diffuseAmbient * albedo * kdAmbient * baseAmbientAttenuation;
+	// Analytical irradiance keeps its diffuse response when probe lighting is active.
+	let analyticalAmbientAttenuation =
+		(1.0 - 0.04 * clearcoat) * (vec3<f32>(1.0) - sheenColor * 0.5);
+	var ambientLight =
+		(ambientColor / PI) * albedo * (1.0 - metalness) * (1.0 - transmission) *
+		analyticalAmbientAttenuation +
+		diffuseAmbient * albedo * kdAmbient * baseAmbientAttenuation;
 	if (
 		includeTransmissionBackground &&
 		transmission > 0.0 &&

@@ -221,7 +221,7 @@ export interface FrameContext {
 	readonly shadowPlan: ShadowFramePlan;
 	/** Complete camera-independent scene state and the active camera's prepared view. */
 	readonly scene: PreparedScene;
-	readonly shCoeffs: SHCoefficients;
+	/** Frame-global probe radiance SH; analytical ambient irradiance is separate. */
 	readonly shAmbientCoeffs: SHCoefficients;
 	readonly incremental: IncrementalFrameContext;
 	/** Pass-specific transient data */

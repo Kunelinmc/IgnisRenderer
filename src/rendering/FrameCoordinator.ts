@@ -6,8 +6,6 @@ import {
 } from "../lights";
 import { Matrix4 } from "../maths/Matrix4";
 import { SH } from "../maths/SH";
-import { Vector3 } from "../maths/Vector3";
-import { sRGBToLinear } from "../maths/Common";
 import { Scene } from "../core/Scene";
 import { Logger } from "../foundation/Logger";
 import type { TransientStore } from "../foundation/TransientStore";
@@ -115,7 +113,6 @@ export interface FrameCoordinatorDelegate {
 	readonly incrementalOptions: IncrementalRenderingOptions;
 	readonly animationAutoRender: boolean;
 
-	setSHCoefficients(coeffs: SHCoefficients): void;
 	setSHAmbientCoefficients(coeffs: SHCoefficients): void;
 	setLastIncrementalFrameStats(stats: IncrementalFrameStats | null): void;
 
@@ -843,14 +840,11 @@ export class FrameCoordinator {
 			height: delegate.canvas.height,
 		});
 
-		let shCoeffs = SH.empty();
-		let shAmbientCoeffs = SH.empty();
+		let shAmbientCoeffs: SHCoefficients;
 		if (resolved.enableSH && delegate.scene.version !== 0) {
-			const shState = this.updateSH(delegate);
-			shCoeffs = shState.shCoeffs;
-			shAmbientCoeffs = shState.shAmbientCoeffs;
+			shAmbientCoeffs = this.updateSH(delegate);
 		} else {
-			delegate.setSHCoefficients(shCoeffs);
+			shAmbientCoeffs = SH.empty();
 			delegate.setSHAmbientCoefficients(shAmbientCoeffs);
 		}
 
@@ -895,7 +889,6 @@ export class FrameCoordinator {
 			}),
 			shadowPlan,
 			scene: frame,
-			shCoeffs,
 			shAmbientCoeffs,
 			incremental,
 			transient,
@@ -992,24 +985,13 @@ export class FrameCoordinator {
 		};
 	}
 
-	public updateSH(delegate: FrameCoordinatorDelegate): {
-		shCoeffs: SHCoefficients;
-		shAmbientCoeffs: SHCoefficients;
-	} {
-		let ambientProbeSH: SHCoefficients = SH.empty();
-		let ambientR = 0;
-		let ambientG = 0;
-		let ambientB = 0;
+	/**
+	 * Aggregates frame-global probe radiance without analytical lights.
+	 * @internal Owned by frame preparation; applications author `LightProbe.sh`.
+	 */
+	public updateSH(delegate: FrameCoordinatorDelegate): SHCoefficients {
+		const shAmbientCoeffs = SH.empty();
 		for (const light of delegate.scene.getLights()) {
-			if (light.type === LightType.Ambient) {
-				const color = light.color || { r: 255, g: 255, b: 255 };
-				const intensity = light.intensity ?? 1;
-				ambientR += sRGBToLinear(color.r / 255) * 255 * intensity;
-				ambientG += sRGBToLinear(color.g / 255) * 255 * intensity;
-				ambientB += sRGBToLinear(color.b / 255) * 255 * intensity;
-				continue;
-			}
-
 			if (light.type === LightType.LightProbe) {
 				const probe = light as LightProbe;
 				if (
@@ -1019,56 +1001,17 @@ export class FrameCoordinator {
 					continue;
 				}
 				const probeSH = probe.sh;
-				const coeffCount = Math.min(ambientProbeSH.length, probeSH.length);
+				const coeffCount = Math.min(shAmbientCoeffs.length, probeSH.length);
 				for (let i = 0; i < coeffCount; i++) {
-					ambientProbeSH[i].r += probeSH[i].r;
-					ambientProbeSH[i].g += probeSH[i].g;
-					ambientProbeSH[i].b += probeSH[i].b;
+					shAmbientCoeffs[i].r += probeSH[i].r;
+					shAmbientCoeffs[i].g += probeSH[i].g;
+					shAmbientCoeffs[i].b += probeSH[i].b;
 				}
 			}
 		}
 
-		ambientProbeSH[0].r += ambientR / Math.PI / 0.282095;
-		ambientProbeSH[0].g += ambientG / Math.PI / 0.282095;
-		ambientProbeSH[0].b += ambientB / Math.PI / 0.282095;
-
-		const shAmbientCoeffs = ambientProbeSH.map((coefficient) => ({
-			r: coefficient.r,
-			g: coefficient.g,
-			b: coefficient.b,
-		})) as SHCoefficients;
-
-		let totalSH: SHCoefficients = shAmbientCoeffs.map((coefficient) => ({
-			r: coefficient.r,
-			g: coefficient.g,
-			b: coefficient.b,
-		})) as SHCoefficients;
-
-		for (const light of delegate.scene.getLights()) {
-			if (light.type !== LightType.Directional) continue;
-
-			const worldDirection = light.getWorldLightDirection();
-			const direction = Vector3.normalize({
-				x: -worldDirection.x,
-				y: -worldDirection.y,
-				z: -worldDirection.z,
-			});
-			const intensity = light.intensity ?? 1;
-			const lightSH = SH.projectDirectionalLight(direction, {
-				r: light.color.r * intensity,
-				g: light.color.g * intensity,
-				b: light.color.b * intensity,
-			});
-			totalSH = SH.addCoeffs(totalSH, lightSH);
-		}
-
-		delegate.setSHCoefficients(totalSH);
 		delegate.setSHAmbientCoefficients(shAmbientCoeffs);
-
-		return {
-			shCoeffs: totalSH,
-			shAmbientCoeffs,
-		};
+		return shAmbientCoeffs;
 	}
 
 	private _assertCameraInScene(

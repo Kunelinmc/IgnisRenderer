@@ -280,7 +280,6 @@ function createFrameContext(width, height) {
 		}, "webgpu"),
 		shadowPlan: EMPTY_SHADOW_FRAME_PLAN,
 		scene: createPreparedSceneFixture(),
-		shCoeffs: [],
 		shAmbientCoeffs: [],
 		transient: new Map(),
 	};

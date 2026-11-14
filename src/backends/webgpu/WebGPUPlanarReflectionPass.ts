@@ -672,7 +672,6 @@ function createPlanarCaptureContext(
 		renderTargets: new RenderTargetRegistrySnapshot(),
 		shadowPlan: captureScene.shadowPlan,
 		scene: captureScene,
-		shCoeffs: context.shCoeffs,
 		shAmbientCoeffs: context.shAmbientCoeffs,
 		incremental: {
 			enabled: false,

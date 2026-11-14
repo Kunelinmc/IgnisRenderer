@@ -313,7 +313,6 @@ function createFrameContext(overrides = {}) {
 			shadowTransmitterSubmissions: [],
 			reflectivePackets: [],
 		},
-		shCoeffs: [],
 		shAmbientCoeffs: [],
 		transient: new Map(),
 		...overrides,

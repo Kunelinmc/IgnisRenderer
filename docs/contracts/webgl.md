@@ -303,6 +303,9 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
 - SH lighting must use 16 coefficients. Global SH coefficients must use the
   scene uniform array; localized light-probe coefficients must use
   texture-backed data for shader sampling.
+- The global SH array must contain only probe radiance. Analytical ambient
+  irradiance must remain in `uAmbientColor` and must be added independently of
+  global or localized probe diffuse lighting and its Fresnel response.
 - Clustered lighting must be CPU-built with tile and z-slice partitioning.
 - Clustered lighting must provide runtime fallback to legacy forward lighting
   when requirements are not met.
@@ -512,8 +515,9 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   Frame-sized attachments must be owned exclusively by
   `WebGLFrameTargetManager`; post-process histories must be owned exclusively
   by `BackendPostProcessRuntime` resource pools.
-- Probe SH coefficient textures must be created, uploaded to, and destroyed
-  exclusively by `WebGLProbeSHTextures`.
+- Localized probe SH coefficient textures must be created, uploaded to, and
+  destroyed exclusively by `WebGLProbeSHTextures`. Global probe SH must use
+  the scene uniform array and must not allocate a separate coefficient texture.
 - WebGL scene-pass functions must consume an explicitly constructed
   `WebGLScenePassDeps` dependency bundle and must not read or write mutable
   frame state through the concrete `WebGLFrameServices` type. Per-draw scratch
@@ -642,10 +646,10 @@ bun tests/static/webgl/test_webgl_frame_graph_runtime.mjs
   `clusteredLightingOptions.maxLights`.
 - `webgl-clustered-texture-size-overflow`: triggered when clustered buffers
   cannot fit within texture capacity.
-- `webgl-sh-ambient-texture-create-failed`: triggered when SH coefficient
-  texture allocation fails.
-- `webgl-sh-ambient-texture-upload-failed`: triggered when SH coefficient
-  texture upload fails.
+- `webgl-local-light-probe-texture-create-failed`: triggered when localized
+  probe SH coefficient texture allocation fails.
+- `webgl-local-light-probe-texture-upload-failed`: triggered when localized
+  probe SH coefficient texture upload fails.
 - `hdr-float-color-buffer-unavailable`: thrown when float color-buffer support
   or the `RGBA16F` completeness probe is unavailable.
 - `hdr-float-linear-filtering-unavailable`: thrown when neither half-float nor

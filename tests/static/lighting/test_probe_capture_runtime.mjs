@@ -7,6 +7,7 @@ import { LightProbe } from "../../../src/lights/LightProbe.ts";
 import { ReflectionProbe } from "../../../src/lights/ReflectionProbe.ts";
 import { IBLPrefilter } from "../../../src/lights/ibl/IBLPrefilter.ts";
 import { ProbeCaptureRuntime } from "../../../src/lights/runtime/ProbeCaptureRuntime.ts";
+import { SH } from "../../../src/maths/SH.ts";
 import { directionFromEquirectUV } from "../../../src/lights/runtime/environmentMapRuntime.ts";
 
 function createPrefilteredMap(seed = 1) {
@@ -112,11 +113,12 @@ async function driveRuntimeUntil(runtime, createContext, predicate, maxSteps = 1
 	}
 }
 
-async function testLightProbeManualCaptureProjectsSHWithoutPrefilter() {
-	let prefilterCallCount = 0;
+async function testLightProbeManualCapturePreservesAmbientIrradiance() {
 	const runtime = new ProbeCaptureRuntime();
 	const scene = new Scene();
-	scene.add(new AmbientLight({ intensity: 1 }));
+	// HDR irradiance must stay HDR after conversion to capture radiance.
+	scene.add(new AmbientLight({ intensity: 4 }));
+	const raw = new Texture({ data: null, width: 0, height: 0, colorSpace: "HDR" });
 	const probe = scene.add(
 		new LightProbe({
 			source: "capturedScene",
@@ -125,6 +127,7 @@ async function testLightProbeManualCaptureProjectsSHWithoutPrefilter() {
 			includeEnvironment: false,
 		})
 	);
+	probe.capture.bindRawTexture(raw);
 	scene.updateWorldMatrices();
 
 	await runtime.execute({ scene, nowMs: 0 });
@@ -139,7 +142,13 @@ async function testLightProbeManualCaptureProjectsSHWithoutPrefilter() {
 	);
 
 	assert.ok(probe.sh[0].r > 0);
-	assert.equal(prefilterCallCount, 0);
+	assert.ok(Math.abs(raw.data[0] - 4 / Math.PI) < 1e-6,
+		"Analytical capture must convert ambient irradiance to radiance exactly once");
+	for (const normal of [{ x: 0, y: 1, z: 0 }, { x: 1, y: 0, z: 0 }]) {
+		const irradiance = SH.calculateIrradiance(normal, probe.sh);
+		assert.ok(Math.abs(irradiance.r / 255 - 4) < 0.06,
+			"Captured ambient SH must reconstruct the original irradiance");
+	}
 }
 
 async function testLightProbeCaptureWritesBoundTextures() {
@@ -466,7 +475,7 @@ async function testSharedCaptureSkipsStaleLightProbeResult() {
 }
 
 async function run() {
-	await testLightProbeManualCaptureProjectsSHWithoutPrefilter();
+	await testLightProbeManualCapturePreservesAmbientIrradiance();
 	await testLightProbeCaptureWritesBoundTextures();
 	await testSharedCaptureUpdatesLightAndReflectionProbe();
 	await testReflectionProbeCaptureWritesBoundPrefilteredTexture();

@@ -549,7 +549,11 @@ export function bindWebGLGlobalUniforms(
 		gl.uniform3f(uniforms.ambientColor, ambientR, ambientG, ambientB);
 	}
 	const hasSHAmbientCoefficients =
-		Array.isArray(context.shAmbientCoeffs) && context.shAmbientCoeffs.length > 0;
+		Array.isArray(context.shAmbientCoeffs) && context.shAmbientCoeffs.some((coefficient) =>
+			finiteOr(coefficient?.r, 0) !== 0 ||
+			finiteOr(coefficient?.g, 0) !== 0 ||
+			finiteOr(coefficient?.b, 0) !== 0
+		);
 	const localLightProbeTextureReady =
 		host._probeSHTextures.uploadLocalLightProbeCoefficients(
 			localLightProbes

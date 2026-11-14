@@ -32,7 +32,6 @@ function createFrameContext(postProcess, incremental = {}) {
 			},
 		},
 		shadowMaps: [],
-		shCoeffs: [],
 		shAmbientCoeffs: [],
 		postProcess,
 		incremental: {

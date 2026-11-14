@@ -83,7 +83,6 @@ async function run() {
 		expectReadonlyAssignment(renderer, "scene", new Scene());
 		expectReadonlyAssignment(renderer, "camera", new Camera());
 		expectReadonlyAssignment(renderer, "lastTime", 123);
-		expectReadonlyAssignment(renderer, "shCoeffs", []);
 		expectReadonlyAssignment(renderer, "shAmbientCoeffs", []);
 
 		console.log("Renderer mutable field guard tests passed");

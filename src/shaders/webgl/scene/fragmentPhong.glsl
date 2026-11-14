@@ -26,7 +26,7 @@ vec3 shadePhong(vec3 albedo, vec3 n, vec3 shadowNormal, vec3 v) {
 	vec3 ambientBase = uAmbientColor;
 #if WEBGL_SCENE_SH
 	if (uEnableSH == 1) {
-		ambientBase = sampleDiffuseProbeIrradiance(vWorldPos, n) / 255.0;
+		ambientBase += sampleDiffuseProbeIrradiance(vWorldPos, n) / 255.0;
 	}
 #endif
 	vec3 lit = ambientBase * uPhongAmbient.rgb / PI;

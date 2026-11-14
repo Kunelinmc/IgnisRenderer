@@ -52,7 +52,6 @@ const context = {
 	renderTargets: new RenderTargetRegistrySnapshot(),
 	shadowPlan: EMPTY_SHADOW_FRAME_PLAN,
 	scene,
-	shCoeffs: SH.empty(),
 	shAmbientCoeffs: SH.empty(),
 	incremental: { enabled: false, forceFullFrame: true, dirtyRects: [] },
 	transient: new Map(),

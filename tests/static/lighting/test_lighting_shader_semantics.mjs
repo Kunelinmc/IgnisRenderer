@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { AmbientLight } from "../../../src/lights/AmbientLight.ts";
 import { DirectionalLight } from "../../../src/lights/DirectionalLight.ts";
 import { LightProbe } from "../../../src/lights/LightProbe.ts";
+import { ReflectionProbe } from "../../../src/lights/ReflectionProbe.ts";
 import { evaluateLightContribution } from "../../../src/shaders/software/LightEvaluator.ts";
 import { SH } from "../../../src/maths/SH.ts";
 import { BlinnPhongStrategy } from "../../../src/shaders/software/BlinnPhongStrategy.ts";
@@ -246,6 +247,147 @@ function testPBRAmbientIrradianceIsViewIndependent() {
 	);
 
 	assert.deepEqual(grazing, facing);
+}
+
+function testAnalyticalAmbientAddsIndependentlyOfProbeSH() {
+	const sh = createConstantWhiteSH(0.25);
+	const probe = new LightProbe({ sh });
+	const ambient = new AmbientLight({ intensity: 1 });
+	const position = { x: 0, y: 0, z: 0 };
+	const normal = { x: 0, y: 0, z: 1 };
+	const baseSurface = {
+		albedo: { r: 255, g: 255, b: 255 }, opacity: 1, normal,
+		emissive: { r: 0, g: 0, b: 0 }, emissiveIntensity: 1,
+		roughness: 0.6, metalness: 0, reflectance: 0.5, occlusion: 1,
+		clearcoat: 0, clearcoatRoughness: 0.1,
+		ambient: { r: 255, g: 255, b: 255 },
+		specular: { r: 0, g: 0, b: 0 }, shininess: 32,
+	};
+	for (const [strategy, surface, expectedAmbient] of [
+		[new BlinnPhongStrategy(), { ...baseSurface, type: "phong" }, 1 / Math.PI],
+		[new PBRStrategy(), { ...baseSurface, type: "pbr" }, 1 / Math.PI],
+		[new PBRStrategy(), { ...baseSurface, type: "pbr", metalness: 1 }, 0],
+		[new PBRStrategy(), { ...baseSurface, type: "pbr", clearcoat: 1 }, 0.96 / Math.PI],
+	]) {
+		for (const view of [normal, { x: 0.9999995, y: 0, z: 0.001 }]) {
+			for (const enableSH of [false, true]) {
+				const context = createContext({ enableSH, shAmbientCoeffs: sh, lights: [probe] });
+				const probeOnly = strategy.calculate(position, normal, view, surface, context);
+				const combined = strategy.calculate(position, normal, view, surface, {
+					...context, lights: [probe, ambient],
+				});
+				for (const channel of ["r", "g", "b"]) {
+					assert.ok(Math.abs(combined[channel] - probeOnly[channel] - expectedAmbient) < 1e-6,
+						`${surface.type}: ambient diffuse must remain additive with SH=${enableSH}`);
+				}
+			}
+		}
+	}
+}
+
+function testZeroProbeAggregateRemainsAuthoritative() {
+	const positive = createConstantWhiteSH(0.25);
+	const negative = SH.empty();
+	negative[0] = { r: -positive[0].r, g: -positive[0].g, b: -positive[0].b };
+	const lights = [new AmbientLight({ intensity: 1 }),
+		new LightProbe({ sh: positive }), new LightProbe({ sh: negative })];
+	const normal = { x: 0, y: 0, z: 1 };
+	const surface = {
+		albedo: { r: 255, g: 255, b: 255 }, opacity: 1, normal,
+		emissive: { r: 0, g: 0, b: 0 }, emissiveIntensity: 1,
+		roughness: 1, metalness: 0, reflectance: 0, occlusion: 1,
+		clearcoat: 0, clearcoatRoughness: 0,
+		ambient: { r: 255, g: 255, b: 255 },
+		specular: { r: 0, g: 0, b: 0 }, shininess: 32,
+	};
+	for (const strategy of [new BlinnPhongStrategy(), new PBRStrategy()]) {
+		for (const [enableSH, coefficients, expected] of [
+			[true, SH.empty(), 1 / Math.PI],
+			[true, null, 1 / Math.PI + 0.25],
+			[false, SH.empty(), 1 / Math.PI + 0.25],
+		]) {
+			const result = strategy.calculate({ x: 0, y: 0, z: 0 }, normal, normal,
+				surface, createContext({ lights, enableSH, shAmbientCoeffs: coefficients }));
+			assert.ok(Math.abs(result.r - expected) < 1e-6,
+				"A present zero SH aggregate must not fall back to clamped individual probes");
+		}
+	}
+}
+
+function testPBREnvironmentTexturesWorkWithoutDiffuseSH() {
+	const map = new Texture({ width: 1, height: 1, colorSpace: "HDR",
+		data: new Float32Array([1.75, 0.5, 2.5, 1]) });
+	const radiance = { r: 1.75, g: 0.5, b: 2.5 };
+	const brdfLUT = new Texture({ width: 1, height: 1, colorSpace: "HDR",
+		data: new Float32Array([1, 0, 0, 1]) });
+	const probe = new ReflectionProbe({ prefilteredMap: map, radius: 10, parallaxMode: "off" });
+	const strategy = new PBRStrategy();
+	const normal = { x: 0, y: 0, z: 1 };
+	const baseSurface = {
+		type: "pbr", albedo: { r: 255, g: 255, b: 255 }, opacity: 1, normal,
+		emissive: { r: 0, g: 0, b: 0 }, emissiveIntensity: 1,
+		roughness: 0.5, metalness: 0, reflectance: 0, occlusion: 1,
+		clearcoat: 0, clearcoatRoughness: 0.5,
+	};
+	// Reuse a strategy with populated SH scratch data to catch stale reads.
+	strategy.calculate({ x: 0, y: 0, z: 0 }, normal, normal, baseSurface,
+		createContext({ shAmbientCoeffs: createConstantWhiteSH(0.25) }));
+	for (const [surface, lutResponse, fallbackResponse, ambientContribution] of [
+		[{ ...baseSurface, metalness: 1 }, 1, 0.25, 0],
+		[{ ...baseSurface, transmission: 1 }, 1, 1, 0],
+		[{ ...baseSurface, albedo: { r: 0, g: 0, b: 0 }, clearcoat: 1 }, 0.04, 0.01, 0],
+		[baseSurface, 0, 0, 1 / Math.PI],
+	]) {
+		for (const enableSH of [true, false]) {
+			for (const ambient of [[], [new AmbientLight({ intensity: 1 })]]) {
+				for (const useReflectionProbe of [false, true]) {
+					for (const useLUT of [true, false]) {
+						const result = strategy.calculate({ x: 0, y: 0, z: 0 }, normal, normal,
+							surface, createContext({ enableSH, lights: ambient,
+								brdfLUT: useLUT ? brdfLUT : null,
+								shAmbientCoeffs: enableSH ? SH.empty() : null,
+								reflectionProbes: useReflectionProbe ? [probe] : [],
+								reflectionProbeFallbackMap: useReflectionProbe ? null : map,
+							}));
+						for (const channel of ["r", "g", "b"]) {
+							const response = useLUT ? lutResponse : fallbackResponse;
+							const expected = radiance[channel] * response +
+								(ambient.length > 0 ? ambientContribution : 0);
+							assert.ok(Math.abs(result[channel] - expected) < 1e-6,
+								`Environment lighting must survive missing SH/LUT: ${result[channel]}`);
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+function testPBRMissingLUTPrefersTextureOverSH() {
+	const map = new Texture({ width: 1, height: 1, colorSpace: "HDR",
+		data: new Float32Array([0, 0.5, 1.75, 1]) });
+	const normal = { x: 0, y: 0, z: 1 };
+	const base = {
+		type: "pbr", albedo: { r: 255, g: 255, b: 255 }, opacity: 1, normal,
+		emissive: { r: 0, g: 0, b: 0 }, emissiveIntensity: 1,
+		roughness: 0.5, metalness: 0, reflectance: 0, occlusion: 1,
+		clearcoat: 0, clearcoatRoughness: 0.5,
+	};
+	for (const [surface, expected] of [
+		[{ ...base, metalness: 1 }, { r: 0, g: 0.125, b: 0.4375 }],
+		[{ ...base, albedo: { r: 0, g: 0, b: 0 }, clearcoat: 1 },
+			{ r: 0, g: 0.005, b: 0.0175 }],
+	]) {
+		const result = new PBRStrategy().calculate({ x: 0, y: 0, z: 0 }, normal, normal,
+			surface, createContext({ brdfLUT: null,
+				shAmbientCoeffs: createConstantWhiteSH(0.25),
+				reflectionProbeFallbackMap: map,
+			}));
+		for (const channel of ["r", "g", "b"]) {
+			assert.ok(Math.abs(result[channel] - expected[channel]) < 1e-6,
+				"Valid texture radiance, including zero channels, must take precedence over SH");
+		}
+	}
 }
 
 function testPBRSHAmbientSpecularTracksReflectionDirection() {
@@ -957,6 +1099,10 @@ function run() {
 		testSHAmbientGateForBlinnPhong();
 		testSHAmbientGateForPBR();
 		testPBRAmbientIrradianceIsViewIndependent();
+		testAnalyticalAmbientAddsIndependentlyOfProbeSH();
+		testZeroProbeAggregateRemainsAuthoritative();
+		testPBREnvironmentTexturesWorkWithoutDiffuseSH();
+		testPBRMissingLUTPrefersTextureOverSH();
 		testPBRSHAmbientSpecularTracksReflectionDirection();
 		testClearcoatAttenuatesAmbientSheen();
 		testTransmissionVolumeAttenuationColorsSHAmbient();

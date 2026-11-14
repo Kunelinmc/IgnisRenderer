@@ -35,8 +35,8 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 		const N = normal;
 		const V = viewDir;
 		const shAmbient = context.shAmbientCoeffs;
-		const hasSHAmbient = this._hasNonZeroSH(shAmbient);
-		const useSHAmbient = context.enableSH && hasSHAmbient;
+		const useProbeSH = context.enableSH && !!shAmbient;
+		const useSHAmbient = useProbeSH && this._hasNonZeroSH(shAmbient);
 
 		let ambR = 0,
 			ambG = 0,
@@ -89,7 +89,7 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 			const lightIntensity = contrib.intensity ?? 1.0;
 
 			if (contrib.type === "ambient" || contrib.type === "irradiance") {
-				if (useSHAmbient) continue;
+				if (contrib.type === "irradiance" && useProbeSH) continue;
 				const intensity = lightIntensity;
 				ambR += sRGBToLinear(contrib.color.r / 255) * intensity / Math.PI;
 				ambG += sRGBToLinear(contrib.color.g / 255) * intensity / Math.PI;

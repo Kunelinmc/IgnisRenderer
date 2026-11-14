@@ -112,7 +112,6 @@ function createFrameContext(frame, features, options = {}) {
 		postProcess: options.postProcess ?? createResolvedPostProcess(),
 		shadowPlan: frame.shadowPlan,
 		scene: options.scene ?? frame,
-		shCoeffs: options.shCoeffs ?? SH.empty(),
 		shAmbientCoeffs: options.shAmbientCoeffs ?? SH.empty(),
 		worldMatrix: options.worldMatrix ?? Matrix4.identity(),
 		incremental: {
@@ -233,7 +232,6 @@ function createWebGPUFrameContextForTemporalTest(
 		postProcess,
 		shadowPlan: frame.shadowPlan,
 		scene: frame,
-		shCoeffs: SH.empty(),
 		shAmbientCoeffs: SH.empty(),
 		incremental: {
 			enabled: false,

@@ -1,5 +1,4 @@
 import { finiteOr } from "../../maths/Misc";
-import type { SHCoefficients } from "../../maths/types";
 import { Logger } from "../../foundation/Logger";
 import { SH_COEFFICIENT_COUNT } from "./constants";
 import type { WebGLLightState } from "./WebGLLightCollector";
@@ -12,16 +11,14 @@ function logWebGLProbeSHTexturesWarning(key: string, message: string): void {
 }
 
 /**
- * Owns the probe SH coefficient textures consumed by global scene uniforms.
+ * Owns the localized probe SH coefficient texture sampled by scene shaders.
  *
  * Each texture is created lazily on first upload and reused across frames.
  * Upload failures degrade gracefully by returning `false` so callers can
  * disable the corresponding lighting feature for the current frame.
+ * @internal Owned by WebGL lighting; applications author `LightProbe.sh`.
  */
 export class WebGLProbeSHTextures {
-	public shAmbientTexture: WebGLTexture | null = null;
-	public shAmbientTextureWidth = SH_COEFFICIENT_COUNT;
-	public shAmbientTextureHeight = 1;
 	public localLightProbeSHTexture: WebGLTexture | null = null;
 	public localLightProbeSHTextureWidth = SH_COEFFICIENT_COUNT;
 	public localLightProbeSHTextureHeight = 1;
@@ -30,71 +27,6 @@ export class WebGLProbeSHTextures {
 
 	constructor(gl: WebGL2RenderingContext) {
 		this._gl = gl;
-	}
-
-	public uploadSHAmbientCoefficients(
-		coeffs: SHCoefficients | null | undefined
-	): boolean {
-		const gl = this._gl;
-		const texelCount = SH_COEFFICIENT_COUNT;
-		const data = new Float32Array(texelCount * 4);
-		for (let i = 0; i < texelCount; i++) {
-			const coeff = coeffs?.[i];
-			const base = i * 4;
-			data[base] = finiteOr(coeff?.r, 0);
-			data[base + 1] = finiteOr(coeff?.g, 0);
-			data[base + 2] = finiteOr(coeff?.b, 0);
-			data[base + 3] = 0;
-		}
-
-		if (!this.shAmbientTexture) {
-			if (typeof gl.createTexture !== "function") {
-				logWebGLProbeSHTexturesWarning(
-					"webgl-sh-ambient-texture-create-unsupported",
-					"WebGL context does not expose createTexture(); disabling SH for this frame."
-				);
-				return false;
-			}
-			this.shAmbientTexture = gl.createTexture();
-			if (!this.shAmbientTexture) {
-				logWebGLProbeSHTexturesWarning(
-					"webgl-sh-ambient-texture-create-failed",
-					"Failed to create WebGL SH ambient texture; disabling SH for this frame."
-				);
-				return false;
-			}
-			this._configureNearestClampTexture(this.shAmbientTexture);
-		}
-
-		gl.bindTexture(gl.TEXTURE_2D, this.shAmbientTexture);
-		try {
-			const internalFormat =
-				(
-					gl as WebGL2RenderingContext & {
-						RGBA32F?: number;
-					}
-				).RGBA32F ?? gl.RGBA;
-			gl.texImage2D(
-				gl.TEXTURE_2D,
-				0,
-				internalFormat,
-				SH_COEFFICIENT_COUNT,
-				1,
-				0,
-				gl.RGBA,
-				gl.FLOAT,
-				data
-			);
-			this.shAmbientTextureWidth = SH_COEFFICIENT_COUNT;
-			this.shAmbientTextureHeight = 1;
-			return true;
-		} catch (error) {
-			logWebGLProbeSHTexturesWarning(
-				"webgl-sh-ambient-texture-upload-failed",
-				`WebGL SH ambient texture upload failed; disabling SH for this frame (${String(error)})`
-			);
-			return false;
-		}
 	}
 
 	public uploadLocalLightProbeCoefficients(
@@ -170,10 +102,6 @@ export class WebGLProbeSHTextures {
 
 	public destroy(): void {
 		const gl = this._gl;
-		if (this.shAmbientTexture) {
-			gl.deleteTexture(this.shAmbientTexture);
-			this.shAmbientTexture = null;
-		}
 		if (this.localLightProbeSHTexture) {
 			gl.deleteTexture(this.localLightProbeSHTexture);
 			this.localLightProbeSHTexture = null;

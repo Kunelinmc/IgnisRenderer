@@ -43,11 +43,25 @@ function testAnalyticalAmbientUsesDiffuseIrradianceOnly() {
 
 	assert.match(webgl, /specularAmbientBase = vec3\(0\.0\)/);
 	assert.match(webgl, /ambientSheen = specularAmbientBase \*/);
-	assert.match(webgl, /if \(shAmbientEnabled\) \{[\s\S]*ambientDiffuseWeight/);
+	assert.match(
+		webgl,
+		/ambientDiffuseWeight =\s*\(vec3\(1\.0\) - specularIBLWeight\)/
+	);
+	assert.match(
+		webgl,
+		/analyticalAmbientDiffuse =\s*\(uAmbientColor \/ PI\) \* albedo \* \(1\.0 - metalness\) \* \(1\.0 - transmission\)/
+	);
 	assert.doesNotMatch(webgl, /specularAmbientBase = ambientBase/);
 	assert.doesNotMatch(webgl, /ambientSheen = \(ambientBase \/ PI\)/);
 	assert.match(webgpuForward, /specularAmbientRadiance = vec3<f32>\(0\.0\)/);
-	assert.match(webgpuForward, /if \(shAmbientEnabled\) \{[\s\S]*kdAmbient/);
+	assert.match(
+		webgpuForward,
+		/let kdAmbient =\s*\(vec3<f32>\(1\.0\) - specularIBLWeight\)/
+	);
+	assert.match(
+		webgpuForward,
+		/\(ambientColor \/ PI\) \* albedo \* \(1\.0 - metalness\) \* \(1\.0 - transmission\) \*\s*analyticalAmbientAttenuation/
+	);
 	assert.doesNotMatch(webgpuForward, /specularAmbientRadiance = ambientColor \/ PI/);
 }
 

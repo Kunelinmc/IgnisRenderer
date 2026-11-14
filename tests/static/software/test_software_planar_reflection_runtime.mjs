@@ -93,7 +93,6 @@ function createContext(camera, packetsByStage = {}, features = {}) {
 			decalPackets: [],
 			spatialIndex: null,
 		},
-		shCoeffs: zeroSH,
 		shAmbientCoeffs: zeroSH,
 		incremental: {
 			enabled: false,

@@ -1,13 +1,25 @@
 import assert from "node:assert/strict";
+import { AmbientLight } from "../../../src/lights/AmbientLight.ts";
+import { DirectionalLight } from "../../../src/lights/DirectionalLight.ts";
 import { LightProbe } from "../../../src/lights/LightProbe.ts";
+import { SH } from "../../../src/maths/SH.ts";
 import { Renderer } from "../../../src/rendering/Renderer.ts";
 import { TestRenderBackend } from "../../helpers/TestRenderBackend.mjs";
 
 class SHTestBackend extends TestRenderBackend {
-	constructor() {
+	constructor(localizedProbeMode = "accumulate-globally") {
 		super();
 		this.type = "sh-test";
 		this.capabilities.sh = true;
+		this.localizedProbeMode = localizedProbeMode;
+	}
+
+	get profile() {
+		return { ...super.profile, lighting: { localizedProbeMode: this.localizedProbeMode } };
+	}
+
+	executePass(_pass, context) {
+		this.frameContext = context;
 	}
 }
 
@@ -24,8 +36,8 @@ async function withDOMGlobals(callback) {
 	}
 }
 
-function createRenderer() {
-	const backend = new SHTestBackend();
+function createRenderer(localizedProbeMode) {
+	const backend = new SHTestBackend(localizedProbeMode);
 	const canvas = {
 		width: 64,
 		height: 64,
@@ -77,5 +89,55 @@ async function testSHConfigurationInvalidatesAndComputesOnce() {
 	});
 }
 
+async function testFrameSHContainsOnlyProbeRadiance() {
+	await withDOMGlobals(async () => {
+		for (const mode of ["accumulate-globally", "backend-local"]) {
+			const renderer = createRenderer(mode);
+			const backend = renderer._backend;
+			const globalSH = SH.empty();
+			globalSH[0] = { r: 30, g: 20, b: 10 };
+			globalSH[7] = { r: -3, g: 4, b: 6 };
+			const localSH = SH.empty();
+			localSH[0] = { r: 12, g: 6, b: 3 };
+			renderer.features.enableSH = true;
+			renderer.scene.add(new AmbientLight({ intensity: 10 }));
+			renderer.scene.add(new DirectionalLight({
+				color: { r: 128, g: 128, b: 128 }, intensity: 10,
+			}));
+			const probe = renderer.scene.add(new LightProbe({ sh: globalSH }));
+			renderer.scene.add(new LightProbe({ sh: localSH, shape: "sphere" }));
+			try {
+				await renderer.initialize();
+				await renderer.renderFrame(1);
+				const firstFrame = backend.frameContext;
+				const expectedDC = mode === "backend-local" ?
+					{ r: 30, g: 20, b: 10 } : { r: 42, g: 26, b: 13 };
+				assert.deepEqual(firstFrame.shAmbientCoeffs[0], expectedDC);
+				assert.deepEqual(firstFrame.shAmbientCoeffs[7], { r: -3, g: 4, b: 6 });
+
+				// Diagnostic reads must not let callers mutate the active frame's SH.
+				const snapshot = renderer.shAmbientCoeffs;
+				snapshot[0].r = 999;
+				assert.deepEqual(renderer.shAmbientCoeffs[0], expectedDC);
+				assert.deepEqual(firstFrame.shAmbientCoeffs[0], expectedDC);
+
+				probe.sh[0].r = 60;
+				await renderer.renderFrame(2);
+				assert.equal(backend.frameContext.shAmbientCoeffs[0].r,
+					mode === "backend-local" ? 60 : 72);
+				assert.deepEqual(firstFrame.shAmbientCoeffs[0], expectedDC);
+
+				renderer.features.enableSH = false;
+				await renderer.renderFrame(3);
+				assert.deepEqual(backend.frameContext.shAmbientCoeffs, SH.empty());
+				assert.deepEqual(renderer.shAmbientCoeffs, SH.empty());
+			} finally {
+				await renderer.destroy();
+			}
+		}
+	});
+}
+
 await testSHConfigurationInvalidatesAndComputesOnce();
+await testFrameSHContainsOnlyProbeRadiance();
 console.log("Renderer SH configuration tests passed");

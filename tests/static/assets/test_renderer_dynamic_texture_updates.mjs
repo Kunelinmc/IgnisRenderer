@@ -125,7 +125,6 @@ function createPostProcessFrameContext(postProcess) {
 				far: 100,
 			},
 		},
-		shCoeffs: [],
 		shAmbientCoeffs: [],
 		incremental: {
 			enabled: false,

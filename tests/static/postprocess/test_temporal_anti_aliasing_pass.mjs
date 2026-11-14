@@ -103,7 +103,6 @@ function createFrameContext() {
 				far: 100,
 			},
 		},
-		shCoeffs: [],
 		shAmbientCoeffs: [],
 		incremental: {
 			enabled: false,

@@ -251,12 +251,10 @@ vec3 shadePBR(
 	ivec2 localProbeIndices = ivec2(-1);
 	vec2 localProbeWeights = vec2(0.0);
 
-	bool shAmbientEnabled = false;
-	vec3 ambientBase = uAmbientColor;
+	vec3 ambientBase = vec3(0.0);
 	vec3 specularAmbientBase = vec3(0.0);
 #if WEBGL_SCENE_SH
 	if (uEnableSH == 1) {
-		shAmbientEnabled = true;
 		selectTopTwoLocalLightProbes(vWorldPos, localProbeIndices, localProbeWeights);
 		ambientBase =
 			sampleDiffuseProbeIrradiance(vWorldPos, pbrNormal) / 255.0;
@@ -272,12 +270,8 @@ vec3 shadePBR(
 			localSpecularAmbientBase.rgb,
 			localSpecularAmbientBase.a
 		) / 255.0;
-	} else
-#endif
-	if (ambientBase.x + ambientBase.y + ambientBase.z <= 0.0) {
-		ambientBase = vec3(0.0);
-		specularAmbientBase = vec3(0.0);
 	}
+#endif
 	vec3 ambientFresnel = resolveIridescenceFresnel(
 		nDotV,
 		f0,
@@ -285,8 +279,6 @@ vec3 shadePBR(
 		iridescenceThickness,
 		iridescenceIor
 	);
-	vec3 ambientDiffuseWeight =
-		vec3((1.0 - metalness) * (1.0 - transmission));
 	vec3 specularIBLWeight = ambientFresnel * max(PBR_SPEC_FALLBACK, (1.0 - roughness) * 0.5);
 #if WEBGL_SCENE_ENVIRONMENT_SPECULAR
 	if (uHasEnvSpecularMap == 1) {
@@ -294,13 +286,15 @@ vec3 shadePBR(
 		specularIBLWeight = resolveIBLSpecularEnergy(compensationBRDF, splitSumFresnel, energyCompensation);
 	}
 #endif
-	if (shAmbientEnabled) {
-		ambientDiffuseWeight =
-			(vec3(1.0) - specularIBLWeight) *
-			(1.0 - metalness) *
-			(1.0 - transmission);
-	}
+	vec3 ambientDiffuseWeight =
+		(vec3(1.0) - specularIBLWeight) *
+		(1.0 - metalness) *
+		(1.0 - transmission);
 	vec3 ambientDiffuse = (ambientBase / PI) * albedo * ambientDiffuseWeight;
+	// Analytical irradiance is independent of probe Fresnel and local probe coverage.
+	vec3 analyticalAmbientDiffuse =
+		(uAmbientColor / PI) * albedo * (1.0 - metalness) * (1.0 - transmission) *
+		(1.0 - 0.04 * clearcoat) * max(vec3(0.0), vec3(1.0) - sheenColor * 0.5);
 	vec3 ambientSpecular;
 #if WEBGL_SCENE_ENVIRONMENT_SPECULAR
 	if (uHasEnvSpecularMap == 1) {
@@ -322,13 +316,6 @@ vec3 shadePBR(
 		) : 0.0;
 	vec3 ambientSheenFresnel = max(max(sheenColor.r, sheenColor.g), sheenColor.b) > 0.0 ?
 		fresnelSchlick(nDotV, sheenColor) : vec3(0.0);
-	float diffuseClearcoatFresnel = shAmbientEnabled ?
-		ambientClearcoatFresnel : (clearcoat > 0.0 ? 0.04 : 0.0);
-	vec3 ambientDiffuseAttenuation =
-		(vec3(1.0) - vec3(diffuseClearcoatFresnel * clearcoat)) *
-		(shAmbientEnabled ?
-			max(vec3(0.0), vec3(1.0) - ambientSheenFresnel) :
-			max(vec3(0.0), vec3(1.0) - sheenColor * 0.5));
 	vec3 ambientSpecularAttenuation =
 		(vec3(1.0) - vec3(ambientClearcoatFresnel * clearcoat)) *
 		max(vec3(0.0), vec3(1.0) - ambientSheenFresnel);
@@ -657,8 +644,8 @@ vec3 shadePBR(
 	}
 
 	vec3 ambient = (
-		ambientDiffuse * ambientDiffuseAttenuation +
-		ambientSpecular * ambientSpecularAttenuation +
+		analyticalAmbientDiffuse +
+		(ambientDiffuse + ambientSpecular) * ambientSpecularAttenuation +
 		ambientClearcoat + ambientSheen + ambientTransmission
 	) *
 		clamp(occlusion, 0.0, 1.0);

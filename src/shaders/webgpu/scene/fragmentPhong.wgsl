@@ -44,7 +44,7 @@ fn shadePhong(
 
 	var ambientBase = frameLights.ambientColor.rgb;
 	if (useSHAmbient()) {
-		ambientBase =
+		ambientBase +=
 			sampleDiffuseProbeIrradiance(input.worldPosition, normal) / 255.0;
 	}
 	var ambient = ambientBase * phongAmbient / PI;

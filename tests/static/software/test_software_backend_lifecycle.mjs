@@ -50,7 +50,6 @@ function createContext(backend, options = {}) {
 			decalPackets: [],
 			spatialIndex: null,
 		},
-		shCoeffs: zeroSH,
 		shAmbientCoeffs: zeroSH,
 		incremental: {
 			enabled: false,
