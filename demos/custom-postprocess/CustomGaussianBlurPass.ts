@@ -26,10 +26,8 @@ import { ShaderSource } from "../../src/shaders/ShaderSource";
 
 import {
 	bindWebGLPostTarget,
-	forEachSoftwareDirtyRect,
 	resolveWebGLTarget,
 	resolveWebGPUTarget,
-	type SoftwareBuiltinPostProcessContext,
 	type WebGLScreenPostProcessContext,
 	type WebGPURuntimePostProcessContext,
 } from "../../src/postprocess/passes/ScreenPassShared";
@@ -37,7 +35,6 @@ import {
 import { ceilDiv } from "../../src/maths/Misc";
 import { WEBGPU_2D_COMPUTE_WORKGROUP_SIZE } from "../../src/backends/webgpu/constants";
 import {
-	SOFTWARE_IN_PLACE_EXECUTION,
 	WEBGL_VERSIONED_EXECUTION,
 	WEBGPU_VERSIONED_EXECUTION,
 } from "../../src/postprocess/executionDeclarations";
@@ -62,92 +59,6 @@ export const DEFAULT_CUSTOM_GAUSSIAN_BLUR_OPTIONS: Required<
 	radius: 3,
 	sigma: 2.0,
 };
-
-// -----------------------------------------------------------------------------
-// Software (CPU) Implementation
-// -----------------------------------------------------------------------------
-export class SoftwareCustomGaussianBlurImplementation
-	implements PostProcessPassImplementation<SoftwareBuiltinPostProcessContext, CustomGaussianBlurOptions>
-{
-	public readonly id = "custom-gaussian-blur:software";
-
-	public describeExecution() {
-		return SOFTWARE_IN_PLACE_EXECUTION;
-	}
-
-	public execute(
-		request: PostProcessPassRequest<CustomGaussianBlurOptions>,
-		context: SoftwareBuiltinPostProcessContext | undefined,
-	): PostProcessPassResult {
-		const pixels = request.frameContext.attachments.pixels;
-		if (!pixels || pixels.length === 0) {
-			return { ran: false };
-		}
-
-		const options = {
-			...DEFAULT_CUSTOM_GAUSSIAN_BLUR_OPTIONS,
-			...request.options,
-		};
-
-		const radius = Math.max(1, Math.min(Math.round(options.radius), 5));
-		const sigma = Math.max(0.1, options.sigma);
-		const width = request.frameContext.attachments.width;
-		const height = request.frameContext.attachments.height;
-
-		const dirtyRects = context?.dirtyRects ?? [];
-
-		// Precompute 2D Gaussian Kernel weights
-		const kernelSize = radius * 2 + 1;
-		const weights = new Float32Array(kernelSize * kernelSize);
-		let weightSum = 0;
-		let wIdx = 0;
-		for (let dy = -radius; dy <= radius; dy++) {
-			for (let dx = -radius; dx <= radius; dx++) {
-				const weight = Math.exp(-(dx * dx + dy * dy) / (2 * sigma * sigma));
-				weights[wIdx++] = weight;
-				weightSum += weight;
-			}
-		}
-		for (let i = 0; i < weights.length; i++) {
-			weights[i] /= weightSum;
-		}
-
-		// Make a copy of the source pixels to sample from
-		const srcPixels = new Uint8ClampedArray(pixels);
-
-		forEachSoftwareDirtyRect(dirtyRects, (rect) => {
-			for (let y = rect.minY; y <= rect.maxY; y++) {
-				const rowOffset = y * width;
-				for (let x = rect.minX; x <= rect.maxX; x++) {
-					const pixelIdx = (rowOffset + x) << 2;
-
-					let r = 0, g = 0, b = 0;
-					let wIdx = 0;
-					for (let dy = -radius; dy <= radius; dy++) {
-						const py = Math.max(0, Math.min(y + dy, height - 1));
-						const pyOffset = py * width;
-						for (let dx = -radius; dx <= radius; dx++) {
-							const px = Math.max(0, Math.min(x + dx, width - 1));
-							const srcIdx = (pyOffset + px) << 2;
-							const weight = weights[wIdx++];
-							r += srcPixels[srcIdx] * weight;
-							g += srcPixels[srcIdx + 1] * weight;
-							b += srcPixels[srcIdx + 2] * weight;
-						}
-					}
-
-					pixels[pixelIdx] = Math.round(r);
-					pixels[pixelIdx + 1] = Math.round(g);
-					pixels[pixelIdx + 2] = Math.round(b);
-					// Retain alpha channel from source
-					pixels[pixelIdx + 3] = srcPixels[pixelIdx + 3];
-				}
-			}
-		});
-
-		return { ran: true };
-	}
-}
 
 // -----------------------------------------------------------------------------
 // WebGPU Implementation
@@ -417,7 +328,7 @@ export class WebGLCustomGaussianBlurImplementation
 			this._programCompiler = compiler;
 			this._programSlot = compiler.createSlot({
 				label: "WebGLCustomGaussianBlurProgram",
-				vertex: () => ShaderSource.get("webgl.part.presentVertex.raw"),
+				vertex: () => ShaderSource.get("webgl.part.presentVertex").source.code,
 				fragment: () => blurShaderGLSL,
 				reflect: (gl, webglProgram) => ({
 					program: webglProgram,
@@ -456,7 +367,6 @@ export class CustomGaussianBlurPass extends PostProcessPass<
 			builtIn: false,
 			label: "custom gaussian blur",
 			implementations: {
-				software: () => new SoftwareCustomGaussianBlurImplementation(),
 				webgpu: () => new WebGPUCustomGaussianBlurImplementation(),
 				webgl: () => new WebGLCustomGaussianBlurImplementation(),
 			},

@@ -9,11 +9,9 @@ import {
 	Platform,
 	Renderer,
 	Scene,
-	SoftwareBackend,
 	WebGLBackend,
 	WebGPUBackend,
 	Vector3,
-	Logger,
 	type RGB,
 } from "../../src/index";
 
@@ -68,9 +66,6 @@ async function init() {
 	} else if (requestedBackend === "webgl" && platform.hasWebGL2) {
 		backend = new WebGLBackend();
 		backendLabel = "WebGL 2";
-	} else if (requestedBackend === "software") {
-		backend = new SoftwareBackend();
-		backendLabel = "Software (CPU)";
 	} else {
 		// Auto fallback based on platform support
 		if (platform.hasWebGPU) {
@@ -80,8 +75,7 @@ async function init() {
 			backend = new WebGLBackend();
 			backendLabel = "WebGL 2 (Auto)";
 		} else {
-			backend = new SoftwareBackend();
-			backendLabel = "Software (Auto)";
+			throw new Error("This demo requires WebGPU or WebGL 2 support.");
 		}
 	}
 
@@ -121,13 +115,9 @@ async function init() {
 		maxDistance: 80,
 		blendRatio: 0.1,
 		stabilize: true,
-		sampling: {
-			filterMode: "pcf",
-			radius: 0.1,
-			samples: 8,
-			searchSamples: 4,
-			strength: 1,
-		},
+		filterMode: "pcf",
+		sampling: { quality: "medium" },
+		strength: 1,
 		bias: {
 			constant: 0,
 			slope: 0.001,
@@ -239,14 +229,13 @@ async function init() {
 	});
 
 	const backendSelect = {
-		active: requestedBackend || (platform.hasWebGPU ? "webgpu" : platform.hasWebGL2 ? "webgl" : "software"),
+		active: backend.profile.id,
 	};
 	infoFolder.addBinding(backendSelect, "active", {
 		label: "Switch Backend",
 		options: {
 			WebGPU: "webgpu",
 			WebGL2: "webgl",
-			Software: "software",
 		},
 	}).on("change", (ev) => {
 		window.location.search = `?backend=${ev.value}`;
