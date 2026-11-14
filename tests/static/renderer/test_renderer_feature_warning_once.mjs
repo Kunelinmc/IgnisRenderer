@@ -74,6 +74,7 @@ async function run() {
 		const camera = new Camera();
 		const renderer = new Renderer(canvas, backend, camera);
 		assert.equal("enableShadows" in renderer.features, false);
+		assert.equal("enableLighting" in renderer.features, false);
 		renderer.features.enableEnvironment = false;
 		renderer.postProcess.getPass("gamma")?.disable();
 

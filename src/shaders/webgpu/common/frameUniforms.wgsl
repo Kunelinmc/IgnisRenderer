@@ -3,7 +3,6 @@
 struct FrameLightUniforms {
 	ambientColor: vec4<f32>,
 	lightCounts: vec4<u32>,
-	lightingEnabled: u32,
 	clusteredLightingEnabled: u32,
 	directionalLights: array<DirectionalLightData, __WEBGPU_MAX_DIRECTIONAL_LIGHTS__>,
 	pointLights: array<PointLightData, __WEBGPU_MAX_POINT_LIGHTS__>,

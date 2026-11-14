@@ -322,7 +322,6 @@ export class WebGPUClusteredLightingRuntime {
 		const logDenom = Math.log(far) - Math.log(near);
 		const canCluster =
 			features.enableClusteredLighting &&
-			features.enableLighting &&
 			isPerspective &&
 			logDenom > 1e-6;
 		const sourceLights = lighting?.lights ?? [];

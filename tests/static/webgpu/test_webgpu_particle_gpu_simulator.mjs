@@ -37,7 +37,6 @@ function createMainFrameOptions(options = {}) {
 function createFeatures() {
 	return resolveFeatureState(
 		{
-			enableLighting: true,
 			enableGamma: true,
 			enableShadows: true,
 			enableOIT: true,

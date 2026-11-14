@@ -138,7 +138,6 @@ type WebGLLightCollectorWarn = (key: string, message: string) => void;
  * @internal WebGL backend frame preparation owns this contract.
  */
 export interface WebGLLightCollectorOptions {
-	enableLighting: boolean;
 	warn?: WebGLLightCollectorWarn;
 	enableShadows?: boolean;
 	shadowPlan?: ShadowFramePlan;
@@ -158,7 +157,6 @@ export function collectWebGLLights(
 	options: WebGLLightCollectorOptions
 ): WebGLLightState {
 	const {
-		enableLighting,
 		warn,
 		enableShadows = false,
 		shadowPlan,
@@ -186,9 +184,6 @@ export function collectWebGLLights(
 		reflectionProbeCount: 0,
 		reflectionProbes: [],
 	};
-	if (!enableLighting) {
-		return state;
-	}
 
 	for (const light of lights) {
 		switch (light.type) {

@@ -30,6 +30,9 @@ Applications can use these defaults through `renderer.scene` and
 `renderer.camera`, or bind their own objects with `setScene()` and
 `setCamera()`.
 
+For unlit rendering, use `UnlitMaterial` or set a material's `shading` to
+`ShadingModel.Unlit`. Both are exported from the package root.
+
 This guide describes the WebGPU screen-space global illumination pass exposed
 by `ScreenSpaceGlobalIlluminationPass`.
 

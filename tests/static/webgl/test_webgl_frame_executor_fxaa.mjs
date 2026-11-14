@@ -1460,7 +1460,6 @@ function testGlobalUniformsBindLightProbeIBLTextures() {
 	};
 	const context = {
 		features: {
-			enableLighting: true,
 			enableShadows: false,
 		},
 		postProcess: createResolvedPostProcess(),
@@ -1557,7 +1556,6 @@ function testGlobalUniformsSanitizeNonFiniteCameraAndLightValues() {
 			},
 		},
 		features: {
-			enableLighting: true,
 			enableShadows: true,
 		},
 		postProcess: createResolvedPostProcess(),

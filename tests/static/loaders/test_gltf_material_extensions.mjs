@@ -373,7 +373,6 @@ function testSpecularColorUsesLinearSemanticsInPBRStrategy() {
 		enableShadows: false,
 		enableSH: true,
 		enableGamma: false,
-		enableLighting: true,
 	};
 
 	const baseSurface = {

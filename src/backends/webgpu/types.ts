@@ -160,7 +160,6 @@ export interface WebGPULightingState {
 }
 
 export interface WebGPUFeatureState {
-	enableLighting: boolean;
 	enableSH: boolean;
 	enableShadows: boolean;
 	enableReflection: boolean;
@@ -342,7 +341,6 @@ export interface WebGPUFrameLightUniformInput {
 	pointLights: WebGPULightingState["pointLights"];
 	spotLights: WebGPULightingState["spotLights"];
 	areaLights: WebGPULightingState["areaLights"];
-	enableLighting: boolean;
 	enableClusteredLighting: boolean;
 }
 

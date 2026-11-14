@@ -293,7 +293,6 @@ function createFrameContext(overrides = {}) {
 	return {
 		attachments: { width: 4, height: 4 },
 		features: {
-			enableLighting: true,
 			enableSH: false,
 			enableShadows: false,
 			enableReflection: false,

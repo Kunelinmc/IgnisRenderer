@@ -374,35 +374,31 @@ void main() {
 #if WEBGL_MATERIAL_MODEL_UNLIT
 	color = albedo;
 #elif WEBGL_MATERIAL_MODEL_PBR
-	if (uEnableLighting == 0) {
-		color = albedo;
-	} else {
-		color = shadePBR(
-			albedo,
-			normal,
-			shadowNormal,
-			viewDir,
-			roughness,
-			metalness,
-			reflectance,
-			specularFactor,
-			specularColor,
-			transmission,
-			resolvedThickness,
-			clearcoat,
-			clearcoatRoughness,
-			clearcoatNormal,
-			sheenColor,
-			sheenRoughness,
-			anisotropyStrength,
-			anisotropyTangent,
-			anisotropyBitangent,
-			iridescence,
-			iridescenceThickness,
-			iridescenceIor,
-			occlusion
-		);
-	}
+	color = shadePBR(
+		albedo,
+		normal,
+		shadowNormal,
+		viewDir,
+		roughness,
+		metalness,
+		reflectance,
+		specularFactor,
+		specularColor,
+		transmission,
+		resolvedThickness,
+		clearcoat,
+		clearcoatRoughness,
+		clearcoatNormal,
+		sheenColor,
+		sheenRoughness,
+		anisotropyStrength,
+		anisotropyTangent,
+		anisotropyBitangent,
+		iridescence,
+		iridescenceThickness,
+		iridescenceIor,
+		occlusion
+	);
 #if WEBGL_MATERIAL_TRANSMISSION
 	if (transmission > EPSILON) {
 		vec3 dielectricF0 = vec3(0.16 * reflectance * reflectance) *
@@ -421,13 +417,9 @@ void main() {
 	}
 #endif
 #elif WEBGL_MATERIAL_MODEL_LEGACY
-	if (uEnableLighting == 0) {
-		color = albedo;
-	} else {
-		color = shadePhong(albedo, normal, shadowNormal, viewDir);
-	}
+	color = shadePhong(albedo, normal, shadowNormal, viewDir);
 #else
-	if (uEnableLighting == 0 || uShadingModel == 2) {
+	if (uShadingModel == 2) {
 		color = albedo;
 	} else if (uShadingModel == 1) {
 		color = shadePBR(

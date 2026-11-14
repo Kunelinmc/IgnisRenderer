@@ -265,7 +265,6 @@ function createFrameContext(width, height) {
 		createFrameScope() { return createFrameScopeAdapter(this); },
 		attachments: { width, height },
 		features: {
-			enableLighting: true,
 			enableSH: false,
 			enableShadows: false,
 			enableReflection: false,

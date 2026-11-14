@@ -24,7 +24,6 @@ function createContext(backend, options = {}) {
 	return {
 		attachments: backend.getAttachments(options.size ?? { width: 4, height: 4 }),
 		features: {
-			enableLighting: false,
 			enableSH: false,
 			enableShadows: false,
 			enableReflection: false,

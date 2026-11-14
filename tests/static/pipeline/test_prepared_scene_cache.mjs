@@ -18,7 +18,6 @@ import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
 function createFeatures(overrides = {}) {
 	return {
-		enableLighting: true,
 		enableGamma: true,
 		enableSH: false,
 		enableReflection: false,

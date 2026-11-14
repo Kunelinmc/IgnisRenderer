@@ -21,10 +21,11 @@ function clamp01(value: number): number {
 }
 
 /**
- * Resolves scalar transmission factor from a material when available.
- * Non-PBR materials are treated as non-transmissive.
+ * Resolves the effective scalar transmission factor. Unlit shading ignores
+ * the authored factor without changing it.
  */
 export function getMaterialTransmissionFactor(material: Material): number {
+	if (material.shading === ShadingModel.Unlit) return 0;
 	const candidate = (material as Material & { transmissionFactor?: number })
 		.transmissionFactor;
 	return clamp01(candidate ?? 0);

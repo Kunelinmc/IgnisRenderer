@@ -201,7 +201,6 @@ async function createExecutorHarness(postProcessRequest = {
 		camera: {},
 		attachments: { width: 64, height: 64 },
 		features: {
-			enableLighting: true,
 			enableSH: false,
 			enableShadows: false,
 			enableReflection: false,

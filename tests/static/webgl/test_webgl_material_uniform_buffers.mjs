@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 
+import { Texture } from "../../../src/core/Texture.ts";
 import { BasicMaterial } from "../../../src/materials/BasicMaterial.ts";
 import { Material, ShadingModel } from "../../../src/materials/Material.ts";
 import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
@@ -36,6 +37,48 @@ function testMaterialFamiliesAreSeparated() {
 	const unlit = resolveWebGLMaterialState(new UnlitMaterial());
 	assert.equal(unlit.shadingFamily, "unlit");
 	assert.equal(unlit.lighting, null);
+}
+
+function testPBRUnlitPreservesAuthoredState() {
+	const texture = new Texture({
+		data: new Uint8ClampedArray([255, 255, 255, 255]),
+		width: 1,
+		height: 1,
+	});
+	const material = new PBRMaterial({
+		albedo: { r: 12, g: 34, b: 56 },
+		emissive: { r: 32, g: 64, b: 96 },
+		emissiveIntensity: 2,
+		opacity: 0.5,
+		map: texture,
+		albedoMapUV: 2,
+		emissiveMap: texture,
+		emissiveMapUV: 3,
+		normalMap: texture,
+	});
+	const snapshots = new WebGLMaterialSnapshotCache();
+	snapshots.beginFrame();
+	snapshots.resolve(material);
+
+	material.shading = ShadingModel.Unlit;
+	snapshots.beginFrame();
+	const unlit = snapshots.resolve(material);
+	assert.equal(unlit.materialVariant.model, "unlit");
+	assert.equal(unlit.data.lighting, null);
+	assert.deepEqual(unlit.data.common.baseColor, [12 / 255, 34 / 255, 56 / 255, 0.5]);
+	assert.deepEqual(unlit.data.common.emissive, [64 / 255, 128 / 255, 192 / 255, 1]);
+	assert.equal(unlit.data.common.baseMap.texture, texture);
+	assert.equal(unlit.data.common.baseMap.uv, 2);
+	assert.equal(unlit.data.common.emissiveMap.texture, texture);
+	assert.equal(unlit.data.common.emissiveMap.uv, 3);
+	assert.equal(unlit.materialVariant.normalMap, false);
+
+	material.shading = ShadingModel.PBR;
+	snapshots.beginFrame();
+	const restored = snapshots.resolve(material);
+	assert.equal(restored.materialVariant.model, "pbr");
+	assert.ok(restored.data.lighting);
+	assert.deepEqual(restored.data.common.baseColor, [12 / 255, 34 / 255, 56 / 255, 0.5]);
 }
 
 function testResolvedFeaturesDriveVariantsAndSnapshots() {
@@ -406,6 +449,7 @@ async function testExactAndCompatibilityShaderABIsRemainDistinct() {
 }
 
 testMaterialFamiliesAreSeparated();
+testPBRUnlitPreservesAuthoredState();
 testResolvedFeaturesDriveVariantsAndSnapshots();
 testStd140PackingUsesOnlyActiveTransformSlots();
 testMutableVariantChangesRepackMaterialBuffers();

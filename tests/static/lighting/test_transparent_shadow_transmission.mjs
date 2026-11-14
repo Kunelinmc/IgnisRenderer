@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
-import { Material, AlphaMode } from "../../../src/materials/Material.ts";
+import { Material, AlphaMode, ShadingModel } from "../../../src/materials/Material.ts";
 import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
-import { resolveMaterialShadowTransmittance } from "../../../src/materials/transparency.ts";
+import {
+	getMaterialTransmissionFactor,
+	isMaterialTransparentPass,
+	resolveMaterialShadowTransmittance,
+} from "../../../src/materials/transparency.ts";
 
 function assertClose(actual, expected, tolerance = 1e-6) {
 	assert.ok(
@@ -53,8 +57,27 @@ function testOpaqueNonTransmissiveMaterialBlocksShadowLight() {
 	assert.deepEqual(transmittance, { r: 0, g: 0, b: 0 });
 }
 
+function testUnlitIgnoresTransmissionUntilPBRRestored() {
+	const material = new PBRMaterial({ transmissionFactor: 0.75 });
+	assert.equal(isMaterialTransparentPass(material), true);
+	assert.ok(resolveMaterialShadowTransmittance(material).r > 0);
+	material.shading = ShadingModel.Unlit;
+	assert.equal(getMaterialTransmissionFactor(material), 0);
+	assert.equal(isMaterialTransparentPass(material), false);
+	assert.deepEqual(resolveMaterialShadowTransmittance(material), { r: 0, g: 0, b: 0 });
+	assert.equal(material.transmissionFactor, 0.75);
+	material.alphaMode = AlphaMode.Blend;
+	assert.equal(isMaterialTransparentPass(material), true);
+	material.alphaMode = AlphaMode.Opaque;
+	material.shading = ShadingModel.PBR;
+	assert.equal(getMaterialTransmissionFactor(material), 0.75);
+	assert.equal(isMaterialTransparentPass(material), true);
+	assert.ok(resolveMaterialShadowTransmittance(material).r > 0);
+}
+
 testPBRTransmissionIncludesFresnelAndVolumeAbsorption();
 testAlphaBlendFallbackKeepsOpacityWeightedColorFilter();
 testOpaqueNonTransmissiveMaterialBlocksShadowLight();
+testUnlitIgnoresTransmissionUntilPBRRestored();
 
 console.log("transparent shadow transmission tests passed");

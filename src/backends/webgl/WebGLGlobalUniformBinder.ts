@@ -703,9 +703,6 @@ export function bindWebGLGlobalUniforms(
 		gl.bindTexture(gl.TEXTURE_2D, clusteredState.lightTexture);
 		gl.uniform1i(uniforms.clusterLightTexture, unit);
 	}
-	if (uniforms.enableLighting) {
-		gl.uniform1i(uniforms.enableLighting, context.features.enableLighting ? 1 : 0);
-	}
 	const shadowSampling = host.getShadowSamplingState();
 	const shadowsEnabled = shadowSampling.enabled;
 	if (uniforms.enableShadows) {

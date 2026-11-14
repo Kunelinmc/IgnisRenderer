@@ -207,7 +207,6 @@ export const WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT = new StructuredBufferLayout(
 	structOf([
 		{ name: "ambientColor", type: VEC4_F32 },
 		{ name: "lightCounts", type: VEC4_U32 },
-		{ name: "lightingEnabled", type: U32 },
 		{ name: "clusteredLightingEnabled", type: U32 },
 		{
 			name: "directionalLights",

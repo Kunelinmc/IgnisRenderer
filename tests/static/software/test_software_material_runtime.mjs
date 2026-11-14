@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { Texture } from "../../../src/core/Texture.ts";
-import { AlphaMode, BasicMaterial, PBRMaterial } from "../../../src/materials/index.ts";
+import {
+	AlphaMode,
+	BasicMaterial,
+	PBRMaterial,
+	UnlitMaterial,
+} from "../../../src/materials/index.ts";
+import { ShadingModel } from "../../../src/index.ts";
 import { SoftwareMaterialRuntime } from "../../../src/backends/software/SoftwareMaterialRuntime.ts";
 import { sampleSoftwareTextureMap } from "../../../src/shaders/software/textureSampling.ts";
 
@@ -24,7 +30,6 @@ function createContext(overrides = {}) {
 		sampleShadow: undefined,
 		shAmbientCoeffs: null,
 		environmentSpecularTexture: null,
-		enableLighting: false,
 		enableSH: false,
 		enableShadows: false,
 		...overrides,
@@ -49,15 +54,15 @@ function createInput(overrides = {}) {
 	};
 }
 
-function testLightingDisabledUsesUnlitProgram() {
+function testUnlitMaterialUsesUnlitProgram() {
 	const runtime = new SoftwareMaterialRuntime();
-	const material = new BasicMaterial({
+	const material = new UnlitMaterial({
 		diffuse: { r: 32, g: 64, b: 96 },
 	});
 
 	const program = runtime.prepareFragmentProgram(
 		createFace(material),
-		createContext({ enableLighting: false, lights: [] }),
+		createContext({ lights: [] }),
 		false
 	);
 	const output = program.shade(createInput());
@@ -72,11 +77,13 @@ function testPBRMaterialKeepsPBREvaluatorWhenUnlit() {
 	const runtime = new SoftwareMaterialRuntime();
 	const material = new PBRMaterial({
 		albedo: { r: 12, g: 34, b: 56 },
+		transmissionFactor: 1,
 	});
+	material.shading = ShadingModel.Unlit;
 
 	const program = runtime.prepareFragmentProgram(
 		createFace(material),
-		createContext({ enableLighting: false }),
+		createContext(),
 		false
 	);
 	const output = program.shade(createInput());
@@ -85,6 +92,12 @@ function testPBRMaterialKeepsPBREvaluatorWhenUnlit() {
 	assert.equal(output.color.r, 12 / 255);
 	assert.equal(output.color.g, 34 / 255);
 	assert.equal(output.color.b, 56 / 255);
+	assert.equal(program.getOpacity(), 1);
+	material.shading = ShadingModel.PBR;
+	const restored = runtime.prepareFragmentProgram(createFace(material), createContext(), true);
+	assert.ok(restored.shade(createInput()));
+	assert.ok(restored.getOpacity() < 1);
+	assert.equal(material.transmissionFactor, 1);
 }
 
 function testPBREmissiveRadianceCanExceedOne() {
@@ -96,7 +109,7 @@ function testPBREmissiveRadianceCanExceedOne() {
 	});
 	const program = runtime.prepareFragmentProgram(
 		createFace(material),
-		createContext({ enableLighting: true }),
+		createContext(),
 		false,
 	);
 	const output = program.shade(createInput());
@@ -159,7 +172,7 @@ function testAlphaMaskUsesSharedTextureSampling() {
 }
 
 function run() {
-	testLightingDisabledUsesUnlitProgram();
+	testUnlitMaterialUsesUnlitProgram();
 	testPBRMaterialKeepsPBREvaluatorWhenUnlit();
 	testPBREmissiveRadianceCanExceedOne();
 	testDepthWriteReflectsTransparentPassAndMaterialState();

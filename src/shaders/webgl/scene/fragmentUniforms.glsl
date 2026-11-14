@@ -18,7 +18,6 @@ uniform int uDoubleSided;
 uniform vec4 uBaseColor;
 uniform vec4 uEmissive;
 __WEBGL_SCENE_LIGHTING_UNIFORMS__
-uniform int uEnableLighting;
 __WEBGL_SCENE_SH_UNIFORMS__
 uniform int uEnableSH;
 uniform vec3 uSHAmbientCoeffs[SH_COEFFICIENT_COUNT];

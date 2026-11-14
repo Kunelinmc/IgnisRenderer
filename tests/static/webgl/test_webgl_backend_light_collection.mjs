@@ -39,7 +39,6 @@ function testLightCollectorLimitsAndWarnings() {
 	}
 
 	const state = collectWebGLLights(lights, {
-		enableLighting: true,
 		warn,
 	});
 	assert.equal(state.directionalLights.length, MAX_DIRECTIONAL_LIGHTS);
@@ -69,7 +68,6 @@ function testLightProbeAmbientAndReflectionProbeSpecularCollection() {
 	});
 
 	const withoutSH = collectWebGLLights([lightProbe, reflectionProbe], {
-		enableLighting: true,
 		warn,
 	});
 	assert.ok(withoutSH.ambientColor[0] > 0);
@@ -84,7 +82,6 @@ function testLightProbeAmbientAndReflectionProbeSpecularCollection() {
 	);
 
 	const withSH = collectWebGLLights([lightProbe, reflectionProbe], {
-		enableLighting: true,
 		warn,
 		enableSH: true,
 	});
@@ -109,7 +106,6 @@ function testLightCollectorCollectsLocalizedLightProbes() {
 	localProbe.markRuntimeDirty();
 
 	const state = collectWebGLLights([globalProbe, localProbe], {
-		enableLighting: true,
 		warn,
 		enableSH: true,
 		cameraWorldPosition: { x: 0, y: 0, z: 0 },
@@ -133,7 +129,6 @@ function testLightCollectorSupportsCubeTextureEnvironmentMaps() {
 	});
 
 	const probeState = collectWebGLLights([reflectionProbe], {
-		enableLighting: true,
 		warn,
 		environmentTexture: cubeEnvironment,
 	});
@@ -145,7 +140,6 @@ function testLightCollectorSupportsCubeTextureEnvironmentMaps() {
 	assert.equal(probeState.reflectionProbeCount, 1);
 
 	const environmentState = collectWebGLLights([], {
-		enableLighting: true,
 		warn,
 		environmentTexture: cubeEnvironment,
 	});
@@ -176,7 +170,6 @@ function testLightCollectorUsesParentedProbeCaptureOrigin() {
 	model.updateWorldMatrix();
 
 	const state = collectWebGLLights([probe], {
-		enableLighting: true,
 		warn,
 	});
 	assert.equal(state.reflectionProbeCount, 1);
@@ -196,7 +189,6 @@ function testLightCollectorUsesProbeCaptureOriginWhenParentedToSceneRoot() {
 	scene.updateWorldMatrices();
 
 	const state = collectWebGLLights([probe], {
-		enableLighting: true,
 		warn,
 	});
 	assert.equal(state.reflectionProbeCount, 1);
@@ -207,7 +199,6 @@ function testLightCollectorShadowBias() {
 	const light = new DirectionalLight();
 	const shadowPlan = createShadowPlan(light, { size: 1024 });
 	const state = collectWebGLLights([light], {
-		enableLighting: true,
 		warn: () => {},
 		enableShadows: true,
 		shadowPlan,
@@ -229,7 +220,6 @@ function testLightCollectorPCSSShadowParams() {
 		sampling: { quality: "high" },
 	});
 	const state = collectWebGLLights([light], {
-		enableLighting: true,
 		warn: () => {},
 		enableShadows: true,
 		shadowPlan,
@@ -249,7 +239,6 @@ function testLightCollectorDirectionalCSMShadowData() {
 	});
 
 	const state = collectWebGLLights([light], {
-		enableLighting: true,
 		warn: () => {},
 		enableShadows: true,
 		shadowPlan,
@@ -285,7 +274,6 @@ function testSceneProgramPlannerEnumeratesRuntimeTransmittanceAlternatives() {
 	const material = new PBRMaterial();
 	const context = {
 		features: {
-			enableLighting: true,
 			enableShadows: true,
 			enableSH: false,
 			enableClusteredLighting: false,
@@ -317,7 +305,6 @@ function testSceneProgramPlannerReadsMaterialFromDrawSubmission() {
 	material.map = { id: "base-map" };
 	const context = {
 		features: {
-			enableLighting: false,
 			enableShadows: false,
 			enableSH: false,
 			enableClusteredLighting: false,
@@ -346,7 +333,7 @@ function testSceneProgramPlannerReadsMaterialFromDrawSubmission() {
 function testSceneProgramPlannerDeduplicatesInputsWithinEachCall() {
 	const material = new PBRMaterial();
 	const context = {
-		features: { enableLighting: false, enableSH: false, enableOIT: true },
+		features: { enableSH: false, enableOIT: true },
 		scene: {
 			camera: { getWorldPosition: () => ({ x: 0, y: 0, z: 0 }) },
 			lights: [],

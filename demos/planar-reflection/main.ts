@@ -127,7 +127,6 @@ async function bootDemo(): Promise<DemoState> {
 		const renderer = await createRenderer(canvas, camera);
 
 		renderer.setScene(scene);
-		renderer.features.enableLighting = true;
 		renderer.features.enableShadows = false;
 		renderer.features.enableEnvironment = false;
 		renderer.features.enableReflection = settings.reflections;

@@ -77,7 +77,6 @@ function createPerspectiveContext(overrides = {}) {
 			},
 		},
 		features: {
-			enableLighting: true,
 			enableClusteredLighting: true,
 			clusteredLightingOptions: {
 				tileSizePx: 64,

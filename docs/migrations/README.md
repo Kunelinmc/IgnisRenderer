@@ -242,8 +242,8 @@ field aliases. `FrameCameraUniforms` now contains four unjittered matrices:
 followed by `jitterNdc` and `prevJitterNdc`. Replace `cameraPosition` and
 `environmentBasis*` with the inverse-view columns and shared camera helpers.
 
-Move ambient color, light counts, lighting enablement, and clustered enablement
-reads to `frameLights`; shadow enablement to `frameShadows`; and SH/IBL state
+Move ambient color, light counts, and clustered enablement reads to
+`frameLights`; shadow enablement to `frameShadows`; and SH/IBL state
 to `frameEnvironment`. Counts and flags use `u32`. Background texture formats
 provide linear samples directly. Existing binding numbers remain stable,
 but buffer sizes and offsets change. Import the shared frame declarations
@@ -550,6 +550,27 @@ when changing multiple settings so the scene is invalidated once.
 `scene.shadows` definitions; custom backends must consume immutable
 `ShadowFramePlan` directly. There is no compatibility adapter or transition
 window.
+
+## Material Unlit Shading
+
+`Renderer.features.enableLighting` and `RendererFeatureRequest.enableLighting`
+are removed. Applications that previously disabled lighting globally on
+`Renderer.features` must configure unlit materials directly with `UnlitMaterial`
+or `ShadingModel.Unlit`.
+
+For an existing `PBRMaterial`, assign `material.shading = ShadingModel.Unlit`
+to retain its linear `albedo` and `emissive` factors, plus its base color and
+emissive textures and UV channels.
+Unlit shading ignores the authored transmission factor and map until the
+material is switched back to `ShadingModel.PBR`.
+
+Custom WebGPU scene integrations must remove `FrameLightUniforms.lightingEnabled`;
+`clusteredLightingEnabled` now sits at byte offset `32`, while `directionalLights`
+retains byte offset `48` and the `FrameLightUniforms` buffer remains `1,712`
+bytes. Custom WebGL scene integrations must remove `uEnableLighting`.
+
+See the [lighting contract](../contracts/lighting.md) and
+[WebGPU contract](../contracts/webgpu.md).
 
 ## Related Documents
 

@@ -129,7 +129,6 @@ async function testWebGPUEnvironmentCombinationsRegression() {
 		};
 		const features = resolveFeatureState(
 			{
-				enableLighting: true,
 				enableGamma: true,
 				enableSH: scenario.enableSH,
 				enableShadows: true,
@@ -182,7 +181,6 @@ async function testScopedSceneTargetModesUseDistinctBindings() {
 
 	const features = resolveFeatureState(
 		{
-			enableLighting: true,
 			enableGamma: true,
 			enableShadows: true,
 			enableEnvironment: true,
@@ -281,7 +279,6 @@ async function testSampleCountOverrideUsesSingleSampleCapturePipelines() {
 
 	const features = resolveFeatureState(
 		{
-			enableLighting: true,
 			enableGamma: true,
 			enableShadows: false,
 			enableEnvironment: true,
@@ -357,7 +354,6 @@ async function testFrameBindingReplacementDestroysOldBinding() {
 
 	const features = resolveFeatureState(
 		{
-			enableLighting: true,
 			enableGamma: true,
 			enableEnvironment: true,
 		},
@@ -436,7 +432,6 @@ async function testWebGPUPrepareFrameTemporalStateModes() {
 
 	const features = resolveFeatureState(
 		{
-			enableLighting: true,
 			enableGamma: true,
 		},
 		{
@@ -661,7 +656,7 @@ function createFrameBindingFixture() {
 	const frame = createFrame(createPacket(createModel([new PBRMaterial()])));
 	const lighting = { ambientColor: [0.1, 0.2, 0.3], directionalLights: [],
 		pointLights: [], spotLights: [], areaLights: [], directionalShadows: [], spotShadows: [] };
-	const features = { enableLighting: true, enableShadows: false,
+	const features = { enableShadows: false,
 		enableClusteredLighting: false, postProcess: createResolvedPostProcess() };
 	const environment = { shAmbientCoeffs: null, localLightProbeCount: 0,
 		localLightProbes: [], reflectionProbeCount: 0,

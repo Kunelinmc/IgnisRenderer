@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { Camera } from "../../../src/cameras/Camera.ts";
 import { Texture } from "../../../src/core/Texture.ts";
-import { BasicMaterial, AlphaMode } from "../../../src/materials/index.ts";
+import { UnlitMaterial, AlphaMode } from "../../../src/materials/index.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { SoftwareBackend } from "../../../src/backends/software/SoftwareBackend.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
@@ -48,7 +48,6 @@ function createContext(backend, camera, packetsByStage = {}, incremental = {}) {
 	return {
 		attachments,
 		features: {
-			enableLighting: false,
 			enableSH: false,
 			enableShadows: false,
 			enableReflection: false,
@@ -104,7 +103,7 @@ function createTrianglePacket(id, color, options = {}) {
 	const zOffset = options.zOffset ?? 0;
 	const alphaMode = options.alphaMode ?? AlphaMode.Opaque;
 	const opacity = options.opacity ?? 1;
-	const material = new BasicMaterial({
+	const material = new UnlitMaterial({
 		name: `material-${id}`,
 		diffuse: color,
 		doubleSided: true,

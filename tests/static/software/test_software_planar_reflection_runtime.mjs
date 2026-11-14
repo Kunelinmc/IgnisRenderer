@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { Camera } from "../../../src/cameras/Camera.ts";
-import { BasicMaterial, AlphaMode } from "../../../src/materials/index.ts";
+import { UnlitMaterial, AlphaMode } from "../../../src/materials/index.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { Rasterizer } from "../../../src/backends/software/Rasterizer.ts";
 import { SoftwareMainPass } from "../../../src/backends/software/passes/SoftwareMainPass.ts";
@@ -63,7 +63,6 @@ function createContext(camera, packetsByStage = {}, features = {}) {
 			height: HEIGHT,
 		},
 		features: {
-			enableLighting: false,
 			enableSH: false,
 			enableShadows: false,
 			enableReflection: features.enableReflection ?? true,
@@ -117,7 +116,7 @@ function createContext(camera, packetsByStage = {}, features = {}) {
 
 function createTrianglePacket(id, color, options = {}) {
 	const zOffset = options.zOffset ?? 0;
-	const material = new BasicMaterial({
+	const material = new UnlitMaterial({
 		name: `material-${id}`,
 		diffuse: color,
 		doubleSided: true,

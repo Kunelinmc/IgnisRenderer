@@ -7,7 +7,6 @@ import {
 } from "../../../src/pipeline/incremental.ts";
 function createFeatures(overrides = {}) {
 	return {
-		enableLighting: true,
 		enableSH: false,
 		enableReflection: false,
 		enableEnvironment: false,

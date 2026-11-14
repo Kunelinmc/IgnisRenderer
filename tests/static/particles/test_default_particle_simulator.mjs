@@ -25,7 +25,6 @@ function createContext(systems) {
 			height: 720,
 		},
 		features: {
-			enableLighting: true,
 			enableGamma: true,
 			enableSH: false,
 			enableReflection: false,

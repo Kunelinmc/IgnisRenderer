@@ -9,6 +9,14 @@ and depth-write behavior shared by rendering backends.
 
 - `ShadingModel` must expose `Flat`, `Phong`, `PBR`, and `Unlit`.
 - Applications requiring Blinn-Phong shading should use `PhongMaterial`.
+- `ShadingModel.Unlit` must select unlit shading even for `PBRMaterial`.
+  Backend material resolution must preserve that material's linear `albedo`
+  and `emissive` factors, plus its base color and emissive texture references
+  and UV channels.
+- `ShadingModel.Unlit` must ignore transmission for rendering, transparent-pass
+  classification, and shadow transmittance without changing the authored
+  `transmissionFactor` or texture. Switching back to `ShadingModel.PBR` must
+  restore their effect. `AlphaMode.Blend` must remain independently effective.
 
 ### Render-state revisions
 

@@ -26,6 +26,9 @@ This document defines clustered lighting, environment IBL, light probes, and ref
   must throw `RangeError` otherwise.
 - A scene with no analytical light, environment, probe, or emissive source must
   produce black scene radiance.
+- `Renderer.features` must not expose a renderer-level `enableLighting` switch;
+  unlit rendering must be authored per material via `UnlitMaterial` or
+  `ShadingModel.Unlit`.
 
 ### Material light transport
 

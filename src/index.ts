@@ -313,6 +313,7 @@ export {
 } from "./interaction/screenToWorldRay";
 export {
 	Material,
+	ShadingModel,
 	BasicMaterial,
 	PhongMaterial,
 	UnlitMaterial,

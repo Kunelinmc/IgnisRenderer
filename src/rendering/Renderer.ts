@@ -245,7 +245,6 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		// At runtime, these requested features are resolved and validated against the actual
 		// backend capabilities (see `resolveFeatureState`).
 		const requestedFeatures: RendererFeatures = {
-			enableLighting: true,
 			enableSH: false,
 			enableReflection: true,
 			enableEnvironment: true,

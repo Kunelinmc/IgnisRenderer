@@ -318,7 +318,6 @@ export class WebGLSceneEnvironmentUniforms {
 
 export class WebGLSceneLightUniforms {
 	public readonly ambientColor: WebGLSceneUniformLocation;
-	public readonly enableLighting: WebGLSceneUniformLocation;
 	public readonly enableSH: WebGLSceneUniformLocation;
 	public readonly dirLightCount: WebGLSceneUniformLocation;
 	public readonly dirLightDirection: WebGLSceneUniformLocation;
@@ -336,7 +335,6 @@ export class WebGLSceneLightUniforms {
 	public constructor(gl: WebGL2RenderingContext, program: WebGLProgram) {
 		const get = createUniformLookup(gl, program);
 		this.ambientColor = get("uAmbientColor");
-		this.enableLighting = get("uEnableLighting");
 		this.enableSH = get("uEnableSH");
 		this.dirLightCount = get("uDirLightCount");
 		this.dirLightDirection = get("uDirLightDirection");

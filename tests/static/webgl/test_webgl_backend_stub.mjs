@@ -626,7 +626,6 @@ function testParticleDeltaTimeIsClampedToSafeMaximum() {
 function createDependencyContext() {
 	return {
 		features: {
-			enableLighting: true,
 			enableSH: true,
 			enableShadows: false,
 			enableReflection: false,

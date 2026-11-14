@@ -106,7 +106,6 @@ async function testWebGPUBlendMaterialsUseTransparentPipelineState() {
 		createFrameContextWithFeatures(
 			frame,
 			{
-				enableLighting: true,
 				enableGamma: true,
 				enableShadows: true,
 			},
@@ -173,7 +172,6 @@ async function testWebGPUTransmissionMaterialsUseTransparentPipelineState() {
 		createFrameContextWithFeatures(
 			frame,
 			{
-				enableLighting: true,
 				enableGamma: true,
 				enableShadows: true,
 			},
@@ -232,7 +230,6 @@ async function testWebGPUEarlyZPrepassOpaquePipelineHasDepthOnlyState() {
 		createFrameContextWithFeatures(
 			frame,
 			{
-				enableLighting: true,
 				enableGamma: true,
 				enableShadows: true,
 			},
@@ -289,7 +286,6 @@ async function testWebGPUEarlyZPrepassMaskPipelineUsesMaskDepthFragment() {
 		createFrameContextWithFeatures(
 			frame,
 			{
-				enableLighting: true,
 				enableGamma: true,
 				enableShadows: true,
 			},
@@ -336,7 +332,6 @@ async function testWebGPUEarlyZColorPipelineUsesReadOnlyDepthState() {
 		createFrameContextWithFeatures(
 			frame,
 			{
-				enableLighting: true,
 				enableGamma: true,
 				enableShadows: true,
 			},
@@ -472,7 +467,6 @@ fn customVs(@location(0) position: vec3<f32>) -> @builtin(position) vec4<f32> {
 		createFrameContextWithFeatures(
 			frame,
 			{
-				enableLighting: true,
 				enableGamma: true,
 				enableShadows: true,
 			},
@@ -582,7 +576,6 @@ fn customFs() -> @location(0) vec4<f32> {
 		createFrameContextWithFeatures(
 			frame,
 			{
-				enableLighting: true,
 				enableGamma: true,
 				enableShadows: true,
 			},
@@ -680,7 +673,6 @@ fn customFs() -> @location(0) vec4<f32> {
 		createFrameContextWithFeatures(
 			frame,
 			{
-				enableLighting: true,
 				enableGamma: true,
 				enableShadows: true,
 			},
@@ -774,7 +766,6 @@ async function testWebGPUOITTransparentPipelineUsesDualTargets() {
 		createFrameContextWithFeatures(
 			frame,
 			{
-				enableLighting: true,
 				enableGamma: true,
 				enableShadows: true,
 				enableOIT: true,
@@ -848,7 +839,6 @@ async function testWebGPUOITTransmissionMaterialsStayLegacyPipeline() {
 		createFrameContextWithFeatures(
 			frame,
 			{
-				enableLighting: true,
 				enableGamma: true,
 				enableShadows: true,
 				enableOIT: true,
@@ -904,7 +894,6 @@ async function testPlanarCompositeUsesReflectionOwnedPipelineAndSharedSnapshot()
 	const context = createFrameContextWithFeatures(
 			frame,
 			{
-				enableLighting: true,
 				enableGamma: true,
 				enableShadows: false,
 				enableReflection: true,
@@ -1021,7 +1010,6 @@ async function testFeatureOwnedWarmupCompilesForwardSceneVariants() {
 	const context = createFrameContextWithFeatures(
 		frame,
 		{
-			enableLighting: true,
 			enableGamma: true,
 			enableShadows: false,
 		},

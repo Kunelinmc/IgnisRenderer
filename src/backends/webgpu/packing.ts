@@ -107,7 +107,6 @@ const FRAME_LIGHT_UNIFORM_PACKER = createStructuredBufferPacker<
 			input.directionalLights.length, input.pointLights.length,
 			input.spotLights.length, input.areaLights.length,
 		]),
-		packU32("lightingEnabled", (input) => input.enableLighting ? 1 : 0),
 		packU32("clusteredLightingEnabled", (input) => input.enableClusteredLighting ? 1 : 0),
 		packArrayStruct<WebGPUFrameLightUniformInput, WebGPUDirectionalLightUniform>(
 			"directionalLights",

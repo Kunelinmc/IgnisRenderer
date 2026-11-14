@@ -420,7 +420,6 @@ export class WebGLFrameServices {
 		this._session.lightState = collectWebGLLights(
 			context.scene.lights,
 			{
-				enableLighting: context.features.enableLighting,
 				enableShadows: context.shadowPlan?.hasRasterWork === true,
 				shadowPlan: context.shadowPlan,
 				enableSH: context.features.enableSH,
@@ -810,7 +809,6 @@ export class WebGLFrameServices {
 			this._session.width = target.width;
 			this._session.height = target.height;
 			this._session.lightState = collectWebGLLights(scene.lights, {
-				enableLighting: context.features.enableLighting,
 				enableShadows: context.shadowPlan?.hasRasterWork === true,
 				shadowPlan: context.shadowPlan,
 				enableSH: context.features.enableSH,

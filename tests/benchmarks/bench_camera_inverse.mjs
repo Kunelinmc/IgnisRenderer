@@ -97,7 +97,7 @@ function createFrameCase(moving, scopes = 1) {
 		brdfLUTTexture: null, envSpecularMaxMipLevel: 0,
 	};
 	const features = {
-		enableLighting: true, enableShadows: false, enableClusteredLighting: false,
+		enableShadows: false, enableClusteredLighting: false,
 		postProcess: { getOptions: () => undefined, isEnabled: () => false },
 	};
 	const options = { temporalStateMode: "disabled" };

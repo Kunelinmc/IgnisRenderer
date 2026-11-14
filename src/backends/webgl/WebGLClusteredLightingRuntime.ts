@@ -145,7 +145,7 @@ export class WebGLClusteredLightingRuntime {
 		}
 		const isPerspective = context.scene.camera.type === CameraType.Perspective;
 
-		if (!context.features.enableClusteredLighting || !context.features.enableLighting) {
+		if (!context.features.enableClusteredLighting) {
 			this._disable(width, height, options);
 			return;
 		}

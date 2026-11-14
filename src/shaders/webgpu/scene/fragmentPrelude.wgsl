@@ -7,7 +7,6 @@ fn shadeSceneWithOptions(
 	let shadingMode = material.shadingMode;
 	let alphaModeMask = materialCommon.materialParams.z > 0.5;
 	let doubleSided = materialCommon.materialParams.w > 0.5;
-	let enableLighting = frameLights.lightingEnabled != 0u;
 
 	let materialRenderFlags = u32(materialCommon.renderParams.x + 0.5);
 	let isWireframe = (materialRenderFlags & 1u) != 0u;
@@ -75,7 +74,7 @@ fn shadeSceneWithOptions(
 	let prevNdc = input.prevClip.xy * invPrevW;
 	let motion = currentNdc - prevNdc;
 
-	if (shadingMode == SHADING_UNLIT || !enableLighting) {
+	if (shadingMode == SHADING_UNLIT) {
 		return buildSceneOutput(
 			baseColor,
 			alpha,

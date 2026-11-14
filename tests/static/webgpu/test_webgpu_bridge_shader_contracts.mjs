@@ -361,10 +361,51 @@ function testMaterialAdaptation() {
 	assert.equal(shader.shaderRevision, shaderRevision);
 }
 
+function testPBRUnlitPreservesAuthoredState() {
+	const texture = new Texture({
+		data: new Uint8ClampedArray([255, 255, 255, 255]),
+		width: 1,
+		height: 1,
+	});
+	for (const map of [null, texture]) {
+		const material = new PBRMaterial({
+			albedo: { r: 12, g: 34, b: 56 },
+			transmissionFactor: 0.75,
+			transmissionMap: map,
+			emissive: { r: 32, g: 64, b: 96 },
+			emissiveIntensity: 2,
+			opacity: 0.5,
+			map,
+			albedoMapUV: 2,
+			emissiveMap: map,
+			emissiveMapUV: 3,
+		});
+		material.shading = ShadingModel.Unlit;
+		const unlit = createWebGPUMaterialUniformData(material);
+		assert.equal(unlit.shadingFamily, "unlit");
+		assert.equal(unlit.lighting, null);
+		assert.equal(material.transmissionMap, map);
+		assert.ok(unlit.pipelineKey.includes("opaque"));
+		assert.deepEqual(unlit.common.baseColorFactor, [12 / 255, 34 / 255, 56 / 255, 0.5]);
+		assert.deepEqual(unlit.common.emissiveFactor, [32 / 255, 64 / 255, 96 / 255, 2]);
+		assert.equal(unlit.common.textureSlots[WEBGPU_TEXTURE_SLOT.BASE_COLOR].map, map);
+		assert.equal(unlit.common.textureSlots[WEBGPU_TEXTURE_SLOT.BASE_COLOR].transformB[1], 2);
+		assert.equal(unlit.common.textureSlots[WEBGPU_TEXTURE_SLOT.EMISSIVE].map, map);
+		assert.equal(unlit.common.textureSlots[WEBGPU_TEXTURE_SLOT.EMISSIVE].transformB[1], 3);
+
+		material.shading = ShadingModel.PBR;
+		const restored = createWebGPUMaterialUniformData(material);
+		assert.equal(restored.shadingFamily, "pbr");
+		assert.ok(restored.lighting);
+		assert.equal(material.transmissionMap, map);
+		assert.ok(restored.pipelineKey.includes("transmission"));
+		assert.deepEqual(restored.common.baseColorFactor, [12 / 255, 34 / 255, 56 / 255, 0.5]);
+	}
+}
+
 function testFeatureGate() {
 	const featureState = resolveFeatureState(
 		{
-			enableLighting: true,
 			enableSH: true,
 			enableReflection: true,
 			enableEnvironment: true,
@@ -380,7 +421,7 @@ function testFeatureGate() {
 		"webgpu"
 	);
 
-	assert.equal(featureState.enableLighting, true);
+	assert.equal("enableLighting" in featureState, false);
 	assert.equal(featureState.enableSH, false);
 	assert.equal(featureState.enableReflection, false);
 	assert.equal(featureState.enableEnvironment, false);
@@ -414,7 +455,7 @@ async function testSceneShaderCoverage() {
 	// These numeric types are part of the GPU buffer ABI: float flags/counts
 	// would reinterpret integer payload bytes rather than decode their values.
 	assert.match(WEBGPU_SCENE_SHADER, /lightCounts:\s*vec4<u32>/);
-	assert.match(WEBGPU_SCENE_SHADER, /lightingEnabled:\s*u32/);
+	assert.doesNotMatch(WEBGPU_SCENE_SHADER, /lightingEnabled:\s*u32/);
 	assert.match(WEBGPU_SCENE_SHADER, /shadowsEnabled:\s*u32/);
 	assert.match(WEBGPU_SCENE_SHADER, /shAmbientEnabled:\s*u32/);
 	for (const [name, layout] of [
@@ -957,6 +998,7 @@ async function run() {
 		await testMatrixPackingAndDepthRemap();
 		await testTransformComposition();
 		await testMaterialAdaptation();
+		await testPBRUnlitPreservesAuthoredState();
 		await testFeatureGate();
 		await testSceneSourcesPreserveSourceLocations();
 		await testSceneShaderCoverage();

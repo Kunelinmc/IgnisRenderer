@@ -5,7 +5,10 @@ import {
 	type PBRMaterial,
 	UVChannel,
 } from "../../materials";
-import { resolveTransmissionCompositeAlpha } from "../../materials/transparency";
+import {
+	getMaterialTransmissionFactor,
+	resolveTransmissionCompositeAlpha,
+} from "../../materials/transparency";
 import type { ProjectedFace } from "../../core/types";
 import type { PBRSurfaceProperties, FragmentInput } from "./types";
 import { Vector3 } from "../../maths/Vector3";
@@ -436,15 +439,17 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 			clearcoatRoughness *= ccRoughnessTex.g / 255;
 		}
 
-		let transmission = mat.transmissionFactor;
-		const transmissionUV = this._resolveUV(mat.transmissionMapUV, input);
-		const transmissionTex = this._sampleTextureMap(
-			mat.transmissionMap,
-			transmissionUV.u,
-			transmissionUV.v
-		);
-		if (transmissionTex) {
-			transmission *= transmissionTex.r / 255;
+		let transmission = getMaterialTransmissionFactor(mat);
+		if (transmission > 0) {
+			const transmissionUV = this._resolveUV(mat.transmissionMapUV, input);
+			const transmissionTex = this._sampleTextureMap(
+				mat.transmissionMap,
+				transmissionUV.u,
+				transmissionUV.v
+			);
+			if (transmissionTex) {
+				transmission *= transmissionTex.r / 255;
+			}
 		}
 
 		let iridescence = mat.iridescenceFactor ?? 0.0;

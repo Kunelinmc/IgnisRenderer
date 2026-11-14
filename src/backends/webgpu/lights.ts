@@ -55,7 +55,6 @@ import type {
 
 export function collectWebGPULightingCatalog(
 	lights: SceneLight[],
-	enableLighting: boolean,
 	enableSH: boolean,
 	enableShadows: boolean = false,
 	shadowPlan?: ShadowFramePlan,
@@ -65,7 +64,6 @@ export function collectWebGPULightingCatalog(
 		lights: [],
 		warnings: [],
 	};
-	if (!enableLighting) return catalog;
 
 	let spotShadowIndex = 0;
 	for (const light of lights) {
@@ -112,7 +110,6 @@ export function collectWebGPULightingCatalog(
 
 export function collectWebGPULighting(
 	lights: SceneLight[],
-	enableLighting: boolean,
 	enableSH: boolean,
 	enableShadows: boolean = false,
 	shadowPlan?: ShadowFramePlan,
@@ -121,7 +118,6 @@ export function collectWebGPULighting(
 	return createWebGPULightingState(
 		collectWebGPULightingCatalog(
 			lights,
-			enableLighting,
 			enableSH,
 			enableShadows,
 			shadowPlan,
@@ -232,11 +228,11 @@ export function prepareWebGPUClusteredLightingData(
 	camera: Pick<Camera, "type" | "near" | "far">,
 	features: Pick<
 		WebGPUFeatureState,
-		"enableLighting" | "enableClusteredLighting" | "clusteredLightingOptions"
+		"enableClusteredLighting" | "clusteredLightingOptions"
 	>,
 ): WebGPUClusteredLightingData | null {
 	if (
-		!features.enableClusteredLighting || !features.enableLighting ||
+		!features.enableClusteredLighting ||
 		camera.type !== CameraType.Perspective
 	) {
 		return null;

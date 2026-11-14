@@ -112,7 +112,6 @@ function testExecutionOrderIsAnIndependentSnapshot() {
 
 function run() {
 	const baseResolved = {
-		enableLighting: true,
 		enableSH: false,
 		enableReflection: false,
 		enableEnvironment: false,

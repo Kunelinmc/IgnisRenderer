@@ -34,7 +34,6 @@ export function createSoftwareRasterizerContext(
 		shAmbientCoeffs: frame.shAmbientCoeffs,
 		environmentSpecularTexture:
 			environment.lightingEnabled ? environment.iblTexture : null,
-		enableLighting: frame.features.enableLighting,
 		enableSH: frame.features.enableSH,
 		enableShadows: frame.shadowPlan?.hasRasterWork === true,
 	};

@@ -178,7 +178,6 @@ async function bootDemo(): Promise<DemoState> {
 	// Initialize Renderer
 	const renderer = new Renderer(canvas, backend, camera);
 	renderer.setScene(scene);
-	renderer.features.enableLighting = true;
 	renderer.features.enableShadows = true;
 	renderer.features.enableEnvironment = false;
 	renderer.features.enableReflection = false;

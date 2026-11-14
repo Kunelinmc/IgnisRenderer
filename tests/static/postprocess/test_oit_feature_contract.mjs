@@ -11,7 +11,6 @@ function testEnableOITNegotiationAcrossBackends() {
 	const software = attachBackend(new SoftwareBackend());
 
 	const request = {
-		enableLighting: true,
 		enableGamma: true,
 		enableOIT: true,
 	};
@@ -60,7 +59,6 @@ function testEnableOITDisabledRequestHasNoWarning() {
 	const webgl = attachBackend(new WebGLBackend());
 	const resolved = resolveFeatureState(
 		{
-			enableLighting: true,
 			enableGamma: true,
 			enableOIT: false,
 		},

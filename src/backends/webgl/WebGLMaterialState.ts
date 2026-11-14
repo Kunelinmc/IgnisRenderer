@@ -108,8 +108,9 @@ type WebGLLegacyMaterial = Material & {
 /** @internal Resolves immutable built-in WebGL material authoring state. */
 export function resolveWebGLMaterialState(material: Material): WebGLResolvedMaterialState {
 	const shadingFamily = resolveWebGLMaterialShadingFamily(material);
-	const isPBR = shadingFamily === "pbr";
-	const common = resolveCommonState(material, isPBR);
+	// Unlit shading retains PBR authoring data and its linear color semantics.
+	const usesPBRProperties = shadingFamily === "pbr" || material.type === "PBR";
+	const common = resolveCommonState(material, usesPBRProperties);
 	if (shadingFamily === "pbr") {
 		return {
 			shadingFamily,
@@ -130,8 +131,8 @@ export function resolveWebGLMaterialState(material: Material): WebGLResolvedMate
 export function resolveWebGLMaterialShadingFamily(
 	material: Material,
 ): WebGLMaterialShadingFamily {
-	if (material.shading === ShadingModel.PBR || material.type === "PBR") return "pbr";
 	if (material.shading === ShadingModel.Unlit) return "unlit";
+	if (material.shading === ShadingModel.PBR || material.type === "PBR") return "pbr";
 	if (material.shading === ShadingModel.Flat) return "flat";
 	return "phong";
 }

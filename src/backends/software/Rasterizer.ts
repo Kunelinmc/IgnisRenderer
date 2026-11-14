@@ -92,7 +92,6 @@ export interface RasterizerContext {
 	sampleShadow?: ShaderContext["sampleShadow"];
 	shAmbientCoeffs: SHCoefficients | null;
 	environmentSpecularTexture?: Texture | null;
-	enableLighting: boolean;
 	enableSH: boolean;
 	enableShadows: boolean;
 }

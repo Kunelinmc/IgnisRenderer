@@ -44,6 +44,6 @@ const plan = {
 	hasRasterWork: true,
 	hasTransmissionWork: false,
 };
-const catalog = collectWebGPULightingCatalog([light], true, false, true, plan);
+const catalog = collectWebGPULightingCatalog([light], false, true, plan);
 assert.equal(catalog.lights[0].shadow.enabled, true);
 console.log("WebGPU lighting bridge reads prepared shadow data");

@@ -316,7 +316,6 @@ function testRuntimeWritesClampedActiveLightCount() {
 			},
 		},
 		{
-			enableLighting: true,
 			enableClusteredLighting: true,
 			clusteredLightingOptions: {
 				maxLights: 2,
@@ -361,7 +360,6 @@ function testRuntimeWritesClusteredAreaSoAData() {
 			},
 		},
 		{
-			enableLighting: true,
 			enableClusteredLighting: true,
 			clusteredLightingOptions: {
 				maxLights: 4,
@@ -441,7 +439,6 @@ async function testRuntimeDispatchesGatherComputePasses() {
 			},
 		},
 		{
-			enableLighting: true,
 			enableClusteredLighting: true,
 			clusteredLightingOptions: {
 				maxLights: 4,
@@ -490,7 +487,6 @@ async function testRuntimeDispatchesLargeGatherGridAcrossDimensions() {
 	runtime.prepareFrame(
 		{ camera: { type: CameraType.Perspective, near: 0.1, far: 100 } },
 		{
-			enableLighting: true,
 			enableClusteredLighting: true,
 			clusteredLightingOptions: {
 				maxLights: 9,
@@ -523,7 +519,6 @@ async function testRuntimeRetainsScatterABPath() {
 	runtime.prepareFrame(
 		{ camera: { type: CameraType.Perspective, near: 0.1, far: 100 } },
 		{
-			enableLighting: true,
 			enableClusteredLighting: true,
 			clusteredLightingOptions: {
 				cullingMode: "scatter",
@@ -556,7 +551,6 @@ async function testRuntimeSkipsStaticCullAndSelectiveUploads() {
 	const light = createClusteredLight(0);
 	const frame = { camera: { type: CameraType.Perspective, near: 0.1, far: 100 } };
 	const features = {
-		enableLighting: true,
 		enableClusteredLighting: true,
 		clusteredLightingOptions: {
 			maxLights: 4,
@@ -630,7 +624,6 @@ function testRuntimeClampsWebGPULimits() {
 	runtime.prepareFrame(
 		{ camera: { type: CameraType.Perspective, near: 0.1, far: 100 } },
 		{
-			enableLighting: true,
 			enableClusteredLighting: true,
 			clusteredLightingOptions: {
 				maxLights: WEBGPU_CLUSTERED_MAX_LIGHTS + 10,
@@ -652,7 +645,6 @@ function testRuntimeClampsWebGPULimits() {
 	runtime.prepareFrame(
 		{ camera: { type: CameraType.Perspective, near: 0.1, far: 100 } },
 		{
-			enableLighting: true,
 			enableClusteredLighting: true,
 			clusteredLightingOptions: {
 				maxLights: WEBGPU_CLUSTERED_MAX_LIGHTS + 10,

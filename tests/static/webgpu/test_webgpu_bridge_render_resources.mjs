@@ -111,7 +111,7 @@ async function testRenderResourcesLogPointLightLimitOnlyOnce() {
 		);
 		const context = createFrameContextWithFeatures(
 			frame,
-			{ enableLighting: true },
+			{},
 			{ clusteredLighting: false },
 		);
 
@@ -149,7 +149,6 @@ async function testRenderResourcesUseCopyDstForUploads() {
 		createFrameContextWithFeatures(
 			frame,
 			{
-				enableLighting: true,
 				enableGamma: true,
 				enableShadows: true,
 			},
@@ -372,7 +371,6 @@ function testVolumetricLightingUsesEffectiveSurfaceLights() {
 			{ clustered: true, maxLights: 2000, sourceCount: 1025, pointCount: 1024 },
 			{ clustered: true, cameraType: CameraType.Orthographic, pointCount: 16 },
 			{ clustered: true, invalidDepthRange: true, pointCount: 16 },
-			{ clustered: true, enableLighting: false, pointCount: 0 },
 		]) {
 			const frame = createFrame(createPacket(createModel([new PBRMaterial()])));
 			frame.camera.type = entry.cameraType ?? CameraType.Perspective;
@@ -387,7 +385,6 @@ function testVolumetricLightingUsesEffectiveSurfaceLights() {
 			});
 			frame.lights = [new DirectionalLight(), ...pointLights];
 			const context = createFrameContextWithFeatures(frame, {
-				enableLighting: entry.enableLighting ?? true,
 				enableClusteredLighting: entry.clustered,
 				clusteredLightingOptions: { maxLights: entry.maxLights },
 			}, { clusteredLighting: true }, {
@@ -398,13 +395,13 @@ function testVolumetricLightingUsesEffectiveSurfaceLights() {
 			assert.ok(lights, "Enabled volumetric lighting must receive prepared light data.");
 			assert.equal(
 				lights.filter((light) => light.type === 0).length,
-				entry.enableLighting === false ? 0 : 1,
+				1,
 			);
 			assert.deepEqual(
 				lights.filter((light) => light.type === 1).map((light) => light.position[0]),
 				Array.from({ length: entry.pointCount }, (_, i) => i + 1),
 			);
-			assert.equal(lights.length, entry.pointCount + (entry.enableLighting === false ? 0 : 1));
+			assert.equal(lights.length, entry.pointCount + 1);
 			resources.abortTemporalFrame();
 		}
 	} finally {
@@ -418,14 +415,14 @@ function testVolumetricLightingDataStaysScopedAndClearsWhenDisabled() {
 	try {
 		const frame = createFrame(createPacket(createModel([new PBRMaterial()])));
 		frame.lights = [new PointLight()];
-		const context = createFrameContextWithFeatures(frame, { enableLighting: true }, {}, {
+		const context = createFrameContextWithFeatures(frame, {}, {}, {
 			postProcess: createResolvedPostProcess({ volumetric: { enabled: true } }),
 		});
 		const main = resources.prepareFrame(context, createMainFrameOptions());
 		const captureFrame = createFrame(createPacket(createModel([new PBRMaterial()])));
 		captureFrame.lights = [new DirectionalLight()];
 		const captureContext = createFrameContextWithFeatures(captureFrame,
-			{ enableLighting: true }, {}, { postProcess: context.postProcess });
+			{}, {}, { postProcess: context.postProcess });
 		const capture = resources.prepareFrame(captureContext,
 			createMainFrameOptions({ scopeKey: "capture" }));
 		assert.deepEqual(main.volumetricLightingData?.lights.map((light) => light.type), [1]);

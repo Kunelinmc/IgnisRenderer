@@ -388,7 +388,6 @@ export class WebGPUFrameServiceOwner {
 		const temporalHistoryReset = context.incremental?.temporalHistoryReset === true;
 		const temporalStateMode = resolvedOptions.temporalStateMode ?? "advance";
 		const featureState: WebGPUFeatureState = {
-			enableLighting: features.enableLighting,
 			enableSH: features.enableSH,
 			enableShadows: context.shadowPlan?.hasRasterWork === true,
 			enableReflection: features.enableReflection,
@@ -402,7 +401,6 @@ export class WebGPUFrameServiceOwner {
 
 		const lightingCatalog = collectWebGPULightingCatalog(
 			scene.lights,
-			features.enableLighting,
 			features.enableSH,
 			context.shadowPlan?.hasRasterWork === true,
 			context.shadowPlan,

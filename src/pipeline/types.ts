@@ -325,7 +325,6 @@ export interface FeatureWarning {
 }
 
 export interface RendererFeatureRequest {
-	enableLighting?: boolean;
 	enableSH?: boolean;
 	enableReflection?: boolean;
 	enableEnvironment?: boolean;

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { Camera } from "../../../src/cameras/Camera.ts";
-import { BasicMaterial, AlphaMode, PBRMaterial } from "../../../src/materials/index.ts";
+import { UnlitMaterial, AlphaMode, PBRMaterial } from "../../../src/materials/index.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { SoftwareBackend } from "../../../src/backends/software/SoftwareBackend.ts";
 import { Projector } from "../../../src/backends/software/Projector.ts";
@@ -37,7 +37,6 @@ function createContext(backend, camera, packetsByStage = {}) {
 		alphaMode: packetsByStage.alphaMode ?? "opaque",
 		attachments,
 		features: {
-			enableLighting: false,
 			enableSH: false,
 			enableShadows: false,
 			enableReflection: false,
@@ -91,7 +90,7 @@ function createTrianglePacket(id, color, options = {}) {
 	const zOffset = options.zOffset ?? 0;
 	const alphaMode = options.alphaMode ?? AlphaMode.Opaque;
 	const opacity = options.opacity ?? 1;
-	const material = new BasicMaterial({
+	const material = new UnlitMaterial({
 		name: `material-${id}`,
 		diffuse: color,
 		doubleSided: true,
@@ -235,7 +234,6 @@ async function testRasterPreservesHDRRadiance() {
 	});
 	packet.submission.material.effective = material;
 	const context = createContext(backend, camera, { opaquePackets: [packet] });
-	context.features.enableLighting = true;
 	backend.beginFrame(context);
 	await backend.executePass(
 		{ stage: "main-opaque", executor: "backend", enabled: true },
@@ -263,7 +261,6 @@ async function testTransparentRasterPreservesHDRRadiance() {
 	});
 	packet.submission.material.effective = material;
 	const context = createContext(backend, camera, { transparentPackets: [packet] });
-	context.features.enableLighting = true;
 	backend.beginFrame(context);
 	await backend.executePass(
 		{ stage: "main-transparent", executor: "backend", enabled: true },

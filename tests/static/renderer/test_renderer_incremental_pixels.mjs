@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 
 import { Camera } from "../../../src/cameras/Camera.ts";
 import { Texture } from "../../../src/core/Texture.ts";
-import { BasicMaterial } from "../../../src/materials/BasicMaterial.ts";
+import { UnlitMaterial } from "../../../src/materials/UnlitMaterial.ts";
 import { MeshAsset } from "../../../src/meshes/MeshAsset.ts";
 import { MeshInstance } from "../../../src/meshes/MeshInstance.ts";
 import { Renderer } from "../../../src/rendering/Renderer.ts";
@@ -19,7 +19,6 @@ function createScene({ background = false, secondMesh = false } = {}) {
 		width: WIDTH, height: HEIGHT,
 		getBoundingClientRect: () => ({ width: WIDTH, height: HEIGHT }),
 	}, backend, camera);
-	renderer.features.enableLighting = false;
 	renderer.features.enableReflection = false;
 	renderer.features.enableEnvironment = background;
 	if (background) {
@@ -28,7 +27,7 @@ function createScene({ background = false, secondMesh = false } = {}) {
 		});
 	}
 	const meshes = (secondMesh ? [-1.5, 1.5] : [-1.5]).map((x) => {
-		const material = new BasicMaterial({
+		const material = new UnlitMaterial({
 			diffuse: { r: 255, g: 0, b: 0 }, doubleSided: true,
 		});
 		const mesh = MeshAsset.fromFaces([{

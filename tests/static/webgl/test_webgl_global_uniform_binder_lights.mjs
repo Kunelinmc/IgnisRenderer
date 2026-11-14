@@ -126,7 +126,6 @@ function createFrameContext() {
 		},
 		features: {
 			enableClusteredLighting: false,
-			enableLighting: true,
 			enableShadows: false,
 			enableSH: false,
 		},

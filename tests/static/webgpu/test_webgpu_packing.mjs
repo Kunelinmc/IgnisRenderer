@@ -249,7 +249,6 @@ function createFrameInput() {
 			createReflectionProbe(0),
 			createReflectionProbe(1),
 		],
-		enableLighting: true,
 		enableShadows: true,
 		shAmbientEnabled: false,
 		enableClusteredLighting: true,
@@ -456,9 +455,8 @@ function testFrameUniformPacking() {
 		assert.equal(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT.byteOffsetOf(field), offset);
 	}
 	for (const [field, offset] of Object.entries({
-		ambientColor: 0, lightCounts: 16, lightingEnabled: 32,
-		clusteredLightingEnabled: 36, directionalLights: 48,
-		pointLights: 176, spotLights: 688, areaLights: 1072,
+		ambientColor: 0, lightCounts: 16, clusteredLightingEnabled: 32,
+		directionalLights: 48, pointLights: 176, spotLights: 688, areaLights: 1072,
 	})) {
 		assert.equal(WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT.byteOffsetOf(field), offset);
 	}
@@ -471,7 +469,7 @@ function testFrameUniformPacking() {
 	assert.deepEqual(readVec(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT, cameraData, "inverseProjection", 4), [301, 305, 309, 313]);
 	assert.deepEqual(readVec(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT, cameraData, "jitterNdc", 2), [43, 44]);
 	assert.deepEqual(readVec(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT, cameraData, "prevJitterNdc", 2), [45, 46]);
-	assert.deepEqual(Array.from(new Uint32Array(lightData, 16, 8)), [1, 1, 1, 1, 1, 1, 0, 0]);
+	assert.deepEqual(Array.from(new Uint32Array(lightData, 16, 8)), [1, 1, 1, 1, 1, 0, 0, 0]);
 	assert.deepEqual(Array.from(new Uint32Array(shadowData, 0, 4)), [1, 0, 0, 0]);
 	assert.deepEqual(Array.from(new Uint32Array(environmentData, 0, 3)), [0, 1, 1]);
 	assert.equal(new DataView(environmentData).getFloat32(12, true), 5);
@@ -479,9 +477,9 @@ function testFrameUniformPacking() {
 	const writer = WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT.createWriter();
 	const reused = packFrameLightUniformData(input, writer);
 	input.pointLights = [];
-	input.enableLighting = false;
+	input.enableClusteredLighting = false;
 	assert.equal(packFrameLightUniformData(input, writer), reused);
-	assert.deepEqual(Array.from(new Uint32Array(reused, 16, 8)), [1, 0, 1, 1, 0, 1, 0, 0]);
+	assert.deepEqual(Array.from(new Uint32Array(reused, 16, 8)), [1, 0, 1, 1, 0, 0, 0, 0]);
 	assert.deepEqual(readVec(WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT, reused, ["pointLights", 0, "positionRange"], 4), [0, 0, 0, 0]);
 	assert.deepEqual(readVec(WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT, lightData, ["directionalLights", 0, "direction"], 4), [
 		18, 19, 20, 0,

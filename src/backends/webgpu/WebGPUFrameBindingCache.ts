@@ -100,7 +100,7 @@ export class WebGPUFrameBindingCache {
 	private _cameraInput: WebGPUFrameCameraUniformInput | null = null;
 	private readonly _lightInput: WebGPUFrameLightUniformInput = {
 		ambientColor: [0, 0, 0], directionalLights: [], pointLights: [], spotLights: [],
-		areaLights: [], enableLighting: false, enableClusteredLighting: false,
+		areaLights: [], enableClusteredLighting: false,
 	};
 	private readonly _shadowInput: WebGPUFrameShadowUniformInput = {
 		directionalShadows: [], spotShadows: [], enableShadows: false,
@@ -190,7 +190,6 @@ export class WebGPUFrameBindingCache {
 		lightInput.pointLights = lightingState.pointLights;
 		lightInput.spotLights = lightingState.spotLights;
 		lightInput.areaLights = lightingState.areaLights;
-		lightInput.enableLighting = features.enableLighting;
 		lightInput.enableClusteredLighting = features.enableClusteredLighting;
 		const shadowInput = this._shadowInput;
 		shadowInput.directionalShadows = lightingState.directionalShadows;

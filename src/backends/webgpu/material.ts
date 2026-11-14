@@ -90,8 +90,10 @@ export function createWebGPUMaterialUniformData(
 	const mat = material as any;
 	const shadingFamily = resolveShadingFamily(material);
 	const isPBR = shadingFamily === "pbr";
-	const baseColor = getMaterialBaseColor(material, isPBR);
-	const emissive = getMaterialEmissive(material, isPBR);
+	// Unlit shading retains PBR authoring data and its linear color semantics.
+	const usesPBRProperties = isPBR || material.type === "PBR";
+	const baseColor = getMaterialBaseColor(material, usesPBRProperties);
+	const emissive = getMaterialEmissive(material, usesPBRProperties);
 	const opacity = clamp(material.opacity ?? 1, 0, 1);
 	const alphaMode = material.alphaMode ?? AlphaMode.Opaque;
 	const alphaModeMask = alphaMode === AlphaMode.Mask ? 1 : 0;

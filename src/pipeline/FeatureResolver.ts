@@ -43,7 +43,6 @@ export function resolveFeatureState(
 	const warnings: ResolvedFeatureState["warnings"] = [];
 
 	return {
-		enableLighting: request.enableLighting !== false,
 		clusteredLightingOptions: {
 			...DEFAULT_CLUSTERED_LIGHTING_OPTIONS,
 			...(request.clusteredLightingOptions ?? {}),

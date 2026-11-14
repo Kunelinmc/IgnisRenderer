@@ -51,7 +51,6 @@ export interface SoftwareMaterialRuntimeContext {
 	) => { r: number; g: number; b: number };
 	shAmbientCoeffs: SHCoefficients | null;
 	environmentSpecularTexture?: Texture | null;
-	enableLighting: boolean;
 	enableSH: boolean;
 	enableShadows: boolean;
 }
@@ -134,9 +133,7 @@ export class SoftwareMaterialRuntime {
 		decalPackets?: readonly DecalPacket[]
 	): SoftwareFragmentProgram {
 		const material = this.resolveMaterial(face.material);
-		const shadingModel = material.shading || ShadingModel.Flat;
-		const isLightingEnabled = context.enableLighting !== false;
-		const shading = isLightingEnabled ? shadingModel : ShadingModel.Unlit;
+		const shading = material.shading || ShadingModel.Flat;
 
 		const shader = this._getShader(shading, material);
 		const lights = context.lights;

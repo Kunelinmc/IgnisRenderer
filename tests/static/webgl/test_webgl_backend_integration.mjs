@@ -416,7 +416,6 @@ async function testWebGLBackendWarmupDelegatesToCoordinator() {
 	const report = await backend.warmup({
 		attachments: { width: 1, height: 1 },
 		features: {
-			enableLighting: true,
 			enableSH: false,
 			enableShadows: false,
 			enableReflection: false,
