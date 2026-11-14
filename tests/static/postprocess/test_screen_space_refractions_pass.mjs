@@ -11,7 +11,10 @@ import {
 	resolveSSRefractionOptions,
 	PostProcessPlanner,
 } from "../../../src/postprocess/index.ts";
-import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
+import {
+	createPostProcessTestImplementations,
+	createResolvedPostProcess,
+} from "../../helpers/postprocess.mjs";
 import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 import { WebGPUPostProcessRuntime } from "../../../src/backends/webgpu/WebGPUPostProcessRuntime.ts";
 import { POST_PROCESS_SHARED_RESOURCE_IDS } from "../../../src/postprocess/executionDeclarations.ts";
@@ -19,6 +22,8 @@ import {
 	FakeBackend,
 	FakeEncoder,
 } from "../../helpers/webgpu_postprocess_runtime_test_helpers.mjs";
+
+const testImplementations = createPostProcessTestImplementations();
 
 function createFrameContext(transmissionFactor = 1) {
 	return {
@@ -90,7 +95,7 @@ function testDescriptorAndOptions() {
 	assert.equal(pass.id, SCREEN_SPACE_REFRACTIONS_PASS_ID);
 	assert.equal(pass.schedule.placement, "temporal");
 	assert.equal(pass.schedule.order, 215);
-	const declaration = pass.getImplementation("webgpu").describeExecution({
+	const declaration = testImplementations.get(pass, "webgpu").describeExecution({
 		options: pass.normalizeOptions({}),
 	});
 	assert.deepEqual(declaration.gBuffer.map((entry) => entry.semantic), [
@@ -99,9 +104,9 @@ function testDescriptorAndOptions() {
 		"normal",
 		"transmission",
 	]);
-	assert.equal(typeof pass.getImplementation("webgpu").execute, "function");
-	assert.equal(pass.getImplementation("software"), null);
-	assert.equal(pass.getImplementation("webgl"), null);
+	assert.equal(typeof testImplementations.get(pass, "webgpu").execute, "function");
+	assert.equal(testImplementations.get(pass, "software"), null);
+	assert.equal(testImplementations.get(pass, "webgl"), null);
 
 	const options = resolveSSRefractionOptions({
 		downsample: 99,
@@ -171,6 +176,7 @@ function testDescriptorAndOptions() {
 		roughnessMipScale: 0,
 	});
 
+	testImplementations.destroy(pass);
 	pass.destroy();
 }
 
@@ -193,6 +199,7 @@ function testShouldExecuteRequiresTransmissionPackets() {
 		false
 	);
 	assert.equal(pass.shouldExecute({ backend: "webgpu" }), false);
+	testImplementations.destroy(pass);
 	pass.destroy();
 }
 
@@ -214,7 +221,7 @@ async function testPipelineRequiresTransmissionChannel() {
 		backend: "webgpu",
 		postProcess: frameContext.postProcess,
 		gBuffer: createGBuffer(false),
-		resolveImplementation: (descriptor) => descriptor.getImplementation("webgpu"),
+		resolveImplementation: (descriptor) => testImplementations.get(descriptor, "webgpu"),
 		isSharedResourceAvailable: () => true,
 	});
 	assert.deepEqual(graph.passes, []);
@@ -222,6 +229,7 @@ async function testPipelineRequiresTransmissionChannel() {
 		warnings.map((warning) => warning.key),
 		["postprocess-requirement-missing-ssrefraction"]
 	);
+	testImplementations.destroy(pass);
 	pass.destroy();
 }
 
@@ -234,7 +242,7 @@ async function testPipelineRequiresNormalChannel() {
 		backend: "webgpu",
 		postProcess: frameContext.postProcess,
 		gBuffer: createGBuffer(true, false),
-		resolveImplementation: (descriptor) => descriptor.getImplementation("webgpu"),
+		resolveImplementation: (descriptor) => testImplementations.get(descriptor, "webgpu"),
 		isSharedResourceAvailable: () => true,
 	});
 	assert.deepEqual(graph.passes, []);
@@ -242,6 +250,7 @@ async function testPipelineRequiresNormalChannel() {
 		warnings.map((warning) => warning.key),
 		["postprocess-requirement-missing-ssrefraction"]
 	);
+	testImplementations.destroy(pass);
 	pass.destroy();
 }
 
@@ -250,7 +259,7 @@ function testTransientDescriptors() {
 		enabled: true,
 		options: { downsample: 2 },
 	});
-	const declaration = pass.getImplementation("webgpu").describeExecution({
+	const declaration = testImplementations.get(pass, "webgpu").describeExecution({
 		backend: "webgpu",
 		width: 64,
 		height: 32,
@@ -265,7 +274,8 @@ function testTransientDescriptors() {
 	assert.equal(descriptors[0].heightScale, 0.5);
 	assert.equal(descriptors[1].widthScale, 0.5);
 	assert.equal(descriptors[1].heightScale, 0.5);
-	assert.equal(pass.getImplementation("software"), null);
+	assert.equal(testImplementations.get(pass, "software"), null);
+	testImplementations.destroy(pass);
 	pass.destroy();
 }
 
@@ -306,7 +316,7 @@ async function testTraceAndComposeDispatchPayloads() {
 		planeRefinementSteps: 8,
 	});
 	const pass = new ScreenSpaceRefractionsPass({ enabled: true });
-	const result = await pass.getImplementation("webgpu").execute({ options }, {
+	const result = await testImplementations.get(pass, "webgpu").execute({ options }, {
 		encoder,
 		targets: { sampleCount: 1, postPing: output },
 		shared: runtime,
@@ -340,6 +350,7 @@ async function testTraceAndComposeDispatchPayloads() {
 			"WebGPUSSRefraction_Compose",
 		]
 	);
+	testImplementations.destroy(pass);
 	pass.destroy();
 	runtime.destroy();
 }
@@ -415,6 +426,7 @@ try {
 	testTransientDescriptors();
 	await testTraceAndComposeDispatchPayloads();
 	await testShaderPreservesTransmissionEnergyContract();
+	testImplementations.destroy();
 	console.log("ScreenSpaceRefractionsPass tests passed");
 } finally {
 	Logger.reset();

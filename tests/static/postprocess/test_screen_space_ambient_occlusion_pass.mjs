@@ -13,8 +13,11 @@ import { Camera, CameraType } from "../../../src/cameras/Camera.ts";
 import { OrthographicCamera } from "../../../src/cameras/OrthographicCamera.ts";
 import { compileWGSLMath } from "../../helpers/wgsl-math.mjs";
 import {
+	createPostProcessTestImplementations,
 	createResolvedPostProcess,
 } from "../../helpers/postprocess.mjs";
+
+const testImplementations = createPostProcessTestImplementations();
 
 function createOrthographicCamera() {
 	const identity = [
@@ -201,20 +204,20 @@ async function testSSAOPipelineUsesPassOwnedImplementation() {
 	const pass = new ScreenSpaceAmbientOcclusionPass({ enabled: true });
 	assert.equal(pass.id, "ssao");
 	assert.deepEqual(
-		pass.getImplementation("software").describeExecution({}).gBuffer
+		testImplementations.get(pass, "software").describeExecution({}).gBuffer
 			.map((entry) => entry.semantic),
 		["depth", "normal"]
 	);
 	assert.equal(
-		typeof pass.getImplementation("software").execute,
+		typeof testImplementations.get(pass, "software").execute,
 		"function"
 	);
 	assert.equal(
-		typeof pass.getImplementation("webgpu").execute,
+		typeof testImplementations.get(pass, "webgpu").execute,
 		"function"
 	);
 	assert.equal(
-		typeof pass.getImplementation("webgl").execute,
+		typeof testImplementations.get(pass, "webgl").execute,
 		"function"
 	);
 
@@ -399,7 +402,7 @@ function testGPUSSAOTransientDescriptorsFollowDownsample() {
 		width: 64,
 		height: 32,
 	};
-	const descriptors = pass.getImplementation("webgpu")
+	const descriptors = testImplementations.get(pass, "webgpu")
 		.describeExecution(request).transients.map((entry) => entry.descriptor);
 
 	assert.deepEqual(
@@ -411,7 +414,7 @@ function testGPUSSAOTransientDescriptorsFollowDownsample() {
 		[1 / 8, 1 / 8]
 	);
 	assert.deepEqual(
-		pass.getImplementation("webgl").describeExecution({
+		testImplementations.get(pass, "webgl").describeExecution({
 			backend: "webgl",
 			options: pass.normalizeOptions(),
 			width: 64,
@@ -420,7 +423,7 @@ function testGPUSSAOTransientDescriptorsFollowDownsample() {
 		descriptors
 	);
 	assert.equal(
-		pass.getImplementation("software").describeExecution(request).transients,
+		testImplementations.get(pass, "software").describeExecution(request).transients,
 		undefined
 	);
 }
@@ -431,4 +434,5 @@ testSoftwareSSAOModifiesPixelsAndSkipsMissingBuffers();
 testSSAOOptionHelpersClampAndPackParams();
 testSSAORadiusProjectionAndReconstruction();
 testGPUSSAOTransientDescriptorsFollowDownsample();
+testImplementations.destroy();
 console.log("ScreenSpaceAmbientOcclusionPass tests passed");

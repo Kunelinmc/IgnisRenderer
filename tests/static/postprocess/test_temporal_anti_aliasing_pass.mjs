@@ -10,8 +10,11 @@ import {
 	rgbToYCoCg,
 } from "../../../src/maths/Misc.ts";
 import {
+	createPostProcessTestImplementations,
 	createResolvedPostProcess,
 } from "../../helpers/postprocess.mjs";
+
+const testImplementations = createPostProcessTestImplementations();
 
 function createSoftwareExecutor() {
 	return {
@@ -150,7 +153,7 @@ function createGBuffer(context) {
 async function testTAADescriptorAndImplementationRoute() {
 	const pass = new TemporalAntiAliasingPass({ enabled: true });
 	assert.equal(pass.id, "taa");
-	const declaration = pass.getImplementation("software").describeExecution({});
+	const declaration = testImplementations.get(pass, "software").describeExecution({});
 	assert.deepEqual(declaration.gBuffer.map((entry) => entry.semantic), ["motion"]);
 	assert.deepEqual(
 		declaration.histories.map((history) => history.descriptor.id),
@@ -160,7 +163,7 @@ async function testTAADescriptorAndImplementationRoute() {
 		cameraJitter: { sequence: "halton-2-3", scale: 1 },
 	});
 	assert.equal(
-		typeof pass.getImplementation("software").execute,
+		typeof testImplementations.get(pass, "software").execute,
 		"function"
 	);
 
@@ -229,4 +232,5 @@ function testTAANeighborhoodClamp() {
 testTAAReprojection();
 testTAANeighborhoodClamp();
 await testTAADescriptorAndImplementationRoute();
+testImplementations.destroy();
 console.log("TemporalAntiAliasingPass tests passed");

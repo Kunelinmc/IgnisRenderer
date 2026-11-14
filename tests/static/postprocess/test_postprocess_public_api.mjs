@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import * as postprocess from "../../../src/postprocess/index.ts";
 import { BackendPostProcessRuntime } from "../../../src/postprocess/BackendPostProcessRuntime.ts";
 import { createPostProcessResourceAccessor } from "../../../src/postprocess/PostProcessResourceAccessor.ts";
+import { createPostProcessTestImplementations } from "../../helpers/postprocess.mjs";
 
 const READ = { access: "read", usage: "sampled" };
 const WRITE = { access: "write", usage: "cpu-write" };
@@ -35,6 +36,75 @@ class LabelPass extends postprocess.PostProcessPass {
 function testPassLabelContract() {
 	assert.equal(new LabelPass().label, "label-pass");
 	assert.equal(new LabelPass({ label: "Readable pass" }).label, "Readable pass");
+}
+
+function testImplementationOwnershipAndLifecycleNotifications() {
+	const created = [];
+	const invalidated = [];
+	const released = [];
+	const pass = new LabelPass({
+		implementations: {
+			software: (backend) => {
+				const implementation = {
+					describeExecution: () => ({
+						color: { access: "read-write", output: "preserve" },
+					}),
+					execute: () => ({ ran: true }),
+					invalidate: () => invalidated.push(implementation),
+					destroy: () => released.push(implementation),
+				};
+				created.push({ backend, implementation });
+				return implementation;
+			},
+		},
+	});
+	const registry = new postprocess.PostProcessPassRegistry();
+	registry.registerPass(pass);
+	const passChanges = [];
+	const registryChanges = [];
+	pass.on("change", (change) => passChanges.push(change));
+	registry.on("change", (change) => registryChanges.push(change));
+	const firstOwner = createPostProcessTestImplementations();
+	const secondOwner = createPostProcessTestImplementations();
+	assert.equal(created.length, 0);
+	const first = firstOwner.get(pass, "software");
+	assert.strictEqual(firstOwner.get(pass, "software"), first);
+	assert.equal(firstOwner.get(pass, "webgpu"), null);
+	const second = secondOwner.get(pass, "software");
+	assert.notStrictEqual(first, second);
+	assert.notStrictEqual(created[0].backend, created[1].backend);
+	assert.equal(created[0].backend.profile.id, "software");
+	assert.equal(created.length, 2);
+
+	pass.invalidate();
+	pass.destroy();
+	registry.invalidatePasses();
+	registry.destroyPasses();
+	const lifecycleChange = {
+		passId: pass.id,
+		builtIn: false,
+		reason: "lifecycle",
+	};
+	assert.deepEqual(passChanges, Array(4).fill(lifecycleChange));
+	assert.deepEqual(registryChanges, passChanges);
+	assert.deepEqual(invalidated, [], "logical notifications must not invalidate owned instances");
+	assert.deepEqual(released, [], "logical notifications must not release owned instances");
+
+	firstOwner.destroy(pass);
+	assert.deepEqual(released, [first]);
+	assert.deepEqual(second.execute(), { ran: true });
+	const replacement = firstOwner.get(pass, "software");
+	assert.notStrictEqual(replacement, first);
+	firstOwner.destroy();
+	secondOwner.destroy();
+	assert.deepEqual(released, [first, replacement, second]);
+	assert.equal(passChanges.length, 4, "test cleanup must not emit logical lifecycle changes");
+	registry.unregisterPass(pass.id);
+	assert.deepEqual(registryChanges.at(-1), {
+		passId: pass.id,
+		builtIn: false,
+		reason: "unregister",
+	});
 }
 
 function testResourceAccessorContract() {
@@ -99,7 +169,7 @@ class LifecyclePass extends postprocess.PostProcessPass {
 			enabled: true,
 			schedule: { placement: "temporal" },
 			implementations: {
-				software: () => ({
+				software: (backend) => ({
 					describeExecution: () => ({
 						color: { access: "read", output: "new-version" },
 						histories: [{
@@ -117,6 +187,8 @@ class LifecyclePass extends postprocess.PostProcessPass {
 						}
 						return { ran: true, updatedHistoryIds: ["temporal"] };
 					},
+					invalidate: () => state.implementationEvents.push(["invalidate", backend]),
+					destroy: () => state.implementationEvents.push(["destroy", backend]),
 				}),
 			},
 		});
@@ -129,6 +201,7 @@ function createLifecycleHarness() {
 		historyValidity: [],
 		completions: 0,
 		gBufferResourceModes: [],
+		implementationEvents: [],
 	};
 	const registry = new postprocess.PostProcessPassRegistry();
 	registry.registerPass(new LifecyclePass(state));
@@ -185,7 +258,35 @@ function createLifecycleHarness() {
 			temporalHistoryReset: false,
 		},
 	};
-	return { state, runtime, context };
+	return { state, runtime, context, executor, backend, registry };
+}
+
+async function testBackendOwnedImplementationLifecycle() {
+	const { state, runtime, context, executor, backend, registry } = createLifecycleHarness();
+	const otherBackend = { type: "software" };
+	const otherRuntime = new BackendPostProcessRuntime({ executor, backend: otherBackend });
+	const firstImplementation = runtime.planFrame(context).passes[0].implementation;
+	const otherImplementation = otherRuntime.planFrame(context).passes[0].implementation;
+	assert.notStrictEqual(firstImplementation, otherImplementation);
+	const changes = [];
+	registry.on("change", (change) => changes.push(change.reason));
+
+	runtime.invalidateFrameSized();
+	assert.deepEqual(state.implementationEvents, [["invalidate", backend]]);
+	assert.deepEqual(changes, ["lifecycle"]);
+	runtime.destroy();
+	assert.deepEqual(state.implementationEvents, [
+		["invalidate", backend],
+		["destroy", backend],
+	]);
+	assert.deepEqual(changes, ["lifecycle", "lifecycle"]);
+	assert.strictEqual(otherRuntime.planFrame(context).passes[0].implementation, otherImplementation);
+	await otherRuntime.execute(context);
+	otherRuntime.commitFrame();
+	assert.deepEqual(state.historyValidity, [false]);
+	otherRuntime.destroy();
+	assert.deepEqual(state.implementationEvents.at(-1), ["destroy", otherBackend]);
+	assert.deepEqual(changes, ["lifecycle", "lifecycle", "lifecycle"]);
 }
 
 async function testLifecycleCommitSkipAbortAndHistory() {
@@ -220,7 +321,9 @@ async function testLifecycleCommitSkipAbortAndHistory() {
 
 testBreakingPublicSurface();
 testPassLabelContract();
+testImplementationOwnershipAndLifecycleNotifications();
 testResourceAccessorContract();
+await testBackendOwnedImplementationLifecycle();
 await testLifecycleCommitSkipAbortAndHistory();
 
 console.log("Post-process public contract and lifecycle tests passed");

@@ -8,6 +8,9 @@ import {
 	PostProcessPlanner,
 	hasPostProcessExecutionPasses,
 } from "../../../src/postprocess/index.ts";
+import { createPostProcessTestImplementations } from "../../helpers/postprocess.mjs";
+
+const testImplementations = createPostProcessTestImplementations();
 
 const COLOR = { access: "read", output: "new-version" };
 const READ = { access: "read", usage: "sampled" };
@@ -121,7 +124,7 @@ function plan(registry, overrides = {}) {
 			frameContext: context,
 			gBuffer: overrides.gBuffer ?? gBuffer(),
 			resolveImplementation: (pass) => overrides.missingIds?.has(pass.id) ?
-				null : pass.getImplementation("software"),
+				null : testImplementations.get(pass, "software"),
 			isSharedResourceAvailable: overrides.isSharedResourceAvailable,
 		});
 	} finally {
@@ -252,7 +255,7 @@ function testDeclarationPlanFinalizesAvailabilityWithoutRedescribing() {
 		backend: "software",
 		frameContext: context,
 		gBuffer: gBuffer(),
-		resolveImplementation: (pass) => pass.getImplementation("software"),
+		resolveImplementation: (pass) => testImplementations.get(pass, "software"),
 	});
 	assert.equal(descriptions, 1);
 	assert.deepEqual(declarations.passes.map((entry) => entry.id), ["shared-reader"]);
@@ -432,4 +435,5 @@ for (const [id, declaration] of [
 	assert.deepEqual(plan(registry).result.frameRequirements, {});
 }
 
+testImplementations.destroy();
 console.log("Post-process planner tests passed");

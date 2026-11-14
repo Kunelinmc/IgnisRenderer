@@ -20,6 +20,9 @@ import {
 	FakeEncoder,
 	assertClose,
 } from "../../helpers/webgpu_postprocess_runtime_test_helpers.mjs";
+import { createPostProcessTestImplementations } from "../../helpers/postprocess.mjs";
+
+const testImplementations = createPostProcessTestImplementations();
 
 function createGBuffer(width = 32, height = 16) {
 	return {
@@ -166,13 +169,13 @@ function getSSGIResources(backend) {
 
 function testExecutionDeclaration() {
 	const pass = new ScreenSpaceGlobalIlluminationPass({ enabled: true });
-	const implementation = pass.getImplementation("webgpu");
+	const implementation = testImplementations.get(pass, "webgpu");
 	const declaration = implementation.describeExecution({
 		options: { downsample: 2 },
 	});
 
 	assert.equal(pass.id, "ssgi");
-	assert.equal(pass.getImplementation("software"), null);
+	assert.equal(testImplementations.get(pass, "software"), null);
 	assert.deepEqual(
 		declaration.gBuffer.map((entry) => entry.semantic),
 		["depth", "normal", "albedo", "metallic", "motion"]
@@ -228,6 +231,7 @@ function testExecutionDeclaration() {
 			},
 		]
 	);
+	testImplementations.destroy(pass);
 	pass.destroy();
 }
 
@@ -367,7 +371,7 @@ function testOptionsAndParameterPacking() {
 async function testFourStageExecutionAndTemporalContinuity() {
 	const harness = createHarness();
 	const pass = new ScreenSpaceGlobalIlluminationPass({ enabled: true });
-	const implementation = pass.getImplementation("webgpu");
+	const implementation = testImplementations.get(pass, "webgpu");
 	const firstResult = await implementation.execute(
 		createRequest({}, true),
 		harness.context
@@ -509,6 +513,7 @@ async function testFourStageExecutionAndTemporalContinuity() {
 	await implementation.execute(createRequest({}, true), harness.context);
 	assert.equal(gpuResources.buffers[0].lastWrite[15], 0);
 
+	testImplementations.destroy(pass);
 	pass.destroy();
 	harness.runtime.destroy();
 }
@@ -516,7 +521,7 @@ async function testFourStageExecutionAndTemporalContinuity() {
 async function testFailurePathsAndResourceInvalidation() {
 	const harness = createHarness();
 	const pass = new ScreenSpaceGlobalIlluminationPass({ enabled: true });
-	const implementation = pass.getImplementation("webgpu");
+	const implementation = testImplementations.get(pass, "webgpu");
 	const missingContext = {
 		...harness.context,
 		resources: {
@@ -582,6 +587,7 @@ async function testFailurePathsAndResourceInvalidation() {
 		resourcesAfterWarmup.modules.every((module) => module.destroyed),
 		true
 	);
+	testImplementations.destroy(pass);
 	pass.destroy();
 	harness.runtime.destroy();
 }
@@ -591,6 +597,7 @@ try {
 	testOptionsAndParameterPacking();
 	await testFourStageExecutionAndTemporalContinuity();
 	await testFailurePathsAndResourceInvalidation();
+	testImplementations.destroy();
 	console.log("ScreenSpaceGlobalIlluminationPass tests passed");
 
 } finally {

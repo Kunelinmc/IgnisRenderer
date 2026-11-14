@@ -210,41 +210,18 @@ export abstract class PostProcessPass<
 		return true;
 	}
 
-	private readonly _cachedTestImplementations = new Map<string, PostProcessPassImplementation>();
-
+	/**
+	 * Returns the factory without creating or retaining a backend implementation.
+	 *
+	 * @internal Owned by backend post-process runtimes. Applications should
+	 * register logical passes with `renderer.postProcess.registerPass()`.
+	 * @param backend Backend kind whose factory is requested.
+	 * @returns Factory to invoke with the owning backend, or `null` when absent.
+	 */
 	public getImplementationFactory(
 		backend: RenderBackendType
 	): PostProcessPassImplementationFactory | null {
 		return this._implementations[backend] ?? null;
-	}
-
-	public getImplementation(
-		backend: RenderBackendType
-	): PostProcessPassImplementation | null {
-		const cached = this._cachedTestImplementations.get(backend);
-		if (cached) {
-			return cached;
-		}
-		const factory = this.getImplementationFactory(backend);
-		if (!factory) {
-			return null;
-		}
-		const mockSession: any = {
-			type: backend,
-			profile: {
-				id: backend,
-				capabilities: {},
-				frameScheduling: "on-demand",
-				lighting: {},
-			},
-			extensions: {
-				getBackendExtension: () => null,
-				requireBackendExtension: () => { throw new Error("Mock"); },
-			},
-		};
-		const instance = factory(mockSession);
-		this._cachedTestImplementations.set(backend, instance);
-		return instance;
 	}
 
 	public supportsBackend(backend: RenderBackendType): boolean {
@@ -274,29 +251,26 @@ export abstract class PostProcessPass<
 		return implementation.execute(request, context);
 	}
 
-	public invalidate(backend?: RenderBackendType): void {
+	/**
+	 * Publishes a logical lifecycle change without invalidating backend resources.
+	 *
+	 * @internal Owned by post-process lifecycle orchestration. Applications should
+	 * change pass options through `setOptions()` to request rendering updates.
+	 * @sideEffects Emits one `change` event with reason `"lifecycle"`.
+	 */
+	public invalidate(): void {
 		this._emitChange("lifecycle");
-		if (backend) {
-			const impl = this._cachedTestImplementations.get(backend);
-			impl?.invalidate?.();
-		} else {
-			for (const impl of this._cachedTestImplementations.values()) {
-				impl.invalidate?.();
-			}
-		}
 	}
 
-	public destroy(backend?: RenderBackendType): void {
+	/**
+	 * Publishes a logical lifecycle change without releasing backend resources.
+	 *
+	 * @internal Owned by post-process lifecycle orchestration. Applications should
+	 * remove passes through `renderer.postProcess.unregisterPass()`.
+	 * @sideEffects Emits one `change` event with reason `"lifecycle"`.
+	 */
+	public destroy(): void {
 		this._emitChange("lifecycle");
-		if (backend) {
-			const impl = this._cachedTestImplementations.get(backend);
-			impl?.destroy?.();
-		} else {
-			for (const impl of this._cachedTestImplementations.values()) {
-				impl.destroy?.();
-			}
-			this._cachedTestImplementations.clear();
-		}
 	}
 
 	private _emitChange(reason: PostProcessPassChange["reason"]): void {
@@ -382,29 +356,31 @@ export class PostProcessPassRegistry extends EventEmitter<{
 	}
 
 	/**
-	 * Invalidates backend resources owned by registered pass implementations.
+	 * Publishes invalidation notifications for every registered logical pass.
 	 *
-	 * @param backend Optional backend kind to invalidate.
+	 * @internal Owned by post-process lifecycle orchestration. Applications should
+	 * update individual passes through `setOptions()`.
 	 * @returns This registry.
-	 * @sideEffects May clear implementation-owned backend caches.
+	 * @sideEffects Invokes each pass's `invalidate()` lifecycle hook.
 	 */
-	public invalidatePasses(backend?: RenderBackendType): this {
+	public invalidatePasses(): this {
 		for (const pass of this._passes.values()) {
-			pass.invalidate(backend);
+			pass.invalidate();
 		}
 		return this;
 	}
 
 	/**
-	 * Destroys backend resources owned by registered pass implementations.
+	 * Publishes destruction notifications for every registered logical pass.
 	 *
-	 * @param backend Optional backend kind to destroy.
+	 * @internal Owned by post-process lifecycle orchestration. Applications should
+	 * remove passes through `unregisterPass()`.
 	 * @returns This registry.
-	 * @sideEffects Releases implementation-owned backend resources.
+	 * @sideEffects Invokes each pass's `destroy()` lifecycle hook without unregistering it.
 	 */
-	public destroyPasses(backend?: RenderBackendType): this {
+	public destroyPasses(): this {
 		for (const pass of this._passes.values()) {
-			pass.destroy(backend);
+			pass.destroy();
 		}
 		return this;
 	}

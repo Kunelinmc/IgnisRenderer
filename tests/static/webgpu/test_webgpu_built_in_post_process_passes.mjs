@@ -54,7 +54,12 @@ function createFrameExecutor(backend, resources) {
 		particleRenderer,
 	);
 }
-import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
+import {
+	createPostProcessTestImplementations,
+	createResolvedPostProcess,
+} from "../../helpers/postprocess.mjs";
+
+const testImplementations = createPostProcessTestImplementations();
 
 const BUILTIN_PASS_BY_ID = new Map([
 	["gamma", new GammaPass({ enabled: true })],
@@ -128,7 +133,7 @@ function createExecutionContextRequest(passId, request, overrides = {}) {
 		};
 	const implementation =
 		overrides.implementation ??
-		pass.getImplementation?.("webgpu") ?? {
+		(pass.getImplementationFactory ? testImplementations.get(pass, "webgpu") : null) ?? {
 			id: `${passId}:test`,
 		};
 	const options = request.options ?? pass.normalizeOptions?.({}) ?? {};
@@ -241,7 +246,7 @@ async function testGammaOwnsWebGPUKernelBeforeRawPresent() {
 	const request = createTemporalRequest({ frameContext });
 	const passRequest = createExecutionContextRequest("gamma", request, {
 		pass: gammaPass,
-		implementation: gammaPass.getImplementation("webgpu"),
+		implementation: testImplementations.get(gammaPass, "webgpu"),
 	});
 	const context = executor.frameRuntime.postProcess
 		.createPassExecutionContext(passRequest);
@@ -698,7 +703,7 @@ async function testProbeCaptureExtensionIsRemoved() {
 async function testSSRRequirementsExposeMaterialChannels() {
 	const pass = new ScreenSpaceReflectionsPass({ enabled: true });
 	const options = pass.normalizeOptions({});
-	const declaration = pass.getImplementation("webgpu").describeExecution({
+	const declaration = testImplementations.get(pass, "webgpu").describeExecution({
 		backend: "webgpu",
 		options,
 	});
@@ -709,6 +714,7 @@ async function testSSRRequirementsExposeMaterialChannels() {
 		"metallic",
 		"motion",
 	]);
+	testImplementations.destroy(pass);
 	pass.destroy();
 }
 
@@ -725,6 +731,7 @@ async function run() {
 	await testWebGPUOcclusionExtensionDescriptor();
 	await testProbeCaptureExtensionIsRemoved();
 	await testSSRRequirementsExposeMaterialChannels();
+	testImplementations.destroy();
 	console.log("WebGPU post-process executor tests passed");
 }
 

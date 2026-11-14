@@ -7,7 +7,12 @@ import {
 	PostProcessPassRegistry,
 	resolvePostProcessExecutionOrder,
 } from "../../../src/postprocess/index.ts";
-import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
+import {
+	createPostProcessTestImplementations,
+	createResolvedPostProcess,
+} from "../../helpers/postprocess.mjs";
+
+const testImplementations = createPostProcessTestImplementations();
 
 function createPostProcess(overrides = {}) {
 	return createResolvedPostProcess(overrides, "webgpu");
@@ -147,7 +152,7 @@ function testIncrementalFramePlansCompletePostProcessSequence() {
 		backend: "webgpu",
 		postProcess,
 		gBuffer: createGBufferBridge(),
-		resolveImplementation: (pass) => pass.getImplementation("webgpu"),
+		resolveImplementation: (pass) => testImplementations.get(pass, "webgpu"),
 		isSharedResourceAvailable: () => true,
 	});
 
@@ -167,7 +172,7 @@ function testSSGIRequiresHiZAndSharesMotionHistory() {
 		backend: "webgpu",
 		postProcess: ssgiOnly,
 		gBuffer: createGBufferBridge(),
-		resolveImplementation: (pass) => pass.getImplementation("webgpu"),
+		resolveImplementation: (pass) => testImplementations.get(pass, "webgpu"),
 		isSharedResourceAvailable: () => false,
 	});
 	assert.deepEqual(unavailable.passes, []);
@@ -187,7 +192,7 @@ function testSSGIRequiresHiZAndSharesMotionHistory() {
 		backend: "webgpu",
 		postProcess: temporal,
 		gBuffer: createGBufferBridge(),
-		resolveImplementation: (pass) => pass.getImplementation("webgpu"),
+		resolveImplementation: (pass) => testImplementations.get(pass, "webgpu"),
 		isSharedResourceAvailable: () => true,
 	});
 	const motionDescriptors = graph.historyDescriptors.filter(
@@ -208,7 +213,7 @@ function planColorDomains(overrides, warnings = []) {
 		backend: "webgpu",
 		postProcess,
 		gBuffer: createGBufferBridge(),
-		resolveImplementation: (pass) => pass.getImplementation("webgpu"),
+		resolveImplementation: (pass) => testImplementations.get(pass, "webgpu"),
 		isSharedResourceAvailable: () => true,
 		displayOutput: {
 			requested: { mode: "hdr", exposure: 1, hdrHeadroom: 4 },
@@ -277,7 +282,7 @@ function testUndeclaredHDRCustomPassWarnsButRuns() {
 		backend: "webgpu",
 		postProcess,
 		gBuffer: createGBufferBridge(),
-		resolveImplementation: (pass) => pass.getImplementation("webgpu"),
+		resolveImplementation: (pass) => testImplementations.get(pass, "webgpu"),
 		isSharedResourceAvailable: () => true,
 		displayOutput: {
 			requested: { mode: "hdr", exposure: 1, hdrHeadroom: 4 },
@@ -302,6 +307,7 @@ async function run() {
 	testSSGIRequiresHiZAndSharesMotionHistory();
 	testColorDomainPlanning();
 	testUndeclaredHDRCustomPassWarnsButRuns();
+	testImplementations.destroy();
 	console.log("WebGPU post-process pipeline-order tests passed");
 }
 

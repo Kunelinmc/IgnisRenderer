@@ -18,7 +18,12 @@ import {
 	assertClose,
 	createTexture,
 } from "../../helpers/webgpu_postprocess_runtime_test_helpers.mjs";
-import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
+import {
+	createPostProcessTestImplementations,
+	createResolvedPostProcess,
+} from "../../helpers/postprocess.mjs";
+
+const testImplementations = createPostProcessTestImplementations();
 
 function createFrameContext(postProcessRequest = {}) {
 	return {
@@ -30,6 +35,7 @@ function createFrameContext(postProcessRequest = {}) {
 
 function destroySnapshotPasses(snapshot) {
 	for (const resolved of snapshot.getEnabledPasses()) {
+		testImplementations.destroy(resolved.pass);
 		resolved.pass.destroy();
 	}
 }
@@ -173,7 +179,7 @@ async function executeWebGPUImplementation(
 async function executeFXAAPass(runtime, encoder, targets, frameContext, pass) {
 	const request = createFXAAPassRequest(frameContext, pass);
 	return executeWebGPUImplementation(
-		request.pass.getImplementation("webgpu"),
+		testImplementations.get(request.pass, "webgpu"),
 		request,
 		runtime,
 		encoder,
@@ -184,14 +190,14 @@ async function executeFXAAPass(runtime, encoder, targets, frameContext, pass) {
 async function executeBloomPass(runtime, encoder, targets, frameContext) {
 	const request = createBloomPassRequest(frameContext);
 	const result = await executeWebGPUImplementation(
-		request.pass.getImplementation("webgpu"), request, runtime, encoder, targets
+		testImplementations.get(request.pass, "webgpu"), request, runtime, encoder, targets
 	);
 	return { request, result };
 }
 
 async function executeFogPass(runtime, encoder, targets, frameContext) {
 	const request = createFogPassRequest(frameContext);
-	request.implementation = request.pass.getImplementation("webgpu");
+	request.implementation = testImplementations.get(request.pass, "webgpu");
 	const result = await executeWebGPUImplementation(
 		request.pass, request, runtime, encoder, targets
 	);
@@ -207,7 +213,7 @@ async function executeMotionBlurPass(
 ) {
 	const request = createMotionBlurPassRequest(frameContext, pass);
 	const result = await executeWebGPUImplementation(
-		request.pass.getImplementation("webgpu"), request, runtime, encoder, targets
+		testImplementations.get(request.pass, "webgpu"), request, runtime, encoder, targets
 	);
 	return { request, result };
 }
@@ -221,7 +227,7 @@ async function executeDepthOfFieldPass(
 ) {
 	const request = createDepthOfFieldPassRequest(frameContext, pass);
 	const result = await executeWebGPUImplementation(
-		request.pass.getImplementation("webgpu"), request, runtime, encoder, targets
+		testImplementations.get(request.pass, "webgpu"), request, runtime, encoder, targets
 	);
 	return { request, result };
 }
@@ -235,7 +241,7 @@ async function executeToneMappingPass(
 ) {
 	const request = createToneMappingPassRequest(frameContext, pass);
 	const result = await executeWebGPUImplementation(
-		request.pass.getImplementation("webgpu"), request, runtime, encoder, targets
+		testImplementations.get(request.pass, "webgpu"), request, runtime, encoder, targets
 	);
 	return { request, result };
 }
@@ -249,7 +255,7 @@ async function executeColorFilterPass(
 ) {
 	const request = createColorFilterPassRequest(frameContext, pass);
 	const result = await executeWebGPUImplementation(
-		request.pass.getImplementation("webgpu"), request, runtime, encoder, targets
+		testImplementations.get(request.pass, "webgpu"), request, runtime, encoder, targets
 	);
 	return { request, result };
 }
@@ -343,6 +349,7 @@ async function testFXAAPipelineExecutionAndResourceReuse() {
 		["dispatchWorkgroups", 4, 2, 1],
 	);
 
+	testImplementations.destroy(pass);
 	pass.destroy();
 	destroySnapshotPasses(frameContext.postProcess);
 	runtime.destroy();
@@ -401,6 +408,7 @@ async function testToneMappingPassImplementationUsesDedicatedPipeline() {
 	]);
 	assert.equal(targets.sceneColor, postPong);
 
+	testImplementations.destroy(request.pass);
 	request.pass.destroy();
 	destroySnapshotPasses(frameContext.postProcess);
 	runtime.destroy();
@@ -538,6 +546,7 @@ async function testBloomPassImplementationUsesDedicatedPipeline() {
 	]);
 	assert.equal(targets.sceneColor, postPong);
 
+	testImplementations.destroy(request.pass);
 	request.pass.destroy();
 	destroySnapshotPasses(frameContext.postProcess);
 	runtime.destroy();
@@ -616,6 +625,7 @@ async function testMotionBlurPassImplementationUsesDedicatedPipeline() {
 	]);
 	assert.equal(targets.sceneColor, postPong);
 
+	testImplementations.destroy(request.pass);
 	request.pass.destroy();
 	destroySnapshotPasses(frameContext.postProcess);
 	runtime.destroy();
@@ -693,6 +703,7 @@ async function testFogPassImplementationUsesDedicatedPipeline() {
 	]);
 	assert.equal(targets.sceneColor, postPong);
 
+	testImplementations.destroy(request.pass);
 	request.pass.destroy();
 	destroySnapshotPasses(frameContext.postProcess);
 	runtime.destroy();
@@ -779,6 +790,7 @@ async function testDOFPassImplementationUsesDedicatedPipeline() {
 	]);
 	assert.equal(targets.sceneColor, postPong);
 
+	testImplementations.destroy(request.pass);
 	request.pass.destroy();
 	destroySnapshotPasses(frameContext.postProcess);
 	runtime.destroy();
@@ -847,6 +859,7 @@ async function testColorFilterPassImplementationUsesDedicatedPipeline() {
 	]);
 	assert.equal(targets.sceneColor, postPong);
 
+	testImplementations.destroy(request.pass);
 	request.pass.destroy();
 	destroySnapshotPasses(frameContext.postProcess);
 	runtime.destroy();
@@ -896,6 +909,7 @@ async function testMotionBlurSkipsRedundantParamUploads() {
 
 	assert.equal(backend.writeBufferCalls, 1);
 
+	testImplementations.destroy(pass);
 	pass.destroy();
 	destroySnapshotPasses(frameContext.postProcess);
 	runtime.destroy();
@@ -930,6 +944,7 @@ async function testInvalidateBindingsDestroysCachedBindingGroups() {
 	runtime.invalidateBindings();
 	assert.equal(backend.bindingGroupDestroyCalls, 1);
 
+	testImplementations.destroy(pass);
 	pass.destroy();
 	destroySnapshotPasses(frameContext.postProcess);
 	runtime.destroy();
@@ -956,6 +971,7 @@ async function testBindingReplacementDestroysStaleBindingGroup() {
 	assert.equal(backend.bindingGroups.length, 3);
 	assert.equal(backend.bindingGroupDestroyCalls, 1);
 
+	testImplementations.destroy(pass);
 	pass.destroy();
 	destroySnapshotPasses(frameContext.postProcess);
 	runtime.destroy();
@@ -974,7 +990,7 @@ async function testDestroyReleasesToneMappingImplementationResources() {
 	};
 	const frameContext = createFrameContext();
 	const pass = new ToneMappingPass({ enabled: true });
-	const implementation = pass.getImplementation("webgpu");
+	const implementation = testImplementations.get(pass, "webgpu");
 
 	await executeToneMappingPass(
 		runtime,
@@ -1031,7 +1047,7 @@ async function testBloomImplementationLifecycleReleasesOwnedResources() {
 	const request = createBloomPassRequest(
 		createFrameContext({ bloom: { enabled: true } })
 	);
-	const implementation = request.pass.getImplementation("webgpu");
+	const implementation = testImplementations.get(request.pass, "webgpu");
 
 	await executeWebGPUImplementation(
 		implementation, request, runtime, encoder, targets
@@ -1069,6 +1085,7 @@ export async function run() {
 	await testBindingReplacementDestroysStaleBindingGroup();
 	await testDestroyReleasesToneMappingImplementationResources();
 	await testBloomImplementationLifecycleReleasesOwnedResources();
+	testImplementations.destroy();
 	console.log("WebGPU postprocess screen runtime tests passed");
 }
 

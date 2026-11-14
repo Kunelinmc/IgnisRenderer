@@ -11,12 +11,17 @@ import {
 	TemporalAntiAliasingPass,
 	ToneMappingPass,
 } from "../../../src/postprocess/index.ts";
-import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
+import {
+	createPostProcessTestImplementations,
+	createResolvedPostProcess,
+} from "../../helpers/postprocess.mjs";
 import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
+
+const testImplementations = createPostProcessTestImplementations();
 
 function createExecutionContext(executor, request, implementation) {
 	const resolvedImplementation = implementation ?? request.implementation ??
-		request.pass.getImplementation("webgl");
+		testImplementations.get(request.pass, "webgl");
 	request.implementation = resolvedImplementation;
 	request.transients ??= {};
 	request.gBuffer = {
@@ -452,7 +457,7 @@ function testFXAAPassUsesLatestPostSourceAndRebindsPostTarget() {
 		options: frameContext.postProcess.getOptions("fxaa"),
 	};
 	const context = createExecutionContext(executor, request);
-	const result = pass.getImplementation("webgl").execute(
+	const result = testImplementations.get(pass, "webgl").execute(
 		request,
 		context
 	);
@@ -515,7 +520,7 @@ function testFXAAPassSkipsWhileProgramPending() {
 		options: frameContext.postProcess.getOptions("fxaa"),
 	};
 	const context = createExecutionContext(executor, request);
-	const result = pass.getImplementation("webgl").execute(request, context);
+	const result = testImplementations.get(pass, "webgl").execute(request, context);
 	completeExecution(executor, request, result);
 
 	assert.deepEqual(result, { ran: false });
@@ -568,8 +573,7 @@ function testToneMappingPassUsesLatestPostSourceAndRebindsPostTarget() {
 		passId: "tonemap",
 		options: {},
 	};
-	const result = pass
-		.getImplementation("webgl")
+	const result = testImplementations.get(pass, "webgl")
 		.execute(request, createExecutionContext(executor, request));
 	assert.deepEqual(result, { ran: true });
 	completeExecution(executor, request, result);
@@ -762,10 +766,10 @@ function testGammaPassUsesScreenPostProcessFlow() {
 		pass,
 		passId: "renamed-gamma-stage",
 		options: {},
-		implementation: pass.getImplementation("webgl"),
+		implementation: testImplementations.get(pass, "webgl"),
 	};
 	const context = createExecutionContext(executor, request);
-	const result = pass.getImplementation("webgl").execute(request, context);
+	const result = testImplementations.get(pass, "webgl").execute(request, context);
 
 	assert.deepEqual(result, { ran: true });
 	completeExecution(executor, request, result);
@@ -1259,7 +1263,7 @@ function testTAAPassDetachesMotionAttachmentAndSanitizesOptions() {
 	assert.equal(context.resources.getHistory("taa").write.id, "history-b");
 	assert.equal(context.resources.getHistory("motion").read.id, "motion-a");
 	assert.equal(context.resources.getHistory("motion").write.id, "motion-b");
-	const result = pass.getImplementation("webgl").execute(
+	const result = testImplementations.get(pass, "webgl").execute(
 		request,
 		context
 	);
@@ -1383,7 +1387,7 @@ function testSSAOPassDetachesSecondaryAttachmentForDownsampleTargets() {
 	assert.equal(passContext.resources.getGBuffer("normal").id, "scene-normal");
 	assert.equal(passContext.resources.getTransient("ssao:raw").id, "ssao-raw");
 	assert.equal(passContext.resources.getTransient("ssao:blur").id, "ssao-blur");
-	const pendingResult = pass.getImplementation("webgl").execute(
+	const pendingResult = testImplementations.get(pass, "webgl").execute(
 		request,
 		passContext
 	);
@@ -1395,7 +1399,7 @@ function testSSAOPassDetachesSecondaryAttachmentForDownsampleTargets() {
 	);
 	programsReady = true;
 	const readyContext = createExecutionContext(executor, request);
-	const result = pass.getImplementation("webgl").execute(request, readyContext);
+	const result = testImplementations.get(pass, "webgl").execute(request, readyContext);
 	assert.equal(result.ran, true);
 	completeExecution(executor, request, result);
 
@@ -1663,6 +1667,7 @@ async function run() {
 	testGlobalUniformsBindLightProbeIBLTextures();
 	testGlobalUniformsSanitizeNonFiniteCameraAndLightValues();
 	await testWarmupCollectsPostProcessHintsFromPlanOrder();
+	testImplementations.destroy();
 	console.log("WebGL FXAA frame executor tests passed");
 }
 

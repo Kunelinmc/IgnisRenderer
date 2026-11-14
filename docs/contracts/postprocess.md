@@ -96,6 +96,14 @@ This document defines logical post-process declarations, planning, backend execu
   fallback kernel by pass ID.
 - Backend runtime implementation instances must remain backend-local and must
   be invalidated or destroyed with their owning device lifecycle.
+- `PostProcessPass` must expose implementation factories without constructing
+  mock backends or caching implementation instances. Backend runtimes must
+  invoke those factories with their owning `IRenderBackend`.
+- The base `PostProcessPass.invalidate()` and `destroy()` methods must each emit
+  one `change` event with reason `"lifecycle"`. They must not invoke backend
+  implementation lifecycle methods. Registry lifecycle methods must preserve
+  these notifications for every registered pass; backend runtimes retain
+  responsibility for invalidating and destroying their own implementations.
 - Shared backend services may generalize backend-specific implementation
   details without changing the logical pass contract. The WebGPU denoiser is
   internal to WebGPU execution; Software and WebGL implementations must not be

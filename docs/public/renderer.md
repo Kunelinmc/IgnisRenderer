@@ -343,6 +343,14 @@ default. Register additional effects only with `renderer.postProcess`.
 Post-process passes have no incremental schedule or secondary registration
 with the frame pipeline.
 
+Post-process implementation instances belong to the active backend. Register
+logical passes with the renderer and let its backend manage their resources.
+Pass `invalidate()` and `destroy()` methods publish lifecycle change
+notifications; they do not release backend implementation resources directly.
+The former test-oriented `PostProcessPass.getImplementation()` method is
+removed. See the [migration guidance](../migrations/README.md) for direct
+implementation integrations.
+
 Tone mapping and display encoding require enabled post-process passes (or
 equivalent custom passes with matching color contracts) on all three backends.
 Disabling `ToneMappingPass` or `GammaPass` no longer triggers automatic

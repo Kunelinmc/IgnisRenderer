@@ -19,6 +19,43 @@ import {
 } from "../../src/index.ts";
 import { BackendPostProcessRuntime } from "../../src/postprocess/BackendPostProcessRuntime.ts";
 import { createSyntheticLogicalGBufferBridge } from "../../src/postprocess/GBufferBridge.ts";
+import { TestRenderBackend } from "./TestRenderBackend.mjs";
+
+/** Owns direct-test implementations independently of logical pass lifecycle events. */
+export function createPostProcessTestImplementations() {
+	const backends = new Map();
+	return {
+		get(pass, backendType) {
+			const factory = pass.getImplementationFactory(backendType);
+			if (!factory) return null;
+			let entry = backends.get(backendType);
+			if (!entry) {
+				const backend = new TestRenderBackend();
+				backend.type = backendType;
+				entry = { backend, implementations: new Map() };
+				backends.set(backendType, entry);
+			}
+			if (!entry.implementations.has(pass)) {
+				entry.implementations.set(pass, factory(entry.backend));
+			}
+			return entry.implementations.get(pass);
+		},
+		destroy(pass) {
+			for (const { implementations } of backends.values()) {
+				if (pass) {
+					implementations.get(pass)?.destroy?.();
+					implementations.delete(pass);
+				} else {
+					for (const implementation of implementations.values()) {
+						implementation.destroy?.();
+					}
+					implementations.clear();
+				}
+			}
+			if (!pass) backends.clear();
+		},
+	};
+}
 
 export const ALL_POST_PROCESS_PASS_IDS = [
 	"ssao",

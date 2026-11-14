@@ -198,6 +198,21 @@ alone preserves valid temporal history.
 See the [renderer contract](../contracts/renderer.md) and
 [post-process contract](../contracts/postprocess.md).
 
+## Post-Process Implementation Ownership
+
+Replace `PostProcessPass.getImplementation(backendType)` calls with
+`pass.getImplementationFactory(backend.profile.id)?.(backend)` in tests or
+custom backend integrations that construct implementations directly. Retain the
+returned instance and explicitly call its `invalidate()` or `destroy()` hooks
+as needed. Renderer-managed passes already use backend-owned instances.
+
+`PostProcessPass.invalidate()` and `destroy()` retain their lifecycle change
+notifications. Remove backend selector arguments from these methods and from
+registry `invalidatePasses()` and `destroyPasses()` calls. These logical
+notifications do not invalidate or destroy implementation instances.
+
+See the [post-process contract](../contracts/postprocess.md).
+
 ## Scene and ECS Projection
 
 Use scene nodes directly for rendering, interaction, animation, physics, and

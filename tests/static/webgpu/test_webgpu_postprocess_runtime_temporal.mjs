@@ -13,7 +13,12 @@ import {
 	FakeBackend,
 	FakeEncoder,
 } from "../../helpers/webgpu_postprocess_runtime_test_helpers.mjs";
-import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
+import {
+	createPostProcessTestImplementations,
+	createResolvedPostProcess,
+} from "../../helpers/postprocess.mjs";
+
+const testImplementations = createPostProcessTestImplementations();
 
 const SSR_PASS = new ScreenSpaceReflectionsPass({ enabled: true });
 const VOLUMETRIC_PASS = new VolumetricLightingPass({ enabled: true });
@@ -191,7 +196,7 @@ async function executeSSRImplementation(
 			},
 		},
 	};
-	const result = await request.pass.getImplementation("webgpu").execute(
+	const result = await testImplementations.get(request.pass, "webgpu").execute(
 		request,
 		context
 	);
@@ -268,7 +273,7 @@ async function executeVolumetricImplementation(
 			},
 		},
 	};
-	const result = await request.pass.getImplementation("webgpu").execute(
+	const result = await testImplementations.get(request.pass, "webgpu").execute(
 		request,
 		context
 	);
@@ -296,6 +301,7 @@ function createPerspectiveFrameContext(postProcessRequest = {}) {
 
 function destroySnapshotPasses(snapshot) {
 	for (const resolved of snapshot.getEnabledPasses()) {
+		testImplementations.destroy(resolved.pass);
 		resolved.pass.destroy();
 	}
 }
@@ -329,9 +335,10 @@ async function testSSRAndVolumetricReportHistoryUpdates() {
 	assert.strictEqual(ssrRun.published, ssrTargets.postPing);
 	assert.strictEqual(ssrTargets.sceneColor, ssrTargets.postPing);
 	assert.equal(ssrRun.motionWrites, 1);
-	const ssrImplementation = ssrFrameContext.postProcess
-		.getPass("ssr")
-		.pass.getImplementation("webgpu");
+	const ssrImplementation = testImplementations.get(
+		ssrFrameContext.postProcess.getPass("ssr").pass,
+		"webgpu",
+	);
 	const ssrDeclaration = ssrImplementation.describeExecution({
 		options: ssrFrameContext.postProcess.getOptions("ssr"),
 	});
@@ -594,6 +601,7 @@ async function testSSRDestroyReleasesCachedBindings() {
 	const ssrPass = frameContext.postProcess.getEnabledPasses()
 		.find((resolved) => resolved.id === "ssr")?.pass;
 	assert.ok(ssrPass);
+	testImplementations.destroy(ssrPass);
 	ssrPass.destroy();
 
 	assert.equal(backend.bindingGroupDestroyCalls, 2);
@@ -671,6 +679,7 @@ async function run() {
 	await testHiZResourcesAreSharedAcrossTemporalPasses();
 	await testSSRDestroyReleasesCachedBindings();
 	await testMissingSSRFrameBindingSkipsImplementation();
+	testImplementations.destroy();
 	console.log("WebGPU postprocess temporal runtime tests passed");
 }
 
