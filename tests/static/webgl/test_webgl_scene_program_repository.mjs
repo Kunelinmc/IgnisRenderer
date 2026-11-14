@@ -7,6 +7,52 @@ import { WebGLSceneProgramRepository } from "../../../src/backends/webgl/WebGLSc
 import { WebGLSceneRuntime } from "../../../src/backends/webgl/WebGLSceneRuntime.ts";
 import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
+async function testTransmissionRuntimeReferencesMatchVariantResources() {
+	const compiler = new ShaderBackendCompileStage({
+		runtime: new ShaderRuntime({ mode: "strict" }),
+		profile: WEBGL_TEST_PROFILE,
+		mode: "strict",
+	});
+	for (const output of ["single", "mrt"]) {
+		const fallback = createWebGLShaderMaterialFallbackVariant(output);
+		for (const model of ["full", "pbr"]) {
+			for (const transmission of [false, true]) {
+				const variant = {
+					...fallback,
+					material: { ...fallback.material, model, transmission },
+				};
+				const artifact = await ShaderSource.load("webgl.scene", { specialization: variant });
+				const fragment = artifact.stages.fragment;
+				const compiled = compiler.compile({
+					code: fragment.code, sourceMap: fragment.sourceMap,
+					language: "glsl", stage: "fragment", entryPoint: "main",
+					sourceKind: "builtin-scene",
+				});
+				assert.equal(compiled.hasErrors, false);
+				const label = getWebGLSceneVariantKey(variant);
+				for (const [type, name] of [
+					["sampler2D", "uTransmissionBackgroundMap"],
+					["int", "uHasTransmissionBackgroundMap"],
+					["vec2", "uTransmissionBackgroundInvSize"],
+					["float", "uTransmissionModelScale"],
+					["sampler2D", "uTransmissionDepthMap"],
+					["int", "uHasTransmissionDepthMap"],
+				]) {
+					if (transmission) {
+						assert.ok(compiled.code.includes(`uniform ${type} ${name};`),
+							`${label}: active transmission must declare ${name}`);
+					} else {
+						assert.ok(!compiled.code.includes(name),
+							`${label}: disabled transmission must not reference ${name}`);
+					}
+				}
+				assert.equal(compiled.code.includes("vec2 traceTransmissionBackground("),
+					transmission, `${label}: tracing must follow transmission resources`);
+			}
+		}
+	}
+}
+
 function testUnpreparedExactVariantFailsWithoutFallbackProgram() {
 	const gl = createProgramCaptureGL();
 	const repository = createSceneProgramRepository(gl, () => {});
@@ -974,6 +1020,7 @@ async function testFramePreparationSharesSourceAndIssuanceBudget() {
 }
 
 await runWebGLBackendFile([
+	testTransmissionRuntimeReferencesMatchVariantResources,
 	testUnpreparedExactVariantFailsWithoutFallbackProgram,
 	testSceneProgramRepositoryCompileErrorMessage,
 	testSceneProgramRepositoryCompileErrorMapsSourceLine,

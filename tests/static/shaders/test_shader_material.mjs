@@ -16,7 +16,11 @@ import { createWebGPUMaterialUniformData } from "../../../src/backends/webgpu/ma
 import { resolveWebGPUScenePassDescriptor } from "../../../src/backends/webgpu/WebGPUScenePassDescriptors.ts";
 import { ShaderRuntime, ShaderBackendCompileStage } from "../../../src/shaders/runtime/index.ts";
 import { createShaderMaterialSourceBlocks } from "../../../src/shaders/ShaderMaterialSource.ts";
-import { WEBGPU_TEST_PROFILE } from "./shaderDirectiveTestProfiles.mjs";
+import { WEBGL_TEST_PROFILE, WEBGPU_TEST_PROFILE } from "./shaderDirectiveTestProfiles.mjs";
+import {
+	INTERIOR_MAPPING_VERTEX_GLSL,
+	INTERIOR_MAPPING_FRAGMENT_GLSL,
+} from "../../../demos/interior-mapping/shaders.ts";
 
 import { FakeWebGPUBackend as FakeBackend } from "../../helpers/fakes.mjs";
 
@@ -1128,6 +1132,36 @@ function testTextureBindingGeneratedUvSelection() {
 	}
 }
 
+function testInteriorMappingGLSLGeneratedBindings() {
+	const material = new ShaderMaterial({
+		textureBindings: [{ name: "roomAtlas", texture: null, slot: 0 }],
+		uniformBindings: [
+			{ name: "roomTiling", type: "vec2f", value: [3, 3] },
+			{ name: "roomDepth", type: "f32", value: 1 },
+			{ name: "roomAspect", type: "f32", value: 1 },
+		],
+	});
+	for (const [stage, source] of [
+		["vertex", INTERIOR_MAPPING_VERTEX_GLSL],
+		["fragment", INTERIOR_MAPPING_FRAGMENT_GLSL],
+	]) {
+		const generatedSourceBlocks = createWebGLShaderMaterialSourceBlocks(material, stage, source);
+		const compiled = new ShaderBackendCompileStage({
+			runtime: new ShaderRuntime({ mode: "strict" }),
+			profile: WEBGL_TEST_PROFILE, mode: "strict",
+		}).compile({
+			code: source, language: "glsl", stage, entryPoint: "main",
+			sourceKind: "custom-material", generatedSourceBlocks,
+		});
+		assert.equal(compiled.hasErrors, false, `interior mapping ${stage} source generation`);
+		if (stage === "fragment") {
+			assert.ok(compiled.code.includes("uniform sampler2D uShaderTex_roomAtlas;"));
+			assert.ok(compiled.code.includes("textureLod(uShaderTex_roomAtlas, uv, lod)"));
+			assert.ok(compiled.code.includes("uniform float uShaderUniform_roomDepth;"));
+		}
+	}
+}
+
 function testUniformBindingSchemaAndValueRevision() {
 	const material = new ShaderMaterial({ name: "UniformBindingMaterial" });
 	const initialShaderRevision = material.shaderRevision;
@@ -1313,6 +1347,13 @@ function testGeneratedMaterialABIOwnershipRejectsRedeclarations() {
 		),
 		/redeclares generated uniform/,
 	);
+	for (const helper of ["ignisSampleTexture_noise", "ignisSampleTextureLevel_noise"]) {
+		assert.throws(
+			() => createWebGLShaderMaterialSourceBlocks(material, "fragment",
+				`vec4 ${helper}(vec2 uv) { return vec4(1.0); }`),
+			/redeclares reserved helper/,
+		);
+	}
 }
 
 async function testBuiltinDepthIsolation() {
@@ -1569,6 +1610,7 @@ async function run() {
 	testTextureBindingAutoSlotAndUniformDefaults();
 	testTextureBindingGeneratedSourceBlocks();
 	testTextureBindingGeneratedUvSelection();
+	testInteriorMappingGLSLGeneratedBindings();
 	testUniformBindingSchemaAndValueRevision();
 	testUniformBindingDuplicateDiagnostics();
 	testUniformBindingGeneratedSourceBlocks();

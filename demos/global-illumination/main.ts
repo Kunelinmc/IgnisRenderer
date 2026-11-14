@@ -141,7 +141,6 @@ async function startDemo(): Promise<void> {
 	});
 	const renderer = new Renderer(canvas, backend, camera);
 	renderer.setScene(scene);
-	renderer.features.enableShadows = false;
 
 	const ssgi = new ScreenSpaceGlobalIlluminationPass({
 		enabled: settings.enabled,

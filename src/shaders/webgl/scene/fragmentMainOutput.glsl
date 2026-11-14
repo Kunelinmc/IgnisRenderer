@@ -8,7 +8,7 @@ vec2 encodeNormalForGBuffer(vec3 normal) {
 	return encoded * 0.5 + 0.5;
 }
 
-#if WEBGL_MATERIAL_TRANSMISSION || WEBGL_MATERIAL_MODEL_FULL
+#if WEBGL_MATERIAL_TRANSMISSION
 vec2 traceTransmissionBackground(
 	vec2 startUv,
 	vec2 rayUvOffset,
@@ -107,7 +107,7 @@ void main() {
 		specularColor *= texture(uSpecularColorMap, specularColorUv).rgb;
 	}
 #endif
-#if WEBGL_MATERIAL_TRANSMISSION || WEBGL_MATERIAL_MODEL_FULL
+#if WEBGL_MATERIAL_TRANSMISSION
 	float transmission = clamp(uPBR.w, 0.0, 1.0);
 #if WEBGL_MATERIAL_TRANSMISSION_MAP
 	if (uHasTransmissionMap == 1) {
@@ -291,7 +291,7 @@ void main() {
 #endif
 #endif
 	float resolvedThickness = 0.0;
-#if WEBGL_MATERIAL_TRANSMISSION || WEBGL_MATERIAL_MODEL_FULL
+#if WEBGL_MATERIAL_TRANSMISSION
 	resolvedThickness = max(uTransmissionVolume.y, 0.0);
 #if WEBGL_MATERIAL_THICKNESS_MAP
 	if (uHasThicknessMap == 1) {
@@ -472,7 +472,7 @@ void main() {
 #endif
 
 	color += emissive;
-#if WEBGL_MATERIAL_TRANSMISSION || WEBGL_MATERIAL_MODEL_FULL
+#if WEBGL_MATERIAL_TRANSMISSION
 	if (transmission > EPSILON && uHasTransmissionBackgroundMap == 1) {
 		vec2 screenUv = gl_FragCoord.xy * uTransmissionBackgroundInvSize;
 		float ior = max(uTransmissionVolume.x, 1.0);

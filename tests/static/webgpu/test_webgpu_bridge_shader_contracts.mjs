@@ -12,6 +12,11 @@ import {
 import { mapShaderGeneratedLocation } from "../../../src/shaders/runtime/sourceMap.ts";
 import { WEBGPU_TEST_PROFILE } from "../shaders/shaderDirectiveTestProfiles.mjs";
 import {
+	INTERIOR_MAPPING_VERTEX_WGSL,
+	INTERIOR_MAPPING_FRAGMENT_WGSL,
+} from "../../../demos/interior-mapping/shaders.ts";
+import { createShaderMaterialSourceBlocks } from "../../../src/shaders/ShaderMaterialSource.ts";
+import {
 	createWebGPUMaterialUniformData,
 	packMatrix4ForWGSL,
 	remapClipSpaceDepth
@@ -168,6 +173,65 @@ async function testSharedFrameUniformABI() {
 }
 ShaderSource.resetConfiguration();
 Logger.reset();
+
+function testInteriorMappingUniformABI() {
+	const material = new ShaderMaterial({
+		textureBindings: [{ name: "roomAtlas", texture: new Texture(), slot: 0 }],
+		uniformBindings: [
+			{ name: "roomTiling", type: "vec2f", value: [3, 3] },
+			{ name: "roomDepth", type: "f32", value: 1 },
+			{ name: "roomAspect", type: "f32", value: 1 },
+		],
+	});
+	const compiler = new ShaderBackendCompileStage({
+		runtime: new ShaderRuntime({ mode: "strict" }),
+		profile: WEBGPU_TEST_PROFILE,
+		mode: "strict",
+	});
+	for (const [stage, code, entryPoint] of [
+		["vertex", INTERIOR_MAPPING_VERTEX_WGSL, "vsMain"],
+		["fragment", INTERIOR_MAPPING_FRAGMENT_WGSL, "fsMainSingle"],
+	]) {
+		const compiled = compiler.compile({
+			code, language: "wgsl", stage, entryPoint, sourceKind: "shader-material",
+			generatedSourceBlocks: createShaderMaterialSourceBlocks({
+				material, language: "wgsl", stage, source: code, wgslUniformBinding: 39,
+			}),
+		});
+		assert.equal(compiled.hasErrors, false, `interior mapping ${stage} must compile`);
+		assert.deepEqual(
+			readWGSLStructFieldNames(compiled.code, "FrameCameraUniforms"),
+			readLayoutFieldNames(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT),
+			`interior mapping ${stage}: camera CPU/GPU ABI must agree`,
+		);
+		assert.match(compiled.code,
+			/@group\(0\)\s+@binding\(0\)\s+var<uniform>\s+frame:\s*FrameCameraUniforms/);
+		assert.doesNotMatch(compiled.code, /#import|frame\.cameraPosition/);
+		if (stage === "vertex") {
+			assert.deepEqual(
+				readWGSLStructFieldNames(compiled.code, "ObjectUniforms"),
+				readLayoutFieldNames(WEBGPU_OBJECT_UNIFORM_LAYOUT),
+				"interior mapping: object CPU/GPU ABI must agree",
+			);
+			const objectFields = compiled.code.match(/struct ObjectUniforms\s*\{([^}]+)\}/)[1];
+			for (const [name, type] of [
+				["modelMatrix", "mat4x4<f32>"],
+				["prevModelMatrix", "mat4x4<f32>"],
+				["normalMatrix", "mat4x4<f32>"],
+				["instanceData", "vec4<f32>"],
+			]) {
+				assert.ok(objectFields.includes(`${name}: ${type}`), `${name} object GPU type`);
+			}
+			assert.match(compiled.code,
+				/@group\(1\)\s+@binding\(0\)\s+var<uniform>\s+object:\s*ObjectUniforms/);
+		} else {
+			assert.match(compiled.code,
+				/normalize\(input\.worldPosition\s*-\s*cameraPosition\(frame\.inverseView\)\)/,
+				"room rays must originate at the inverse-view camera translation");
+			assert.match(compiled.code, /return inverseView\[3\]\.xyz;/);
+		}
+	}
+}
 
 function testMatrixPackingAndDepthRemap() {
 	const matrix = new Matrix4([
@@ -998,6 +1062,7 @@ async function run() {
 		await testSceneShaderCoverage();
 		await testDirectPBRLightTransportInputs();
 		await testSharedFrameUniformABI();
+		testInteriorMappingUniformABI();
 		await testForwardMRTOutputABI();
 		await testScenePipelineLimitConstantsMatchLayout();
 		await testShadowDepthLayoutMatchesTransmittanceShaderBinding();

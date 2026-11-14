@@ -150,6 +150,10 @@ This document defines shader source ownership, composition, diagnostics, and cus
   `ShaderMaterial.removeChunk()` must explicitly declare `backend` as
   `"webgpu"` or `"webgl"`. Missing or unsupported backend values must throw.
 - WebGPU chunks must use WGSL. WebGL chunks must use GLSL.
+- WebGPU custom chunks that consume scene camera data must import
+  `#import <ignis/webgpu/frame-camera>` and bind `FrameCameraUniforms` at
+  `@group(0) @binding(0)`. Camera position must be read through
+  `cameraPosition(frame.inverseView)` rather than a separate uniform field.
 - Chunk construction and updates must reject a language that does not match
   the declared backend before changing material state.
 - WebGPU and WebGL program resolution must use only chunks declared for that
@@ -176,6 +180,9 @@ This document defines shader source ownership, composition, diagnostics, and cus
   constants must retain the resolved binding metadata.
 - Sampling functions must follow the native texture sampling encoding contract
   in [Materials Contract](materials.md).
+- GLSL chunks may call generated sampling helpers and declare matching forward
+  prototypes. They must not define these helpers. Source generation must reject
+  helper definitions without treating calls or forward prototypes as definitions.
 
 ### ShaderMaterial custom uniforms
 
@@ -212,7 +219,7 @@ This document defines shader source ownership, composition, diagnostics, and cus
   combined `model: ModelUniforms` declaration is not supported.
 - Backend material source augmentation exclusively owns declarations generated
   from `uniformBindings` and `textureBindings`. Custom shader chunks must not
-  redeclare their reserved bindings, uniforms, samplers, or helper symbols.
+  redeclare their reserved bindings, uniforms, samplers, or helper definitions.
 - WebGPU binding `36` remains reserved for morph weights. Binding `39` is owned
   by generated `ShaderMaterial` uniform declarations.
 - Schema changes must affect shader/program caches. Value-only changes must

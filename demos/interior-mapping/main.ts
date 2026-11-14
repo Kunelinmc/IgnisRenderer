@@ -292,7 +292,6 @@ async function bootDemo(): Promise<DemoState> {
 		const renderer = new Renderer(canvas, backend, camera);
 
 		renderer.setScene(scene);
-		renderer.features.enableShadows = false;
 		renderer.scene.environment.backgroundEnabled = false;
 		renderer.features.enableOIT = false;
 

@@ -425,6 +425,10 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
 - The full compatibility scene specialization must remain available to
   explicit `ShaderSource` callers; semantic feature pruning applies to exact built-in material
   variants used for rendering and warmup.
+- Scene variants with transmission disabled, including custom-material fallback
+  variants, must omit transmission tracing and background sampling along with
+  their runtime uniforms. The `full` material family must not independently
+  enable code that references pruned transmission resources.
 - Scene programs must own one variant-aware `WebGLSceneSamplerLayout` shared by
   warmup and all binders. If an exact collision-free layout cannot fit the
   active runtime limit, warmup or the first relevant draw must throw

@@ -1,18 +1,15 @@
 export const INTERIOR_MAPPING_VERTEX_WGSL = `
-struct FrameUniforms {
-	viewProjection: mat4x4<f32>,
-	prevViewProjection: mat4x4<f32>,
-	cameraPosition: vec4<f32>,
-}
+#import <ignis/webgpu/frame-camera>
 
-struct ModelUniforms {
+struct ObjectUniforms {
 	modelMatrix: mat4x4<f32>,
 	prevModelMatrix: mat4x4<f32>,
 	normalMatrix: mat4x4<f32>,
+	instanceData: vec4<f32>,
 }
 
-@group(0) @binding(0) var<uniform> frame: FrameUniforms;
-@group(1) @binding(0) var<uniform> model: ModelUniforms;
+@group(0) @binding(0) var<uniform> frame: FrameCameraUniforms;
+@group(1) @binding(0) var<uniform> object: ObjectUniforms;
 
 struct VertexInput {
 	@location(0) position: vec3<f32>,
@@ -32,12 +29,12 @@ struct VertexOutput {
 @vertex
 fn vsMain(input: VertexInput) -> VertexOutput {
 	var output: VertexOutput;
-	let worldPos = model.modelMatrix * vec4<f32>(input.position, 1.0);
+	let worldPos = object.modelMatrix * vec4<f32>(input.position, 1.0);
 	output.position = frame.viewProjection * worldPos;
 	output.worldPosition = worldPos.xyz;
-	output.worldNormal = normalize((model.normalMatrix * vec4<f32>(input.normal, 0.0)).xyz);
+	output.worldNormal = normalize((object.normalMatrix * vec4<f32>(input.normal, 0.0)).xyz);
 
-	let tangentWorld = (model.normalMatrix * vec4<f32>(input.tangent.xyz, 0.0)).xyz;
+	let tangentWorld = (object.normalMatrix * vec4<f32>(input.tangent.xyz, 0.0)).xyz;
 	output.worldTangent = vec4<f32>(
 		normalize(tangentWorld),
 		input.tangent.w
@@ -49,13 +46,9 @@ fn vsMain(input: VertexInput) -> VertexOutput {
 `;
 
 export const INTERIOR_MAPPING_FRAGMENT_WGSL = `
-struct FrameUniforms {
-	viewProjection: mat4x4<f32>,
-	prevViewProjection: mat4x4<f32>,
-	cameraPosition: vec4<f32>,
-}
+#import <ignis/webgpu/frame-camera>
 
-@group(0) @binding(0) var<uniform> frame: FrameUniforms;
+@group(0) @binding(0) var<uniform> frame: FrameCameraUniforms;
 
 struct VertexOutput {
 	@builtin(position) position: vec4<f32>,
@@ -87,7 +80,7 @@ fn sampleRoomAtlas(panel: vec2<u32>, uv: vec2<f32>) -> vec4<f32> {
 
 @fragment
 fn fsMainSingle(input: VertexOutput) -> @location(0) vec4<f32> {
-	let viewDirWorld = normalize(input.worldPosition - frame.cameraPosition.xyz);
+	let viewDirWorld = normalize(input.worldPosition - cameraPosition(frame.inverseView));
 
 	let N = normalize(input.worldNormal);
 	let T = normalize(input.worldTangent.xyz);

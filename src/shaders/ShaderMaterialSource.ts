@@ -299,7 +299,11 @@ function createGLSLTextureBlocks(
 		const functionName = `ignisSampleTexture_${token}`;
 		const levelFunctionName = `ignisSampleTextureLevel_${token}`;
 		for (const name of [functionName, levelFunctionName]) {
-			if (new RegExp(`\\b(?:vec4\\s+)?${name}\\s*\\(`, "m").test(source)) {
+			// Calls and forward prototypes may reference the generated helper definitions.
+			const definition = new RegExp(
+				`\\b[A-Za-z_]\\w*\\s+${name}\\s*\\([^;{}]*\\)\\s*\\{`, "m",
+			);
+			if (definition.test(source)) {
 				throw new Error(
 					`ShaderMaterial GLSL source redeclares reserved helper "${name}".`,
 				);

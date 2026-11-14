@@ -195,7 +195,6 @@ async function init() {
 	// Initialize Renderer
 	const renderer = new Renderer(canvas, backend, camera);
 	renderer.setScene(scene);
-	renderer.features.enableShadows = true;
 	await renderer.initialize();
 
 	// Register Custom Gaussian Blur Pass
