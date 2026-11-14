@@ -109,6 +109,70 @@ This document defines logical post-process declarations, planning, backend execu
   internal to WebGPU execution; Software and WebGL implementations must not be
   required to expose or emulate that service.
 
+### Lens flare
+
+- `LensFlarePass` must generate screen-space ghosts and halos from visible
+  scene-linear HDR highlights. It must default to placement `"hdr"` and order
+  `490`, before bloom and tone mapping. It must not discover or bind scene lights.
+- Only WebGPU must provide an implementation. Other backends must use the
+  existing missing-implementation diagnostic and skip the effect.
+- The WebGPU implementation must declare three scaled `rgba16float` transients
+  for highlight extraction, features, and blur scratch. It must read its assigned
+  color input and write a distinct assigned output. It must not access bloom's
+  private textures, require G-buffer channels, or retain temporal history.
+- Highlight extraction must use a soft luminance threshold before averaging
+  downsample taps. Thresholding must use safely unpremultiplied radiance, while
+  extracted RGB and coverage must remain premultiplied.
+- Ghost and halo samples outside the image must contribute zero. Source-edge
+  fading must precede feature blur, halo offsets and chromatic separation must
+  account for the full-resolution aspect ratio, and center samples must remain
+  finite. Ghost count must not multiply the configured overall ghost strength.
+- Ghosts must convolve the extracted highlights with a normalized soft hexagonal
+  aperture before their image-center transforms. The aperture must follow every
+  highlight rather than mask the image around the optical center. `ghostRadius`
+  must specify its circumradius in image-height units, default to `0.035`, and
+  clamp to `[0.005, 0.08]`.
+- The aperture must use normalized quadrature over a regular hexagon, preceded
+  by separable Gaussian filtering with sigma at least half the quadrature tap
+  spacing. Gaussian taps must be no more than one working texel apart. This
+  must preserve a readable hexagonal face and prevent holes for subpixel
+  highlights as resolution, downsampling, and radius change.
+- Halo radial filtering must use a normalized smooth kernel with texel-aware
+  sampling density, rather than a few separated rings.
+- Halo samples must attenuate by the source-to-target radial area ratio, capped
+  at one, so a tiny highlight near the optical center cannot inflate into an
+  equally bright large ring. The optical center must remain finite and dark
+  when that mapping has zero source radius.
+- `maxGhostScale` must default to `2` and clamp to `[1, 4]`. For the nominal
+  signed sampling scale `a = -1 + ghostSpacing * index`, the effective scale
+  must be `a + sign(a) / maxGhostScale`, treating zero as negative. This must
+  keep magnification bounded even at nominal zero scale and preserve distinct
+  scales as ghosts approach that limit. Enlarged ghosts must attenuate by their
+  magnified area; successive ghosts must use decreasing weights and subtle tints.
+- Overall intensity must default to `0.22`, ghost intensity to `0.75`, halo
+  intensity to `0.08`, chromatic separation to `0.0007` image heights, and blur
+  spacing to `0.75` low-resolution pixels. Ghost chromatic offsets must account
+  for their effective sampling scale so enlargement does not amplify dispersion.
+- `downsample` must default to `4` and resolve to an integer in `[1, 4]`.
+  `ghostCount` must default to `4` and resolve to an integer in `[1, 8]`.
+  Non-finite option values must fall back to defaults; finite values must be
+  clamped to the documented option ranges.
+- Zero overall intensity, or zero ghost and halo intensities together, must
+  skip command recording and preserve the incoming color version.
+- WebGPU must load `webgpu.postprocess.lensFlare` from
+  `src/shaders/webgpu/postprocess/lensFlare.wgsl`. Extraction, horizontal and
+  vertical aperture prefiltering, aperture convolution, feature generation,
+  horizontal blur, vertical blur, and composition must
+  use separate dispatches
+  with one shared shader module and immutable per-frame parameters.
+- Halo generation must read the extracted highlights independently of the ghost
+  aperture filter so its circular response does not inherit the hexagonal shape.
+- Blur must filter RGB and coverage together. Composition must add HDR radiance
+  and coverage outside the original scene coverage, keep alpha-zero RGB zero,
+  and bound stored radiance to the finite `rgba16float` range.
+- Backend invalidation must release owned pipelines, uniforms, bindings, and the
+  module. Frame textures must remain owned by the post-process resource manager.
+
 ### Bloom
 
 - WebGPU bloom must load `webgpu.postprocess.bloom` from
@@ -399,6 +463,7 @@ bun tests/static/postprocess/test_renderer_postprocess_registry.mjs
 bun tests/static/webgpu/test_webgpu_post_graph.mjs
 bun tests/static/webgpu/test_webgpu_ssr_intersections.mjs
 bun tests/static/postprocess/test_postprocess_execution_declarations.mjs
+bun tests/static/postprocess/test_lens_flare_pass.mjs
 bunx tsc --noEmit
 ```
 

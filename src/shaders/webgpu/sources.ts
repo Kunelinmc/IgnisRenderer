@@ -39,6 +39,7 @@ const WEBGPU_POST_PROCESS_SHADER_FILES = {
 	motionBlur: "./webgpu/postprocess/motionBlur.wgsl",
 	dof: "./webgpu/postprocess/dof.wgsl",
 	bloom: "./webgpu/postprocess/bloom.wgsl",
+	lensFlare: "./webgpu/postprocess/lensFlare.wgsl",
 	gamma: "./webgpu/postprocess/gamma.wgsl",
 	toneMapping: "./webgpu/postprocess/toneMapping.wgsl",
 	colorFilter: "./webgpu/postprocess/colorFilter.wgsl",

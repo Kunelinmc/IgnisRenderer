@@ -135,6 +135,16 @@ export {
 	type WebGLBloomContext,
 } from "./passes/BloomPass";
 export {
+	LENS_FLARE_PASS_ID,
+	DEFAULT_LENS_FLARE_OPTIONS,
+	LensFlarePass,
+	WebGPULensFlareImplementation,
+	resolveLensFlareOptions,
+	type LensFlareOptions,
+	type ResolvedLensFlareOptions,
+	type LensFlarePassConfig,
+} from "./passes/LensFlarePass";
+export {
 	DEFAULT_FOG_OPTIONS,
 	FOG_PASS_ID,
 	FogPass,

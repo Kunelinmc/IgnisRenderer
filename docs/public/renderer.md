@@ -278,6 +278,61 @@ Applications should lower `maxSteps` before increasing `downsample` when SSGI
 exceeds the desired GPU budget. Increasing `raysPerPixel` improves convergence
 but multiplies the trace work directly.
 
+### Screen-space lens flare
+
+`LensFlarePass` generates soft hexagonal ghosts and circular halos from visible
+HDR highlights on WebGPU. Larger ghosts fade with their magnified area, and
+their magnification stays below `maxGhostScale` even near the image center.
+It runs before bloom and tone mapping by default, so bloom also softens its
+features. It does not require bloom to be enabled. Sources outside the image or
+lights without a visible bright surface do not generate flares. WebGL and
+Software skip this pass with a missing-implementation warning.
+
+```ts
+import { LensFlarePass } from "ignisrenderer";
+
+const lensFlare = new LensFlarePass({
+	enabled: true,
+	options: {
+		threshold: 1,
+		intensity: 0.22,
+		ghostCount: 4,
+		downsample: 4,
+	},
+});
+renderer.postProcess.registerPass(lensFlare);
+```
+
+| Option | Default | Range and units |
+| --- | --- | --- |
+| `threshold` | `1` | HDR luminance, `[0, 65504]` |
+| `softKnee` | `0.5` | Soft threshold width in luminance units, `[0, 65504]` |
+| `intensity` | `0.22` | Overall contribution, `[0, 10]`; zero skips the pass |
+| `ghostIntensity` | `0.75` | Ghost contribution, `[0, 4]` |
+| `ghostCount` | `4` | Integer in `[1, 8]` |
+| `ghostSpacing` | `0.3` | Spacing along the image-center vector, `[0, 1]` |
+| `ghostRadius` | `0.035` | Hexagonal aperture circumradius in image-height units, `[0.005, 0.08]` |
+| `maxGhostScale` | `2` | Upper bound on ghost magnification, `[1, 4]` |
+| `haloIntensity` | `0.08` | Halo contribution, `[0, 4]` |
+| `haloRadius` | `0.32` | Fraction of image height, `[0, 1]` |
+| `haloWidth` | `0.04` | Radial sampling spread in image-height units, `[0, 0.25]` |
+| `chromaticAberration` | `0.0007` | RGB sampling separation in image-height units, `[0, 0.05]` |
+| `blurRadius` | `0.75` | Low-resolution blur tap spacing in pixels, `[0, 8]` |
+| `edgeFade` | `0.1` | Source fade distance from an image edge in UV units, `[0, 0.5]` |
+| `downsample` | `4` | Integer divisor of width and height in `[1, 4]` |
+
+Increasing `downsample` reduces the feature-generation and blur cost. Lower it
+when small highlights or sharp flare shapes need more detail. Thresholding uses
+scene radiance before display exposure. Non-finite options use their defaults.
+The hexagonal aperture spreads each highlight, so small sources show its shape
+most clearly. `ghostRadius` controls that footprint; `maxGhostScale` applies a
+smooth bound rather than clipping several ghosts to an identical size. Large
+bright surfaces produce softer shapes. This is an artistic screen-space lens
+approximation rather than a simulation of a measured optical system.
+The aperture and halo filters increase their sample counts with their projected
+radius to avoid dotted or banded shapes. High resolutions, small `downsample`,
+and large radii therefore increase filtering cost together.
+
 ## Troubleshooting
 
 ### Renderer workflow
