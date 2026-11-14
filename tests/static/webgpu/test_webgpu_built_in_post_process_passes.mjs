@@ -221,7 +221,6 @@ async function createExecutorHarness(postProcessRequest = {
 			reflectivePackets: [],
 			spatialIndex: null,
 		},
-		shCoeffs: [],
 		shAmbientCoeffs: [],
 		incremental: {
 			enabled: false,

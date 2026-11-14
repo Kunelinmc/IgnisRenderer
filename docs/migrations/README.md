@@ -47,6 +47,30 @@ restoration, recreate resources instead of reusing retired facades.
 
 See the [renderer contract](../contracts/renderer.md).
 
+## Analytical Ambient and Probe SH
+
+Custom frame producers must remove `FrameContext.shCoeffs` and supply only probe
+radiance through `FrameContext.shAmbientCoeffs`. Analytical ambient irradiance
+remains separate from probe SH; custom shaders must add its diffuse contribution
+independently of SH enablement, localized probe blending, and probe Fresnel.
+
+Remove uses of the internal `Renderer.shCoeffs` and `setSHCoefficients()` bridge.
+Author analytical lighting through scene lights and probe radiance through
+`LightProbe.sh`. `Renderer.shAmbientCoeffs` now returns a detached diagnostic
+snapshot; mutating it does not author lighting.
+
+WebGL integrations must upload global probe SH through the scene uniform array.
+The internal global coefficient texture uploader and its
+`webgl-sh-ambient-texture-*` diagnostics have been removed; localized probe
+coefficient textures retain their existing upload path.
+
+Analytical probe captures now convert uniform ambient irradiance to radiance
+with `E / PI`. Re-capturing affected probes produces lower ambient radiance
+consistent with the analytical light units.
+
+See the [lighting contract](../contracts/lighting.md) and
+[renderer contract](../contracts/renderer.md).
+
 ## Fog Rendering
 
 Remove `FogOptions.application` from fog configuration. `FogPass` now always

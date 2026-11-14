@@ -2,11 +2,12 @@ import assert from "node:assert/strict";
 import {
 	WebGLFrameServiceTestHarness as WebGLFrameExecutor,
 } from "../../helpers/webgl-frame-services.mjs";
-import { Logger } from "../../../src/foundation/Logger.ts";
 
 function createFakeGL() {
 	let textureId = 0;
 	const texImage2DCalls = [];
+	const createdTextures = [];
+	const deletedTextures = [];
 	return {
 		MAX_TEXTURE_SIZE: 0x0d33,
 		MAX_RENDERBUFFER_SIZE: 0x84e8,
@@ -38,48 +39,23 @@ function createFakeGL() {
 		},
 		deleteVertexArray() {},
 		createTexture() {
-			return { id: `tex-${++textureId}` };
+			const texture = { id: `tex-${++textureId}` };
+			createdTextures.push(texture);
+			return texture;
 		},
-		deleteTexture() {},
+		deleteTexture(texture) {
+			deletedTextures.push(texture);
+		},
 		bindTexture() {},
 		texParameteri() {},
-		texImage2D(_target, _level, _internalFormat, width, height) {
-			texImage2DCalls.push({ width, height });
+		texImage2D(_target, _level, _internalFormat, width, height,
+			_border, _format, _type, data) {
+			texImage2DCalls.push({ width, height, data: Array.from(data) });
 		},
 		texImage2DCalls,
+		createdTextures,
+		deletedTextures,
 	};
-}
-
-function testUploadSHAmbientCoefficients() {
-	const warnings = [];
-	const executor = new WebGLFrameExecutor(createFakeGL());
-	Logger.configure({
-		level: "warn",
-		sink: {
-			warn: (...args) => {
-				warnings.push(args.map((arg) => String(arg)).join(" "));
-			},
-		},
-		resetOnceKeys: true,
-	});
-	try {
-		const coeffs = Array.from({ length: 16 }, (_, index) => ({
-			r: index + 1,
-			g: index + 2,
-			b: index + 3,
-		}));
-
-		const uploaded = executor._probeSHTextures.uploadSHAmbientCoefficients(
-			coeffs
-		);
-		assert.equal(uploaded, true);
-		assert.ok(executor._probeSHTextures.shAmbientTexture);
-		assert.equal(executor._probeSHTextures.shAmbientTextureWidth, 16);
-		assert.equal(executor._probeSHTextures.shAmbientTextureHeight, 1);
-		assert.equal(warnings.length, 0);
-	} finally {
-		Logger.reset();
-	}
 }
 
 function testUploadLocalLightProbeCoefficients() {
@@ -100,6 +76,7 @@ function testUploadLocalLightProbeCoefficients() {
 			})),
 		},
 	];
+	probes[0].sh[0] = { r: 1024, g: -4, b: 0.5 };
 
 	const uploaded = executor._probeSHTextures.uploadLocalLightProbeCoefficients(
 		probes
@@ -114,14 +91,26 @@ function testUploadLocalLightProbeCoefficients() {
 		executor._probeSHTextures.localLightProbeSHTextureHeight,
 		2
 	);
-	assert.deepEqual(
-		executor._gl.texImage2DCalls.at(-1),
-		{ width: 16, height: 2 }
-	);
+	const gl = executor._gl;
+	const texture = executor._probeSHTextures.localLightProbeSHTexture;
+	const firstUpload = gl.texImage2DCalls.at(-1);
+	assert.equal(firstUpload.width, 16);
+	assert.equal(firstUpload.height, 2);
+	assert.equal(firstUpload.data.length, 128);
+	assert.deepEqual(firstUpload.data.slice(0, 4), [1024, -4, 0.5, 0]);
+	assert.deepEqual(firstUpload.data.slice(64, 68), [4, 5, 6, 0]);
+	assert.equal(gl.createdTextures.length, 1);
+
+	probes[1].sh[0].r = 42;
+	assert.equal(executor._probeSHTextures.uploadLocalLightProbeCoefficients(probes), true);
+	assert.equal(gl.createdTextures.length, 1, "Repeated uploads must reuse the local probe texture");
+	assert.equal(gl.texImage2DCalls.at(-1).data[64], 42);
+	executor._probeSHTextures.destroy();
+	executor._probeSHTextures.destroy();
+	assert.deepEqual(gl.deletedTextures, [texture], "The local probe texture must be deleted once");
 }
 
 function run() {
-	testUploadSHAmbientCoefficients();
 	testUploadLocalLightProbeCoefficients();
 	console.log("WebGL SH texture upload tests passed");
 }

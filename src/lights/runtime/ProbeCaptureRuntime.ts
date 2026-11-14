@@ -1063,9 +1063,10 @@ function accumulateAmbient(
 	light: AmbientLight
 ): void {
 	const linear = toLinearColor(light.color, light.intensity ?? 1);
-	target.r += linear.r;
-	target.g += linear.g;
-	target.b += linear.b;
+	// Uniform ambient irradiance E corresponds to capture radiance E / PI.
+	target.r += linear.r / Math.PI;
+	target.g += linear.g / Math.PI;
+	target.b += linear.b / Math.PI;
 }
 
 function buildCapturedLocalLight(

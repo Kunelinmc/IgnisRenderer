@@ -50,7 +50,6 @@ function createContext(systems) {
 			reflectivePackets: [],
 			decalPackets: [],
 		},
-		shCoeffs: SH.empty(),
 		shAmbientCoeffs: SH.empty(),
 		transient: new Map(),
 	};

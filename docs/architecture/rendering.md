@@ -175,8 +175,10 @@ scheduling does not own environment bake work.
 
 Public analytical lights share meter-based geometry and physical-unit
 semantics across backends. SH stores radiance; the consuming BRDF owns the
-Lambertian `1 / PI` factor. WebGL transmissive packets remain sorted scene
-work: the frame graph snapshots accumulated scene color before each packet so
+Lambertian `1 / PI` factor. Frame-global SH aggregates probe radiance separately
+from analytical ambient irradiance. Backends add ambient diffuse independently
+of probe selection and the probe BRDF response. WebGL transmissive packets remain
+sorted scene work: the frame graph snapshots accumulated scene color before each packet so
 nearer surfaces can refract already-composited farther transparent surfaces.
 
 ## Post-Processing

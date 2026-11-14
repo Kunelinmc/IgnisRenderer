@@ -69,8 +69,14 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
   - Compatibility contract: must remain a deprecated alias of `renderFrame(nowMs)`.
   - Constraint: new application code must use `renderFrame(nowMs)` for manual rendering or `renderLoop()` for automatic scheduling.
 - `Renderer.updateSH()`
-  - Behavior contract: must delegate spherical harmonics updates to the renderer-owned `FrameCoordinator`.
+  - Behavior contract: must delegate probe spherical harmonics updates to the renderer-owned `FrameCoordinator`.
   - Constraint: must throw when the renderer-owned `FrameCoordinator` is unavailable and must not execute a fallback SH implementation.
+  - Output contract: `FrameContext.shAmbientCoeffs` must contain only probe
+    radiance coefficients. Frame contexts and the renderer must not retain a
+    combined analytical-light `shCoeffs` buffer.
+  - Ownership contract: `Renderer.shAmbientCoeffs` is an internal diagnostic
+    snapshot. Reading it must return detached coefficient storage; applications
+    must author probe lighting through `LightProbe.sh` instead.
 - `Renderer.features.enableSH`
   - Behavior contract: changing the requested SH feature state must invalidate
     scene lighting so an on-demand backend evaluates the new state on the next

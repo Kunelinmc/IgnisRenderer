@@ -143,7 +143,6 @@ async function testWebGPUEnvironmentCombinationsRegression() {
 				postProcess: createResolvedPostProcess(),
 				shadowMaps: scene.shadowMaps,
 				scene,
-				shCoeffs: SH.empty(),
 				shAmbientCoeffs: scenario.enableSH ? shAmbient : SH.empty(),
 				transient: new Map(),
 			},

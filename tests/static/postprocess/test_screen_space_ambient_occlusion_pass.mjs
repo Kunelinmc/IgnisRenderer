@@ -100,7 +100,6 @@ function createSoftwareFrameContext(options = {}) {
 		scene: {
 			camera: createOrthographicCamera(),
 		},
-		shCoeffs: [],
 		shAmbientCoeffs: [],
 		incremental: createIncremental(width, height),
 		transient: new Map(),

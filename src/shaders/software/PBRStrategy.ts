@@ -79,10 +79,12 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		const N = normal;
 		const V = viewDir;
 		const shAmbient = context.shAmbientCoeffs;
-		const hasSHAmbient = this._hasNonZeroSH(shAmbient);
+		const useProbeSH = context.enableSH && !!shAmbient;
 		const NdotVRaw = Vector3.dot(N, V);
 		const NdotV = Math.max(NdotVRaw, PBR_MIN_NDOTV);
-		const useSHAmbient = context.enableSH && hasSHAmbient;
+		const useSHAmbient = useProbeSH && this._hasNonZeroSH(shAmbient);
+		const hasEnvironmentSpecular = !!context.reflectionProbeFallbackMap ||
+			(context.reflectionProbes?.length ?? 0) > 0;
 		const reflectionDir = this._reflectionDir;
 		this._reflectViewDirection(N, V, NdotVRaw, reflectionDir);
 
@@ -185,6 +187,9 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		let brdfValue: RGBA | null = null;
 		if (context.brdfLUT) {
 			brdfValue = context.brdfLUT.sample(NdotV, Math.sqrt(rough));
+			// Texture.sample() exposes HDR LUT channels on the legacy 0..255 scale.
+			brdfValue.r /= 255;
+			brdfValue.g /= 255;
 			const E = brdfValue.r + brdfValue.g;
 			if (E > 0.0 && E < 1.0) {
 				const factor = 1.0 / E - 1.0;
@@ -225,7 +230,7 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			const lightIntensity = contrib.intensity ?? 1.0;
 
 			if (contrib.type === "ambient" || contrib.type === "irradiance") {
-				if (!useSHAmbient) {
+				if (contrib.type === "ambient" || !useProbeSH) {
 					ambientLightR += sRGBToLinear(contrib.color.r / 255) * lightIntensity;
 					ambientLightG += sRGBToLinear(contrib.color.g / 255) * lightIntensity;
 					ambientLightB += sRGBToLinear(contrib.color.b / 255) * lightIntensity;
@@ -478,18 +483,20 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		let ambB = 0;
 		const ior = surface.ior ?? 1.5;
 
-		if (useSHAmbient && shAmbient) {
+		if (useSHAmbient || hasEnvironmentSpecular) {
 			const irr = this._shIrradiance;
-			this._calculateSHIrradiance(N, shAmbient, irr);
-			const irrLinearR = irr.r / 255;
-			const irrLinearG = irr.g / 255;
-			const irrLinearB = irr.b / 255;
-
 			const specRadiance = this._shRadiance;
-			this._sampleSHRadiance(reflectionDir, shAmbient, specRadiance);
-			const specRadianceLinearR = specRadiance.r / 255;
-			const specRadianceLinearG = specRadiance.g / 255;
-			const specRadianceLinearB = specRadiance.b / 255;
+			if (useSHAmbient && shAmbient) {
+				this._calculateSHIrradiance(N, shAmbient, irr);
+				this._sampleSHRadiance(reflectionDir, shAmbient, specRadiance);
+			}
+			// Empty or disabled SH must not reuse samples retained by this strategy.
+			const irrLinearR = useSHAmbient ? irr.r / 255 : 0;
+			const irrLinearG = useSHAmbient ? irr.g / 255 : 0;
+			const irrLinearB = useSHAmbient ? irr.b / 255 : 0;
+			const specRadianceLinearR = useSHAmbient ? specRadiance.r / 255 : 0;
+			const specRadianceLinearG = useSHAmbient ? specRadiance.g / 255 : 0;
+			const specRadianceLinearB = useSHAmbient ? specRadiance.b / 255 : 0;
 
 			const fAmbient = this._resolveIridescenceFresnel(
 				NdotV,
@@ -551,7 +558,7 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 						NcdotVAmb,
 						Math.sqrt(clearcoatRoughness)
 					);
-					const ccMix = ccAmbFresnel * ccBrdf.r + ccBrdf.g;
+					const ccMix = (ccAmbFresnel * ccBrdf.r + ccBrdf.g) / 255;
 					ccAmbSpecR = ccPrefiltered.r * ccMix;
 					ccAmbSpecG = ccPrefiltered.g * ccMix;
 					ccAmbSpecB = ccPrefiltered.b * ccMix;
@@ -561,9 +568,9 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 						(1.0 - clearcoatRoughness) * 0.5
 					);
 					const ccSpec = ccAmbFresnel * ccSpecFactor;
-					ccAmbSpecR = specRadianceLinearR * ccSpec;
-					ccAmbSpecG = specRadianceLinearG * ccSpec;
-					ccAmbSpecB = specRadianceLinearB * ccSpec;
+					ccAmbSpecR = (ccPrefiltered?.r ?? specRadianceLinearR) * ccSpec;
+					ccAmbSpecG = (ccPrefiltered?.g ?? specRadianceLinearG) * ccSpec;
+					ccAmbSpecB = (ccPrefiltered?.b ?? specRadianceLinearB) * ccSpec;
 				}
 			}
 
@@ -593,7 +600,7 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 					transmRadianceR = prefilteredRefraction.r;
 					transmRadianceG = prefilteredRefraction.g;
 					transmRadianceB = prefilteredRefraction.b;
-				} else {
+				} else if (useSHAmbient && shAmbient) {
 					this._sampleSHRadiance(this._refractionDir, shAmbient, specRadiance);
 					transmRadianceR = specRadiance.r / 255;
 					transmRadianceG = specRadiance.g / 255;
@@ -654,20 +661,21 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 				ambB += specB + ccAmbSpecB * clearcoat;
 			} else {
 				const specFactor = Math.max(PBR_SPEC_FALLBACK, (1.0 - rough) * 0.5);
+				// A missing LUT changes the BRDF approximation, not the radiance source.
 				ambR +=
-					specRadianceLinearR *
+					(prefiltered?.r ?? specRadianceLinearR) *
 						effectiveFambR *
 						specFactor *
 						clearcoatAttenuationAmb +
 					ccAmbSpecR * clearcoat;
 				ambG +=
-					specRadianceLinearG *
+					(prefiltered?.g ?? specRadianceLinearG) *
 						effectiveFambG *
 						specFactor *
 						clearcoatAttenuationAmb +
 					ccAmbSpecG * clearcoat;
 				ambB +=
-					specRadianceLinearB *
+					(prefiltered?.b ?? specRadianceLinearB) *
 						effectiveFambB *
 						specFactor *
 						clearcoatAttenuationAmb +
@@ -695,26 +703,14 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 					sheenAmb *
 					clearcoatAttenuationAmb;
 			}
-		} else {
-			const ambientRadianceR = ambientLightR / Math.PI;
-			const ambientRadianceG = ambientLightG / Math.PI;
-			const ambientRadianceB = ambientLightB / Math.PI;
-			const clearcoatAttenuationAmb = 1.0 - 0.04 * clearcoat;
-			const baseAttenuationAmbR =
-				clearcoatAttenuationAmb * (1.0 - sheenColorR * 0.5);
-			const baseAttenuationAmbG =
-				clearcoatAttenuationAmb * (1.0 - sheenColorG * 0.5);
-			const baseAttenuationAmbB =
-				clearcoatAttenuationAmb * (1.0 - sheenColorB * 0.5);
-
-			const diffuseWeight = oneMinusMetal * oneMinusTransmission;
-			ambR =
-				ambientRadianceR * albR * diffuseWeight * baseAttenuationAmbR;
-			ambG =
-				ambientRadianceG * albG * diffuseWeight * baseAttenuationAmbG;
-			ambB =
-				ambientRadianceB * albB * diffuseWeight * baseAttenuationAmbB;
 		}
+
+		// Analytical ambient stays diffuse and view-independent, even with probe SH.
+		const analyticalAmbientScale =
+			oneMinusMetal * oneMinusTransmission * (1.0 - 0.04 * clearcoat) / Math.PI;
+		ambR += ambientLightR * albR * analyticalAmbientScale * (1.0 - sheenColorR * 0.5);
+		ambG += ambientLightG * albG * analyticalAmbientScale * (1.0 - sheenColorG * 0.5);
+		ambB += ambientLightB * albB * analyticalAmbientScale * (1.0 - sheenColorB * 0.5);
 
 		ambR *= occlusion;
 		ambG *= occlusion;

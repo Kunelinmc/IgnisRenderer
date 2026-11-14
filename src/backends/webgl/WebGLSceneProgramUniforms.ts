@@ -330,7 +330,6 @@ export class WebGLSceneLightUniforms {
 	public readonly spotLightDirectionOuter: WebGLSceneUniformLocation;
 	public readonly spotLightColorInner: WebGLSceneUniformLocation;
 	public readonly shAmbientCoeffs: WebGLSceneUniformLocation;
-	public readonly shCoeffsSize: WebGLSceneUniformLocation;
 
 	public constructor(gl: WebGL2RenderingContext, program: WebGLProgram) {
 		const get = createUniformLookup(gl, program);
@@ -347,7 +346,6 @@ export class WebGLSceneLightUniforms {
 		this.spotLightDirectionOuter = get("uSpotLightDirectionOuter");
 		this.spotLightColorInner = get("uSpotLightColorInner");
 		this.shAmbientCoeffs = get("uSHAmbientCoeffs[0]");
-		this.shCoeffsSize = get("uSHCoeffsSize");
 	}
 }
 

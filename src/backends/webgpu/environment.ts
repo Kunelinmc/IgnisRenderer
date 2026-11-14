@@ -1,10 +1,5 @@
 import type { Texture } from "../../core/Texture";
-import {
-	LightType,
-	type LightProbe,
-	type SceneLight,
-} from "../../lights";
-import { sRGBToLinear } from "../../maths/Common";
+import type { LightProbe, SceneLight } from "../../lights";
 import { SH } from "../../maths/SH";
 import type { SHCoefficients } from "../../maths/types";
 import { IBLBRDF } from "../../lights/ibl/IBLBRDF";
@@ -31,7 +26,6 @@ import type {
 	WebGPUWarning,
 } from "./types";
 
-const SH_DC_IRRADIANCE_SCALE = Math.PI * 0.282095;
 const _tmpWebGPUReflectionProbeCameraWorldPosition = { x: 0, y: 0, z: 0 };
 
 interface PreparedSceneEnvironmentLike {
@@ -173,22 +167,7 @@ function synthesizeSHAmbientCoeffsFromLights(
 	lights: SceneLight[]
 ): SHCoefficients {
 	const ambientProbeSH = SH.empty();
-	let ambientR = 0;
-	let ambientG = 0;
-	let ambientB = 0;
 	const globalLightProbes = collectGlobalLightProbes(lights);
-
-	for (const light of lights) {
-		if (light.type === LightType.Ambient) {
-			const color = light.color ?? { r: 255, g: 255, b: 255 };
-			const intensity = light.intensity ?? 1;
-			ambientR += sRGBToLinear(color.r / 255) * 255 * intensity;
-			ambientG += sRGBToLinear(color.g / 255) * 255 * intensity;
-			ambientB += sRGBToLinear(color.b / 255) * 255 * intensity;
-			continue;
-		}
-
-	}
 
 	for (const light of globalLightProbes) {
 		const probeSH = light.sh;
@@ -200,9 +179,6 @@ function synthesizeSHAmbientCoeffsFromLights(
 		}
 	}
 
-	ambientProbeSH[0].r += ambientR / SH_DC_IRRADIANCE_SCALE;
-	ambientProbeSH[0].g += ambientG / SH_DC_IRRADIANCE_SCALE;
-	ambientProbeSH[0].b += ambientB / SH_DC_IRRADIANCE_SCALE;
 	return ambientProbeSH;
 }
 

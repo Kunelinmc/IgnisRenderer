@@ -92,7 +92,6 @@ function createContext(particleSystems = []) {
 		postProcess: createResolvedPostProcess(),
 		shadowMaps: scene.shadowMaps,
 		scene,
-		shCoeffs: SH.empty(),
 		shAmbientCoeffs: SH.empty(),
 		incremental: {
 			enabled: false,

@@ -203,7 +203,6 @@ function createContext(passExecute, targetDescriptor = {}) {
 		]),
 		shadowMaps: new Map(),
 		scene: {},
-		shCoeffs: [],
 		shAmbientCoeffs: [],
 		incremental: { enabled: false, forceFullFrame: true, dirtyRects: [] },
 		transient: new Map(),

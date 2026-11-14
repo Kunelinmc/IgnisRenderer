@@ -438,7 +438,6 @@ async function testWebGLBackendWarmupDelegatesToCoordinator() {
 			reflectivePackets: [],
 			decalPackets: [],
 		},
-		shCoeffs: [],
 		shAmbientCoeffs: [],
 		transient: new Map(),
 	});

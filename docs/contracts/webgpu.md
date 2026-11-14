@@ -1099,6 +1099,10 @@ as `f32` at offset `12`. `shAmbientCoeffs` must begin at offset `16`.
 Environment uniforms must not retain padding for removed fields. Required
 alignment padding must follow the final active member of a packed header.
 SH enablement must combine configured enablement and available SH data.
+`shAmbientCoeffs` and any fallback synthesized from scene lights must contain
+only global probe radiance. Analytical ambient irradiance must stay in
+`FrameLightUniforms.ambientColor` and must be added independently of global or
+localized probe diffuse lighting and its Fresnel response.
 Background parameters must contain only the 16-byte `tintExposureStrength`
 vector, without padding. Background and IBL sources must use native formats that
 return linear RGB, preserving the linear probe-atlas path without shader decoding flags.

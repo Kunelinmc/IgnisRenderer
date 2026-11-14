@@ -65,7 +65,6 @@ function createContext(backend, camera, packetsByStage = {}) {
 			reflectivePackets: [],
 			decalPackets: [],
 		},
-		shCoeffs: zeroSH,
 		shAmbientCoeffs: zeroSH,
 		incremental: {
 			enabled: false,

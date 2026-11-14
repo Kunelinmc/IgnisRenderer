@@ -146,7 +146,6 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	private _activeFramePromise: Promise<RenderFrameResult> | null = null;
 	private _destroyPromise: Promise<void> | null = null;
 
-	private _shCoeffs: SHCoefficients = SH.empty();
 	private _shAmbientCoeffs: SHCoefficients = SH.empty();
 
 	private _lastTime = 0;
@@ -359,21 +358,12 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	}
 
 	/**
-	 * Gets the current spherical harmonics coefficients.
+	 * Returns a detached snapshot of the current frame-global probe radiance SH.
 	 *
-	 * @internal Owned by the spherical harmonics lighting subsystem.
-	 */
-	public get shCoeffs(): SHCoefficients {
-		return this._shCoeffs;
-	}
-
-	/**
-	 * Gets the current ambient spherical harmonics coefficients.
-	 *
-	 * @internal Owned by the spherical harmonics lighting subsystem.
+	 * @internal Owned by frame preparation; applications author `LightProbe.sh`.
 	 */
 	public get shAmbientCoeffs(): SHCoefficients {
-		return this._shAmbientCoeffs;
+		return this._shAmbientCoeffs.map((coefficient) => ({ ...coefficient })) as SHCoefficients;
 	}
 
 	/**
@@ -386,19 +376,9 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	}
 
 	/**
-	 * Sets the global spherical harmonics coefficients.
+	 * Stores the current frame-global probe radiance SH.
 	 *
-	 * @internal Owned by the spherical harmonics lighting subsystem. Preferred alternative: update lighting sources in the scene.
-	 * @param coeffs The new spherical harmonics coefficients.
-	 */
-	public setSHCoefficients(coeffs: SHCoefficients): void {
-		this._shCoeffs = coeffs;
-	}
-
-	/**
-	 * Sets the ambient spherical harmonics coefficients.
-	 *
-	 * @internal Owned by the spherical harmonics lighting subsystem. Preferred alternative: update ambient lights in the scene.
+	 * @internal Owned by frame preparation; applications author `LightProbe.sh`.
 	 * @param coeffs The new ambient spherical harmonics coefficients.
 	 */
 	public setSHAmbientCoefficients(coeffs: SHCoefficients): void {
@@ -925,7 +905,8 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	}
 
 	/**
-	 * Updates spherical harmonics coefficients by projecting lighting data from the active scene.
+	 * Refreshes the global probe SH snapshot from the active scene.
+	 * Analytical lights are evaluated separately by the rendering backend.
 	 */
 	public updateSH(): void {
 		if (!this._coordinator) {

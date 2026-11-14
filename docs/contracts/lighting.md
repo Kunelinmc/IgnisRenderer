@@ -19,6 +19,10 @@ This document defines clustered lighting, environment IBL, light probes, and ref
 - Spot cone attenuation must use `smoothstep(outerCos, innerCos, cosTheta)`.
 - SH coefficients must store radiance. A Lambertian consumer must evaluate
   irradiance from SH and contribute `albedo * irradiance / PI` exactly once.
+- Frame-global `shAmbientCoeffs` must contain only `LightProbe` radiance SH.
+  Analytical `AmbientLight` and `DirectionalLight` must not contribute to this
+  buffer. SH channels use the engine's linear RGB scale where `255` represents
+  unit radiance; coefficients may be signed and may exceed `255`.
 - `SHCoefficients` must be a mutable tuple containing exactly `16` `RGB`
   coefficients for the engine's L=3 representation.
 - SH constructors and deserialization must return exactly `16` coefficients.
@@ -39,6 +43,25 @@ This document defines clustered lighting, environment IBL, light probes, and ref
   diffuse contribution must not be attenuated by view-dependent Fresnel.
   Environment maps and SH radiance may retain Fresnel-weighted diffuse and
   specular image-based lighting.
+- Analytical ambient diffuse and probe lighting must be accumulated separately.
+  Enabling SH, adding a probe, or entering a localized probe must not remove,
+  duplicate, or apply view-dependent Fresnel to `AmbientLight` diffuse lighting.
+  Analytical ambient must remain available when SH is disabled or all probe
+  coefficients are zero.
+- An enabled, present frame SH aggregate must remain authoritative when its
+  coefficients are all zero, including cancellation of signed probe data.
+  Software must use per-light probe fallback only when SH is disabled or the
+  aggregate is absent.
+- Environment and reflection-probe texture sampling must not depend on nonzero
+  diffuse SH. Reflection, clearcoat, and transmission must remain available
+  without a diffuse `LightProbe` and with SH disabled.
+- Software must normalize BRDF LUT samples from the `Texture.sample()` channel
+  scale to dimensionless coefficients before split-sum and energy-compensation
+  evaluation.
+- When the BRDF LUT is absent, Software must retain sampled environment and
+  reflection-probe radiance for the roughness/Fresnel fallback of both base
+  specular and clearcoat. SH radiance may supply that fallback only when no
+  corresponding texture sample is available.
 - Double-sided shading must orient the geometric normal from the rasterizer's
   front-facing classification. It must not flip a shading normal by testing
   `dot(normal, viewDir)`, because interpolated or hard vertex normals may cross
@@ -342,6 +365,11 @@ The cached culling state and bindings must be invalidated when:
   writeback must not invalidate an in-flight capture generation by itself.
 - `ProbeCaptureRuntime` must store radiance SH coefficients and must not store
   pre-convolved irradiance coefficients.
+- Analytical capture fallback must convert uniform `AmbientLight` irradiance
+  `E` to radiance `E / PI` before writing capture pixels or projecting SH.
+  This conversion must preserve HDR intensity and must not be applied to
+  environment texture samples or backend-provided capture pixels, which already
+  contain radiance.
 - `ProbeCaptureRuntime` must share one capture between `LightProbe` and
   `ReflectionProbe` targets when capture origin, `captureFar`, and include flags
   match.

@@ -204,7 +204,6 @@ function createContext(passExecute, targetDescriptor = {}) {
 			shadowCasterSubmissions: [],
 			shadowTransmitterSubmissions: [],
 		},
-		shCoeffs: [],
 		shAmbientCoeffs: [],
 		incremental: { enabled: false, forceFullFrame: true, dirtyRects: [] },
 		transient: new Map(),
