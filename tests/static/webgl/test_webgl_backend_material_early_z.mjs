@@ -55,14 +55,18 @@ function testDrawWebGLPacketAppliesMaterialDepthWriteState() {
 
 function testEarlyZPrepassUsesDepthOnlyStateAndDrivesColorLEQUAL() {
 	const gl = createScenePassCaptureGL();
+	Object.assign(gl, { CW: 0x0900, CCW: 0x0901 });
 	const material = new Material();
 	const packet = createEarlyZPacket("early-z", material);
+	packet.submission.instance.worldMatrix.elements[0][0] = -1;
+	gl.drawElements = () => assert.equal(gl.calls.frontFace.at(-1), gl.CW);
 	const context = createScenePassContext();
 	const host = createEarlyZScenePassHost(gl);
 
 	const prepassedIds = renderWebGLEarlyZPrepass(host, context, [packet]);
 
 	assert.equal(prepassedIds.has(packet.submission.id), true);
+	assert.equal(gl.calls.frontFace.at(-1), gl.CCW);
 	assert.deepEqual(gl.calls.drawBuffers[0], [gl.NONE]);
 	assert.deepEqual(gl.calls.colorMask[0], [false, false, false, false]);
 	assert.deepEqual(
@@ -81,6 +85,7 @@ function testEarlyZPrepassUsesDepthOnlyStateAndDrivesColorLEQUAL() {
 	});
 
 	assert.ok(gl.calls.depthFunc.includes(gl.LEQUAL));
+	assert.equal(gl.calls.frontFace.at(-1), gl.CCW);
 	assert.equal(gl.calls.depthMask.includes(false), true);
 }
 

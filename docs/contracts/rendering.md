@@ -18,6 +18,13 @@ This document defines cross-backend rendering features, capability gating, pass 
   output shorter than sixteen elements before writing. Without `out`, each call
   must return an independent sixteen-element array.
 
+### Triangle facing
+
+Each backend must reverse the pass's front-face winding for triangles when
+`Matrix4.determinant3x3(worldMatrix) < 0`. The method returns the determinant
+of the upper-left 3×3 block in a `Matrix4` or row-major array.
+This also applies to depth draws and double-sided face classification.
+
 ### Camera matrices
 
 - `Camera` must compute `inverseViewMatrix` and `inverseProjectionMatrix` from

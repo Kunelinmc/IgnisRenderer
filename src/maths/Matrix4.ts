@@ -341,6 +341,17 @@ export class Matrix4 {
 	}
 
 	/**
+	 * @param matrix A matrix or its row-major elements.
+	 * @returns The determinant of its upper-left 3x3 block, ignoring translation.
+	 */
+	public static determinant3x3(matrix: Matrix4 | number[][]): number {
+		const [a, b, c] = matrix instanceof Matrix4 ? matrix.elements : matrix;
+		return a[0] * (b[1] * c[2] - b[2] * c[1])
+			- a[1] * (b[0] * c[2] - b[2] * c[0])
+			+ a[2] * (b[0] * c[1] - b[1] * c[0]);
+	}
+
+	/**
 	 * Computes the inverse of the upper-left 3x3 submatrix.
 	 *
 	 * @param m Matrix source in the engine row-major representation.
@@ -368,10 +379,7 @@ export class Matrix4 {
 			m21 = me[2][1],
 			m22 = me[2][2];
 
-		const det =
-			m00 * (m11 * m22 - m12 * m21) -
-			m01 * (m10 * m22 - m12 * m20) +
-			m02 * (m10 * m21 - m11 * m20);
+		const det = Matrix4.determinant3x3(me);
 
 		if (Math.abs(det) < 1e-10) {
 			return null;

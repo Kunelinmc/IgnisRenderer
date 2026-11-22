@@ -93,6 +93,7 @@ export interface WebGLSceneDrawState {
 	 * Null forces the next cull-state upload.
 	 */
 	cullModeState: 0 | 1 | 2 | null;
+	frontFace?: GLenum;
 	boundMaterialCommonBuffer: WebGLBuffer | null;
 	boundMaterialLightingBuffer: WebGLBuffer | null;
 	boundMaterialTextures: Map<number, WebGLTexture | null>;
@@ -366,6 +367,7 @@ export function renderWebGLPackets(
 		}
 	} finally {
 		deps.drawState.oitPassMode = previousOITPassMode;
+		setWebGLFrontFace(gl, gl.CCW, deps.drawState);
 	}
 
 	gl.depthMask(true);
@@ -460,6 +462,7 @@ export function renderWebGLEarlyZPrepass(
 			drawDepthPackets(packets);
 		}
 	} finally {
+		setWebGLFrontFace(gl, gl.CCW, deps.drawState);
 		gl.disable(gl.SCISSOR_TEST);
 		gl.colorMask(true, true, true, true);
 		gl.drawBuffers(drawBuffers);
@@ -724,7 +727,7 @@ function drawWebGLLegacyPacket(
 	bindWebGLShaderMaterialTextures(deps, sceneProgram, material);
 	bindWebGLShaderMaterialUniforms(deps, sceneProgram, material);
 
-	setWebGLSceneCullMode(deps.gl, material, deps.drawState);
+	setWebGLSceneCullMode(gl, material, deps.drawState, packet.submission.instance.worldMatrix);
 	gl.bindVertexArray(geometry.vao);
 	if (sceneProgram.uniforms.model) {
 		gl.uniformMatrix4fv(
@@ -1214,7 +1217,7 @@ function drawWebGLUniformBufferPacket(
 	bindWebGLExactMaterialTextures(deps, sceneProgram, snapshot.data);
 	bindWebGLTransmissionTextures(deps, sceneProgram, material);
 
-	setWebGLSceneCullMode(gl, material, deps.drawState);
+	setWebGLSceneCullMode(gl, material, deps.drawState, packet.submission.instance.worldMatrix);
 	gl.bindVertexArray(geometry.vao);
 	if (sceneProgram.uniforms.model) {
 		gl.uniformMatrix4fv(
@@ -1492,6 +1495,7 @@ function resetWebGLMaterialBindingState(state: WebGLSceneDrawState): void {
 	state.boundMaterialTextures.clear();
 	// Other passes (shadow raster, environment) may have changed cull state.
 	state.cullModeState = null;
+	state.frontFace = undefined;
 	state.compatibleDrawBuffers = null;
 	state.compatibleDrawBuffersSource = null;
 	state.compatibleDrawBuffersCount = 0;
@@ -1583,11 +1587,23 @@ function resolveSceneDepthPrepassVariant(
 	);
 }
 
+function setWebGLFrontFace(
+	gl: WebGL2RenderingContext, face: GLenum, state?: WebGLSceneDrawState,
+): void {
+	if (state && state.frontFace === face) return;
+	gl.frontFace(face);
+	if (state) state.frontFace = face;
+}
+
 export function setWebGLSceneCullMode(
 	gl: WebGL2RenderingContext,
 	material: Material,
 	state?: WebGLSceneDrawState,
+	worldMatrix?: Matrix4,
 ): void {
+	// Double-sided shaders also read gl_FrontFacing.
+	const frontFace = worldMatrix && Matrix4.determinant3x3(worldMatrix) < 0 ? gl.CW : gl.CCW;
+	setWebGLFrontFace(gl, frontFace, state);
 	const cullModeState: 0 | 1 | 2 =
 		material.doubleSided || material.cullMode === "none" ? 0
 		: material.cullMode === "front" ? 2
@@ -1601,7 +1617,6 @@ export function setWebGLSceneCullMode(
 		return;
 	}
 	gl.enable(gl.CULL_FACE);
-	gl.frontFace(gl.CCW);
 	gl.cullFace(cullModeState === 2 ? gl.FRONT : gl.BACK);
 }
 
@@ -1659,7 +1674,7 @@ function drawWebGLLegacyDepthPrepassPacket(
 	bindWebGLShaderMaterialTextures(deps, sceneProgram, material);
 	bindWebGLShaderMaterialUniforms(deps, sceneProgram, material);
 
-	setWebGLSceneCullMode(deps.gl, material, deps.drawState);
+	setWebGLSceneCullMode(gl, material, deps.drawState, packet.submission.instance.worldMatrix);
 	gl.bindVertexArray(geometry.vao);
 	if (sceneProgram.uniforms.model) {
 		gl.uniformMatrix4fv(
@@ -1755,7 +1770,7 @@ function drawWebGLUniformBufferDepthPrepassPacket(
 			snapshot.data.common.baseMap,
 		);
 	}
-	setWebGLSceneCullMode(gl, material, deps.drawState);
+	setWebGLSceneCullMode(gl, material, deps.drawState, packet.submission.instance.worldMatrix);
 	gl.bindVertexArray(geometry.vao);
 	if (sceneProgram.uniforms.model) {
 		gl.uniformMatrix4fv(

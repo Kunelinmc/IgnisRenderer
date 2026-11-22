@@ -1202,8 +1202,31 @@ async function testComposedWarmupReusesActualSceneConfiguration() {
 	}
 }
 
+async function testMirroredTriangleDraws() {
+	const { owner, packet, prepared } = createStaticPreparationFixture();
+	const composite = owner.createPlanarReflectionDrawResources();
+	try {
+		for (const [drawMode, ordinary, reflected] of [
+			["default", "ccw", "cw"], ["early-z-prepass", "ccw", "cw"],
+			["reflection-capture", "cw", "ccw"], ["planar-reflection-composite", "ccw", "cw"],
+		]) {
+			const provider = drawMode === "planar-reflection-composite" ? composite : owner;
+			const options = { drawMode, sampleCount: 1 };
+			for (const [scaleX, expected] of [[1, ordinary], [-1, reflected], [1, ordinary]]) {
+				packet.submission.instance.worldMatrix.elements[0][0] = scaleX;
+				const [draw] = await provider.getDrawResources(packet, prepared, options);
+				assert.equal(draw.pipeline.desc.primitive.frontFace, expected, drawMode);
+			}
+		}
+	} finally {
+		composite.destroy();
+		owner.destroy();
+	}
+}
+
 async function run() {
 	try {
+		await testMirroredTriangleDraws();
 		await testComposedWarmupReusesActualSceneConfiguration();
 		await testSceneWarmupReusesForwardPipelines();
 		await testSceneWarmupPreservesCompilerDiagnostics();

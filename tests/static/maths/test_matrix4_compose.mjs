@@ -48,6 +48,12 @@ function testNodeLocalMatrixUsesComposeContract() {
 	assert.deepEqual(node.localMatrix.elements, expected.elements);
 }
 
+function testLinearDeterminant() {
+	const matrix = new Matrix4([[0, 3, 0, 9], [2, 0, 0, 8], [0, 0, 4, 7], [0, 0, 0, 1]]);
+	assert.equal(Matrix4.determinant3x3(matrix), -24);
+	assert.equal(Matrix4.determinant3x3(matrix.elements), -24);
+}
+
 function testInverseReturnsMultiplicativeIdentity() {
 	const matrix = Matrix4.multiply(
 		Matrix4.fromTranslation([2, -3, 4]),
@@ -137,6 +143,7 @@ function run() {
 	testComposeMatchesTRSMultiplication();
 	testComposeSupportsOutMatrixReuse();
 	testNodeLocalMatrixUsesComposeContract();
+	testLinearDeterminant();
 	testInverseReturnsMultiplicativeIdentity();
 	testInverseReturnsNullForSingularMatrix();
 	testColumnMajorArrayPacking();

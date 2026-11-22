@@ -406,12 +406,13 @@ async function testOpaqueMaterialWritesFullCoverageOnTransparentSurface() {
 	backend.destroy();
 }
 
-async function testMaterialDoubleSidedControlsCulling() {
+async function testMaterialDoubleSidedControlsCulling(scaleX = 1) {
 	for (const backFacing of [false, true]) {
 		const packet = createTrianglePacket(
 			"material-culling",
 			{ r: 255, g: 0, b: 0 },
 		);
+		packet.submission.instance.worldMatrix.elements[0][0] = scaleX;
 		if (backFacing) {
 			packet.submission.geometry.data.indices.set([0, 2, 1]);
 		}
@@ -459,6 +460,7 @@ async function run() {
 	await testTransparentWireframeUsesMaterialOpacity();
 	await testOpaqueMaterialWritesFullCoverageOnTransparentSurface();
 	await testMaterialDoubleSidedControlsCulling();
+	await testMaterialDoubleSidedControlsCulling(-1);
 	testMissingActiveDeformationSkipsSoftwarePacket();
 	console.log("Software scanline raster tests passed");
 }

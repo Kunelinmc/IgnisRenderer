@@ -2,6 +2,7 @@ import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
 import { Logger } from "../../foundation/Logger";
 import type { Material } from "../../materials/Material";
 import { ShaderMaterial } from "../../materials/ShaderMaterial";
+import { Matrix4 } from "../../maths/Matrix4";
 import type { DrawPacket } from "../../pipeline/types";
 import type { WebGPUAnimationPayloadPool } from "./WebGPUAnimationPayloadPool";
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
@@ -140,8 +141,9 @@ export class WebGPUDrawResourceAssembler {
 		const sceneTargetMode = options.sceneTargetMode ?? frameResources.sceneTargetMode;
 		const transparentMode = options.transparentPipelineMode ?? "default";
 		const material = packet.submission.material.effective;
+		const reversed = triangleWindingReversed(packet);
 		const key = `${sceneTargetMode}|${transparentMode}|${drawMode}|` +
-			`${options.sampleCount}`;
+			`${options.sampleCount}|${reversed}`;
 		let materials = scope.variants.get(key);
 		if (!materials) {
 			materials = new WeakMap();
@@ -209,8 +211,8 @@ export class WebGPUDrawResourceAssembler {
 				sceneTargetMode, transparentMode, drawMode,
 			);
 			const pending = this._prepareStaticDraw(
-				packet, frameResources, options, pipelines, geometry, descriptor, shared,
-				isCurrent,
+				packet, frameResources, options, pipelines, geometry,
+				withDrawWinding(descriptor, reversed), shared, isCurrent,
 			).then((ready) => {
 				if (!isCurrent()) ready = null;
 				currentGroup.ready = ready;
@@ -296,7 +298,8 @@ export class WebGPUDrawResourceAssembler {
 			this._geometry.isCurrentGeometry(packet.submission.geometry, geometry) &&
 			sameRuntime(runtime, readWebGPUShaderRuntimeView(this._backend));
 		const pipeline = await pipelines.resolvePipeline({
-			materialState: state, pass, topology: geometry.topology,
+			materialState: state, pass: withDrawWinding(pass, triangleWindingReversed(packet)),
+			topology: geometry.topology,
 			geometryLayout: geometry, sampleCount: options.sampleCount,
 		});
 		if (!pipeline || !isCurrent()) return null;
@@ -376,7 +379,7 @@ export class WebGPUDrawResourceAssembler {
 		if (!solidState) return null;
 		const solidPipeline = await pipelines.resolvePipeline({
 			materialState: solidState,
-			pass: descriptor,
+			pass: withDrawWinding(descriptor, triangleWindingReversed(packet)),
 			topology: geometry.topology,
 			geometryLayout: geometry,
 			sampleCount: options.sampleCount,
@@ -512,6 +515,22 @@ export class WebGPUDrawResourceAssembler {
 			return null;
 		}
 	}
+}
+
+function triangleWindingReversed({ submission }: DrawPacket): boolean {
+	return submission.geometry.topology === DEFAULT_PRIMITIVE_DRAW_TOPOLOGY &&
+		Matrix4.determinant3x3(submission.instance.worldMatrix) < 0;
+}
+
+function withDrawWinding(
+	pass: WebGPUDrawPassDescriptor, reversed: boolean,
+): WebGPUDrawPassDescriptor {
+	if (!reversed) return pass;
+	return {
+		...pass,
+		frontFace: pass.frontFace === "ccw" ? "cw" : "ccw",
+		pipelineKeyPart: `${pass.pipelineKeyPart}|reversed`,
+	};
 }
 
 function sameRuntime(a: WebGPUShaderRuntimeView, b: WebGPUShaderRuntimeView): boolean {

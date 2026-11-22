@@ -55,6 +55,7 @@ export class Projector {
 	): ProjectedFace[] {
 		const submission = packet.submission;
 		const instance = submission.instance;
+		const reverseFaces = flipCulling !== (Matrix4.determinant3x3(instance.worldMatrix) < 0);
 		const camera = projectionView?.camera ?? frame.camera;
 		const targetWidth = projectionView?.width ?? overrideSize?.width ?? frame.attachments.width;
 		const targetHeight = projectionView?.height ?? overrideSize?.height ?? frame.attachments.height;
@@ -174,11 +175,8 @@ export class Projector {
 				isOrthographic ?
 					-cullNormal.z
 				:	cullNormal.x * v0.x + cullNormal.y * v0.y + cullNormal.z * v0.z;
-			const frontFacing = flipCulling ? dot >= 0 : dot <= 0;
-
-			if (!submission.material.effective.doubleSided) {
-				if (flipCulling ? dot < 0 : dot > 0) continue;
-			}
+			const frontFacing = reverseFaces ? dot >= 0 : dot <= 0;
+			if (!frontFacing && !submission.material.effective.doubleSided) continue;
 
 			const projectedVerts: ProjectedVertex[] = [];
 			for (const clipped of clippedVerts) {
